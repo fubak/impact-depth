@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Silent Depths — Caribbean littoral look-development lab for submarine presentation" />
+    <title>Silent Depths — Look Dev</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/src/styles/main.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene" aria-label="Silent Depths ocean scene"></canvas>
+      <div id="hud" class="hud" aria-live="polite"></div>
+      <div id="sonar-overlay" class="sonar-overlay" hidden aria-hidden="true">
+        <canvas id="sonar-canvas" width="512" height="512" aria-label="Sonar PPI scope"></canvas>
+        <div id="sonar-telemetry" class="sonar-telemetry"></div>
+      </div>
+      <div id="periscope-overlay" class="periscope-overlay" hidden aria-hidden="true">
+        <div class="peri-vignette"></div>
+        <div class="peri-reticle" aria-hidden="true"></div>
+        <div class="peri-bearing" id="peri-bearing"></div>
+        <div class="peri-range" id="peri-range">RANGE —</div>
+      </div>
+      <aside id="lookdev" class="lookdev" hidden aria-label="Look development panel"></aside>
+      <div id="help-strip" class="help-strip"></div>
+      <div id="pause-banner" class="pause-banner" hidden>PAUSED</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

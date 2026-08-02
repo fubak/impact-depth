@@ -1,0 +1,16 @@
+node_modules
+dist
+.DS_Store
+*.local
+.vite
+coverage
+artifacts/
+screenshots/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+*.log
+.env
+.env.*
+!.env.example
