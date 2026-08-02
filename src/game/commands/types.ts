@@ -1,4 +1,4 @@
-import type { DepthOrder, Point, SpeedOrder, WeaponMode } from '../sim/types';
+import type { DepthOrder, Point, SpeedOrder, ThreatKind, WeaponMode } from '../sim/types';
 
 export type GameCommand =
   | { type: 'helm'; surge: number; yaw: number; depth: number }
@@ -11,4 +11,6 @@ export type GameCommand =
   | { type: 'cancelAutopilot' }
   | { type: 'selectTarget'; id: string | null }
   | { type: 'fireWeapon' }
+  | { type: 'deployBubble' }
+  | { type: 'spawnThreat'; threat: ThreatKind; sourceId: string; targetId?: string }
   | { type: 'toggleSilentRunning' };

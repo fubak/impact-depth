@@ -38,7 +38,7 @@ describe('patrol vertical slice', () => {
     for (let i = 0; i < 600 && state.phase === 'playing'; i++) {
       state = updateGame(state, [], 1 / 60);
     }
-    expect(state.phase).toBe('victory');
+    expect(state.phase).toBe('playing');
     expect(state.stats.shipsSunk).toBeGreaterThanOrEqual(1);
     expect(state.stats.score).toBeGreaterThanOrEqual(150);
   });

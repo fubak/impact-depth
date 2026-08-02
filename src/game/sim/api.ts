@@ -1,5 +1,5 @@
 import type { GameCommand } from '../commands/types';
-import { createGame as makeGame } from './create';
+import { createGame as makeGame, seedPowerups, seedWave } from './create';
 import { stepGame } from './step';
 import type {
   ApiResult,
@@ -13,7 +13,12 @@ import type {
 import { snapToNavigable as snap, getTerrain } from './world';
 
 export const createGame = (seed?: number): GameState => makeGame(seed);
-export const startMission = (state: GameState): GameState => ({ ...state, phase: 'playing' });
+export const startMission = (state: GameState): GameState => ({
+  ...state,
+  phase: 'playing',
+  ships: seedWave(state.seed, 1, state.ships[0]),
+  powerups: seedPowerups(state.seed),
+});
 export const restartGame = (state: GameState): GameState => makeGame(state.seed);
 export const setPhase = (state: GameState, phase: GamePhase): GameState => ({ ...state, phase });
 export const setWeapon = (state: GameState, weapon: WeaponMode): GameState => ({
@@ -55,7 +60,8 @@ export const selectTarget = (state: GameState, id: string): GameState =>
 export const clearEngagement = (state: GameState): GameState =>
   stepGame(state, [{ type: 'selectTarget', id: null }], 0);
 export const detachCamera = (): ApiResult => ({ ok: false, reason: 'not_implemented' });
-export const deployCountermeasure = (): ApiResult => ({ ok: false, reason: 'not_implemented' });
+export const deployCountermeasure = (state: GameState): GameState =>
+  stepGame(state, [{ type: 'deployBubble' }], 0);
 export const fireWeapon = (state: GameState): GameState =>
   stepGame(state, [{ type: 'fireWeapon' }], 0);
 export const sonarPulse = (): ApiResult => ({ ok: false, reason: 'not_implemented' });
