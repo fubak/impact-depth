@@ -153,11 +153,14 @@ function hexToVec3(hex: string): THREE.Vector3 {
 export class Ocean {
   readonly mesh: THREE.Mesh;
   readonly material: THREE.ShaderMaterial;
-  private readonly geometry: THREE.PlaneGeometry;
+  private geometry: THREE.PlaneGeometry;
+  private readonly size: number;
+  private segments: number;
 
   constructor(size = 560, segments = 200) {
-    this.geometry = new THREE.PlaneGeometry(size, size, segments, segments);
-    this.geometry.rotateX(-Math.PI / 2);
+    this.size = size;
+    this.segments = segments;
+    this.geometry = this.createGeometry(segments);
 
     const amps = BASE_WAVES.map((w) => w.amplitude);
     const lens = BASE_WAVES.map((w) => w.wavelength);
@@ -202,6 +205,15 @@ export class Ocean {
     this.mesh.receiveShadow = true;
   }
 
+  setSegments(segments: number): void {
+    if (segments === this.segments) return;
+    const old = this.geometry;
+    this.segments = segments;
+    this.geometry = this.createGeometry(segments);
+    this.mesh.geometry = this.geometry;
+    old.dispose();
+  }
+
   update(
     time: number,
     ocean: OceanSettings,
@@ -236,6 +248,12 @@ export class Ocean {
   dispose(): void {
     this.geometry.dispose();
     this.material.dispose();
+  }
+
+  private createGeometry(segments: number): THREE.PlaneGeometry {
+    const geometry = new THREE.PlaneGeometry(this.size, this.size, segments, segments);
+    geometry.rotateX(-Math.PI / 2);
+    return geometry;
   }
 }
 

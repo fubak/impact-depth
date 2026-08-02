@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Headless Chromium smoke: load production preview, assert one WebGL canvas,
- * switch tactical / periscope / sonar with Digit1–3, fail on page/console errors.
+ * switch tactical / periscope / sonar with Digit1/4/7, fail on page/console errors.
  * Artifacts land under artifacts/ (gitignored).
  *
  * Expects `npm run preview` already serving on :8080.
@@ -61,7 +61,7 @@ try {
 
   /** @param {'tactical' | 'periscope' | 'sonar'} mode */
   const assertMode = async (mode) => {
-    const code = mode === 'tactical' ? 'Digit1' : mode === 'periscope' ? 'Digit2' : 'Digit3';
+    const code = mode === 'tactical' ? 'Digit1' : mode === 'periscope' ? 'Digit4' : 'Digit7';
     await page.keyboard.press(code);
     await page.waitForTimeout(400);
     const hudText = await page.locator('#hud').innerText();

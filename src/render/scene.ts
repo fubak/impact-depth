@@ -1,15 +1,28 @@
 import * as THREE from 'three';
 import type { LookDevSettings, SimState } from '../core/types';
+import { simToWorldMeters } from '../game/sim/coords';
+import type { GameState } from '../game/sim/types';
 import { Atmosphere } from './atmosphere';
+import { AssetRegistry, type AssetEntity } from './assets';
 import { IslandField } from './islands';
 import { Ocean } from './ocean';
 import { Seabed } from './seabed';
 import {
   createDestroyer,
   createMerchant,
+  createPatrolBoat,
+  createCruiser,
+  createBattleship,
+  createUboat,
+  createAircraft,
+  createFob,
+  createTorpedo,
+  createCrate,
   createSubmarine,
   createWakeRibbon,
 } from './vessels';
+import { VfxPool } from './vfx';
+import type { QualityProfile } from './quality';
 
 type LabelKind = 'own' | 'contact';
 
@@ -21,6 +34,9 @@ export class GameScene {
   readonly islands: IslandField;
   readonly sub: THREE.Group;
   private readonly shipEntities = new Map<string, { mesh: THREE.Group; wake: THREE.Mesh }>();
+  private readonly entities = new Map<string, THREE.Group>();
+  private readonly assets = new AssetRegistry();
+  private readonly vfx = new VfxPool(120);
   readonly rangeRings: THREE.Group;
   readonly labelsRoot = new THREE.Group();
   readonly tacticalGrid: THREE.GridHelper;
@@ -82,6 +98,74 @@ export class GameScene {
     }
     this.scene.add(this.tacticalGrid);
     this.scene.add(this.labelsRoot);
+    this.scene.add(this.vfx.group);
+    void this.assets.preload();
+  }
+
+  setQuality(profile: QualityProfile): void {
+    this.ocean.setSegments(profile.waterSegments);
+    this.vfx.setCap(profile.particleCap);
+  }
+
+  /** Full game registry projection. IDs determine lifetime; no visual object feeds game state. */
+  syncGame(game: GameState, sim: SimState, settings: LookDevSettings): void {
+    this.sync(sim, settings, (game.time % 480) / 480);
+    const active = new Set<string>();
+    const add = (id: string, kind: AssetEntity, x: number, y: number, z: number, heading = 0): void => {
+      active.add(id);
+      let entity = this.entities.get(id);
+      if (!entity) {
+        entity = this.assets.clone(kind) ?? this.createFallback(kind);
+        this.entities.set(id, entity);
+        this.scene.add(entity);
+      }
+      entity.position.set(x, y, z);
+      entity.rotation.y = -heading;
+    };
+    for (const torpedo of game.torpedoes) {
+      const p = simToWorldMeters(torpedo.x, torpedo.y);
+      add(`torpedo:${torpedo.id}`, 'torpedo', p.x, -torpedo.z * 5, p.z, torpedo.heading);
+      this.vfx.emit('wake', new THREE.Vector3(p.x - Math.cos(torpedo.heading), Math.max(-torpedo.z * 5, 0.08), p.z - Math.sin(torpedo.heading)), game.time);
+    }
+    for (const charge of game.depthCharges) {
+      const p = simToWorldMeters(charge.x, charge.y);
+      add(`charge:${charge.id}`, 'torpedo', p.x, -charge.z * 5, p.z);
+      if (charge.fuse < 0.35) this.vfx.emit('plume', new THREE.Vector3(p.x, -charge.z * 5, p.z), game.time);
+    }
+    for (const aircraft of game.aircraft.filter((a) => a.active)) {
+      const p = simToWorldMeters(aircraft.x, aircraft.y);
+      add(`aircraft:${aircraft.id}`, 'aircraft', p.x, 18, p.z, aircraft.heading);
+    }
+    for (const powerup of game.powerups) {
+      const p = simToWorldMeters(powerup.x, powerup.y);
+      add(`powerup:${powerup.id}`, 'crate', p.x, 1.2, p.z);
+    }
+    const base = simToWorldMeters(game.base.x, game.base.y);
+    add('fob:argus', 'fob_argus', base.x, 0.5, base.z);
+    for (const [id, entity] of this.entities) {
+      if (!active.has(id)) {
+        this.scene.remove(entity);
+        this.disposeGroup(entity);
+        this.entities.delete(id);
+      }
+    }
+    this.vfx.update(game.time);
+  }
+
+  private createFallback(kind: AssetEntity): THREE.Group {
+    switch (kind) {
+      case 'patrol': return createPatrolBoat();
+      case 'destroyer': return createDestroyer();
+      case 'freighter': return createMerchant();
+      case 'cruiser': return createCruiser();
+      case 'battleship': return createBattleship();
+      case 'uboat': return createUboat();
+      case 'aircraft': return createAircraft();
+      case 'fob_argus': return createFob();
+      case 'torpedo': return createTorpedo();
+      case 'crate': return createCrate();
+      case 'sub_nautilus': return createSubmarine();
+    }
   }
 
   private ensureLabel(id: string, text: string, kind: LabelKind): THREE.Sprite {
@@ -116,8 +200,8 @@ export class GameScene {
     return sprite;
   }
 
-  sync(sim: SimState, settings: LookDevSettings): void {
-    const atmo = this.atmosphere.apply(settings.atmosphere, this.scene);
+  sync(sim: SimState, settings: LookDevSettings, timeOfDay = (sim.time % 480) / 480): void {
+    const atmo = this.atmosphere.apply({ ...settings.atmosphere, timeOfDay }, this.scene);
     this.ocean.update(
       sim.time,
       settings.ocean,
@@ -161,7 +245,7 @@ export class GameScene {
     for (const ship of sim.ships) {
       let entity = this.shipEntities.get(ship.id);
       if (!entity) {
-        const mesh = ship.kind === 'destroyer' ? createDestroyer() : createMerchant();
+        const mesh = this.assets.clone(ship.kind === 'merchant' ? 'freighter' : ship.kind) ?? this.createFallback(ship.kind === 'merchant' ? 'freighter' : ship.kind);
         const wake = createWakeRibbon();
         mesh.renderOrder = 3;
         wake.renderOrder = 4;
@@ -261,6 +345,8 @@ export class GameScene {
       entity.wake.geometry.dispose();
       (entity.wake.material as THREE.Material).dispose();
     }
+    for (const entity of this.entities.values()) this.disposeGroup(entity);
+    this.vfx.dispose();
     this.rangeRings.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();
@@ -272,5 +358,15 @@ export class GameScene {
       mat.map?.dispose();
       mat.dispose();
     }
+  }
+
+  private disposeGroup(group: THREE.Group): void {
+    group.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        object.geometry.dispose();
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => material.dispose());
+      }
+    });
   }
 }

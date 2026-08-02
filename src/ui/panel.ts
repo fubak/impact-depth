@@ -60,9 +60,9 @@ export class LookDevPanel {
   }
 
   /** Lightweight FPS / frame-time — only meaningful while panel is open. */
-  setPerf(fps: number, frameMs: number): void {
+  setPerf(fps: number, frameMs: number, quality = 'high'): void {
     if (!this.visible || !this.perfEl) return;
-    this.perfEl.textContent = `${fps.toFixed(0)} FPS · ${frameMs.toFixed(1)} ms`;
+    this.perfEl.textContent = `${fps.toFixed(0)} FPS · ${frameMs.toFixed(1)} ms · ${quality.toUpperCase()} quality`;
   }
 
   private emit(): void {
@@ -84,7 +84,7 @@ export class LookDevPanel {
         <div>
           <div class="lookdev-title">LOOK DEV</div>
           <div class="lookdev-sub">SILENT DEPTHS · CARIBBEAN LAB</div>
-          <div class="lookdev-perf" data-perf aria-live="polite">— FPS</div>
+          <div class="lookdev-perf" data-perf aria-live="polite">— FPS · HIGH quality</div>
         </div>
         <button type="button" class="btn icon" data-action="close" aria-label="Close panel">✕</button>
       </header>

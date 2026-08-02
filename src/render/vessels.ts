@@ -6,17 +6,24 @@ const BRASS = 0xbd8b4e;
 const DECK = 0x1a2224;
 const SUPER = 0x2a3234;
 const FUNNEL = 0x3a322c;
+const hullAlbedo = new THREE.TextureLoader().load('/assets/textures/hull-metal-albedo.png');
+hullAlbedo.colorSpace = THREE.SRGBColorSpace;
+hullAlbedo.wrapS = THREE.RepeatWrapping;
+hullAlbedo.wrapT = THREE.RepeatWrapping;
+hullAlbedo.repeat.set(2, 1);
 
 function mat(
   color: number,
   opts: { metalness?: number; roughness?: number; flat?: boolean } = {},
 ): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshStandardMaterial({
     color,
     metalness: opts.metalness ?? 0.42,
     roughness: opts.roughness ?? 0.55,
     flatShading: opts.flat ?? false,
   });
+  if (opts.metalness && opts.metalness > 0.3) material.map = hullAlbedo;
+  return material;
 }
 
 /** Waterline silhouette extruded into a tapered hull (X = length, bow +X). */
@@ -276,6 +283,114 @@ export function createMerchant(): THREE.Group {
   g.add(mast);
 
   g.scale.setScalar(0.52);
+  return g;
+}
+
+export function createPatrolBoat(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'patrol';
+  g.add(createTaperedHull(18, 3.1, 1.7, 0x385255));
+  addDeckHouse(g, -1, 2.9, 0, 4.8, 1.8, 2.2, 0xe0ded0);
+  const radar = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 8), mat(0xe8ece6, { metalness: 0.2 }));
+  radar.position.set(-1, 4.15, 0);
+  g.add(radar);
+  const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 2.1, 8), mat(DECK));
+  gun.rotation.z = Math.PI / 2;
+  gun.position.set(5.8, 2.35, 0);
+  g.add(gun);
+  g.scale.setScalar(0.62);
+  return g;
+}
+
+export function createCruiser(): THREE.Group {
+  const g = createDestroyer();
+  g.name = 'cruiser';
+  g.scale.multiplyScalar(1.6);
+  for (const x of [5.6, -6.5, -11]) {
+    const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.0, 0.6, 10), mat(HULL_LIGHT));
+    turret.position.set(x, 3.9, 0);
+    g.add(turret);
+  }
+  return g;
+}
+
+export function createBattleship(): THREE.Group {
+  const g = createCruiser();
+  g.name = 'battleship';
+  g.scale.multiplyScalar(1.45);
+  for (const x of [8, 1, -8]) {
+    const barbette = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.35, 0.75, 12), mat(0x465052));
+    barbette.position.set(x, 4.2, 0);
+    g.add(barbette);
+    for (const z of [-0.42, 0.42]) {
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 4.5, 8), mat(DECK));
+      barrel.rotation.z = Math.PI / 2;
+      barrel.position.set(x + 1.9, 4.45, z);
+      g.add(barrel);
+    }
+  }
+  return g;
+}
+
+export function createUboat(): THREE.Group {
+  const g = createSubmarine();
+  g.name = 'uboat';
+  g.scale.multiplyScalar(1.48);
+  const conningTower = new THREE.Mesh(new THREE.BoxGeometry(3.3, 1.4, 1.5), mat(0x283236));
+  conningTower.position.set(-0.7, 3.6, 0);
+  g.add(conningTower);
+  return g;
+}
+
+export function createAircraft(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'aircraft';
+  const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 4.2, 4, 10), mat(0x40544b));
+  fuselage.rotation.z = Math.PI / 2;
+  g.add(fuselage);
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 7.2), mat(0x53685c));
+  wing.position.y = 0.05;
+  g.add(wing);
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 0.12), mat(0x53685c));
+  tail.position.set(-2.1, 0.62, 0);
+  g.add(tail);
+  return g;
+}
+
+export function createFob(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'fob';
+  const platform = new THREE.Mesh(new THREE.CylinderGeometry(7, 8, 1.1, 24), mat(0x7f7455, { roughness: 0.9 }));
+  platform.position.y = 0.45;
+  g.add(platform);
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 3.2, 7, 12), mat(0xd5d1bd));
+  tower.position.y = 4.2;
+  g.add(tower);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 8), new THREE.MeshStandardMaterial({ color: 0xff4939, emissive: 0xff2200, emissiveIntensity: 1.8 }));
+  beacon.position.y = 8.1;
+  g.add(beacon);
+  return g;
+}
+
+export function createTorpedo(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'torpedo';
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 1.25, 4, 8), mat(0x263236, { metalness: 0.72 }));
+  body.rotation.z = Math.PI / 2;
+  g.add(body);
+  const prop = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.58, 0.58), mat(BRASS));
+  prop.position.x = -0.82;
+  g.add(prop);
+  return g;
+}
+
+export function createCrate(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'crate';
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.0, 1.1), mat(0x8b5a30, { roughness: 0.85, metalness: 0.04 }));
+  g.add(box);
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(1.46, 1.05, 0.12), mat(0x33302b));
+  g.add(strap);
   return g;
 }
 

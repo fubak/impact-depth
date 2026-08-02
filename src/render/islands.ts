@@ -222,6 +222,7 @@ export class IslandField {
   private readonly crownMeshes: THREE.InstancedMesh[] = [];
   private readonly shrubMeshes: THREE.InstancedMesh[] = [];
   private readonly canopyMeshes: THREE.InstancedMesh[] = [];
+  private readonly foamMeshes: THREE.Mesh[] = [];
   private readonly dummy = new THREE.Object3D();
   private lastEnvKey = '';
 
@@ -247,6 +248,24 @@ export class IslandField {
       mesh.renderOrder = 0;
       this.terrains.push(mesh);
       this.group.add(mesh);
+
+      // Breaker band is deliberately a separate transparent mesh so opaque dry
+      // terrain writes depth first; water cannot wash over land silhouettes.
+      const foam = new THREE.Mesh(
+        new THREE.RingGeometry(spec.radius * 0.78, spec.radius * 1.03, 64),
+        new THREE.MeshBasicMaterial({
+          color: 0xeaf9ef,
+          transparent: true,
+          opacity: 0.26,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      foam.rotation.x = -Math.PI / 2;
+      foam.position.set(spec.cx, 0.12, spec.cz);
+      foam.renderOrder = 3;
+      this.foamMeshes.push(foam);
+      this.group.add(foam);
 
       const palms = generatePalmPlacements(spec, 3.1);
       if (palms.length > 0) {
@@ -380,6 +399,10 @@ export class IslandField {
     ]) {
       m.geometry.dispose();
       (m.material as THREE.Material).dispose();
+    }
+    for (const foam of this.foamMeshes) {
+      foam.geometry.dispose();
+      (foam.material as THREE.Material).dispose();
     }
   }
 }

@@ -6,6 +6,7 @@
 
 ## Status
 
+- **Status:** DONE
 - **Priority:** P1
 - **Effort:** L (3–6 weeks, asset-dependent)
 - **Risk:** MED

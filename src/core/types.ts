@@ -1,6 +1,7 @@
 /** Shared look-dev types — no Three.js dependency. */
 
-export type ViewMode = 'tactical' | 'periscope' | 'sonar';
+/** View selection is presentation-only; it never changes simulation aiming. */
+export type ViewMode = 'tactical' | 'chase' | 'bridge' | 'periscope' | 'free' | 'map' | 'sonar';
 
 export type EngineOrder = 'stop' | 'slow' | 'half' | 'full' | 'flank';
 
@@ -85,7 +86,7 @@ export interface VesselState {
 
 export interface SurfaceShipState {
   id: string;
-  kind: 'destroyer' | 'merchant';
+  kind: 'patrol' | 'destroyer' | 'merchant' | 'cruiser' | 'battleship' | 'uboat';
   name: string;
   x: number;
   z: number;

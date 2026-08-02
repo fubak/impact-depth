@@ -16,6 +16,8 @@
     "test:coverage": "vitest run --coverage",
     "test:smoke": "node scripts/browser-smoke.mjs",
     "test:fps": "node scripts/fps-bench.mjs",
+    "test:perf": "node scripts/fps-bench.mjs",
+    "test:visual": "node scripts/visual-golden.mjs",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {

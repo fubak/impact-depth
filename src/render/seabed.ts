@@ -56,6 +56,12 @@ export class Seabed {
       metalness: 0.02,
       flatShading: false,
     });
+    const sandTexture = new THREE.TextureLoader().load('/assets/textures/seabed-sand-albedo.png');
+    sandTexture.colorSpace = THREE.SRGBColorSpace;
+    sandTexture.wrapS = THREE.RepeatWrapping;
+    sandTexture.wrapT = THREE.RepeatWrapping;
+    sandTexture.repeat.set(42, 42);
+    this.material.map = sandTexture;
 
     this.mesh = new THREE.Mesh(this.geometry, this.material);
     this.mesh.receiveShadow = false;
@@ -116,6 +122,7 @@ export class Seabed {
 
   dispose(): void {
     this.geometry.dispose();
+    this.material.map?.dispose();
     this.material.dispose();
   }
 }

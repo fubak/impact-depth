@@ -5,7 +5,11 @@ import type { GameState } from '../game/sim/types';
 
 const MODE_LABEL: Record<SimState['viewMode'], string> = {
   tactical: 'TACTICAL',
+  chase: 'CHASE',
+  bridge: 'BRIDGE',
   periscope: 'PERISCOPE',
+  free: 'FREE CAMERA',
+  map: 'MAP',
   sonar: 'SONAR PLOT',
 };
 
@@ -22,7 +26,7 @@ export class Hud {
       <span><kbd>F</kbd> fire Mk-14</span>
       <span><kbd>T</kbd> target</span>
       <span><kbd>R</kbd> silent</span>
-      <span><kbd>1</kbd> tac <kbd>2</kbd> peri <kbd>3</kbd> sonar</span>
+      <span><kbd>1–6</kbd> tactical / chase / bridge / scope / free / map</span>
       <span><kbd>Space</kbd> pause</span>
       <span><kbd>H</kbd> tune</span>
     `;

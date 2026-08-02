@@ -6,7 +6,10 @@ export type GameCommand =
   | { type: 'setSpeedOrder'; order: SpeedOrder }
   | { type: 'setPhase'; phase: 'menu' | 'playing' | 'paused' | 'gameover' | 'victory' }
   | { type: 'setWeapon'; weapon: WeaponMode }
-  | { type: 'setViewMode'; viewMode: 'tactical' | 'periscope' | 'sonar' }
+  | {
+      type: 'setViewMode';
+      viewMode: 'tactical' | 'chase' | 'bridge' | 'periscope' | 'free' | 'map' | 'sonar';
+    }
   | { type: 'setAutopilot'; waypoint?: Point; tactic?: AutopilotTactic; targetId?: string | null }
   | { type: 'cancelAutopilot' }
   | { type: 'sonarPulse' }

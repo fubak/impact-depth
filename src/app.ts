@@ -16,6 +16,7 @@ import type { GameState } from './game/sim/types';
 import { InputController } from './input/controls';
 import { CameraRig } from './render/cameras';
 import { RendererHost } from './render/renderer';
+import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
 import { GameScene } from './render/scene';
 import { Hud } from './ui/hud';
 import { PatrolOverlay } from './ui/overlays';
@@ -51,6 +52,7 @@ export class App {
   private readonly reducedMotion: boolean;
   private fpsEma = 60;
   private frameMsEma = 16.7;
+  private readonly quality = new QualityGovernor();
 
   constructor() {
     this.settings = loadSettings();
@@ -61,8 +63,10 @@ export class App {
     const canvas = $('scene') as HTMLCanvasElement;
     this.appRoot = $('app');
     this.renderer = new RendererHost(canvas);
+    this.renderer.setQuality(QUALITY_PROFILES.high);
     this.renderer.setExposure(this.settings.atmosphere.exposure);
     this.scene = new GameScene();
+    this.scene.setQuality(QUALITY_PROFILES.high);
     this.cameras = new CameraRig(window.innerWidth / Math.max(1, window.innerHeight));
     this.cameras.setMode(this.sim.viewMode);
 
@@ -149,7 +153,7 @@ export class App {
         e.code
       ];
       const speed = (
-        { Digit0: 'stop', Digit4: 'oneThird', Digit5: 'twoThirds', Digit6: 'flank' } as const
+        { Digit0: 'stop', KeyI: 'oneThird', KeyO: 'twoThirds', KeyP: 'flank' } as const
       )[e.code];
       if (depth) this.game = updateGame(this.game, [{ type: 'setDepthOrder', order: depth }], 0);
       if (speed) this.game = updateGame(this.game, [{ type: 'setSpeedOrder', order: speed }], 0);
@@ -207,7 +211,7 @@ export class App {
       this.sim = adaptToLookDevSim(this.game);
     }
 
-    this.scene.sync(this.sim, this.settings);
+    this.scene.syncGame(this.game, this.sim, this.settings);
     this.cameras.update(this.sim, renderDt);
     this.renderer.setExposure(this.settings.atmosphere.exposure);
     this.renderer.render(this.scene.scene, this.cameras.camera);
@@ -220,8 +224,11 @@ export class App {
     const fpsInst = renderDt > 0 ? 1 / renderDt : 60;
     this.fpsEma = this.fpsEma * 0.9 + fpsInst * 0.1;
     this.frameMsEma = this.frameMsEma * 0.9 + renderDt * 1000 * 0.1;
+    const profile = this.quality.update(this.frameMsEma, renderDt);
+    this.renderer.setQuality(QUALITY_PROFILES[profile]);
+    this.scene.setQuality(QUALITY_PROFILES[profile]);
     if (this.panel.isVisible()) {
-      this.panel.setPerf(this.fpsEma, this.frameMsEma);
+      this.panel.setPerf(this.fpsEma, this.frameMsEma, profile);
     }
 
     this.raf = requestAnimationFrame(this.frame);

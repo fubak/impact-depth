@@ -15,9 +15,26 @@ export function adaptToLookDevSim(game: GameState): SimState {
       engineOrder: game.submarine.speedOrder === 'stop' ? 'stop' : game.submarine.speedOrder === 'oneThird' ? 'slow' : game.submarine.speedOrder === 'twoThirds' ? 'half' : 'flank',
       battery: game.submarine.battery, noise: game.submarine.noise, heave: 0, pitch: 0, roll: game.submarine.bank,
     },
-    ships: game.ships.filter((ship): ship is typeof ship & { kind: 'destroyer' | 'merchant' } => ship.kind === 'destroyer' || ship.kind === 'merchant').map((ship) => {
+    ships: game.ships.map((ship) => {
       const position = simToWorldMeters(ship.x, ship.y);
-      return { id: ship.id, kind: ship.kind, name: ship.name, x: position.x, z: position.z, heading: ship.heading, speed: ship.speed * 5, heave: 0, pitch: 0, roll: 0 };
+      const kind =
+        ship.kind === 'sub'
+          ? 'uboat'
+          : ship.kind === 'merchant'
+            ? 'merchant'
+            : ship.kind;
+      return {
+        id: ship.id,
+        kind,
+        name: ship.name,
+        x: position.x,
+        z: position.z,
+        heading: ship.heading,
+        speed: ship.speed * 5,
+        heave: 0,
+        pitch: 0,
+        roll: ship.sinking ? -Math.min(1.1, ship.sinking * 0.45) : 0,
+      };
     }),
   };
 }

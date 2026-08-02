@@ -32,11 +32,15 @@ export class InputController {
     this.cb = cb;
 
     this.onKeyDown = (e) => {
-      if (e.repeat && ['Space', 'Digit1', 'Digit2', 'Digit3', 'KeyH'].includes(e.code)) return;
+      if (e.repeat && ['Space', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'KeyH'].includes(e.code)) return;
       this.keys.add(e.code);
       if (e.code === 'Digit1') this.cb.setViewMode('tactical');
-      if (e.code === 'Digit2') this.cb.setViewMode('periscope');
-      if (e.code === 'Digit3') this.cb.setViewMode('sonar');
+      if (e.code === 'Digit2') this.cb.setViewMode('chase');
+      if (e.code === 'Digit3') this.cb.setViewMode('bridge');
+      if (e.code === 'Digit4') this.cb.setViewMode('periscope');
+      if (e.code === 'Digit5') this.cb.setViewMode('free');
+      if (e.code === 'Digit6') this.cb.setViewMode('map');
+      if (e.code === 'Digit7') this.cb.setViewMode('sonar');
       if (e.code === 'Space') {
         e.preventDefault();
         this.cb.togglePause();

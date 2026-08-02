@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import type { SimState, ViewMode } from '../core/types';
 
 export class CameraRig {
-  readonly camera: THREE.PerspectiveCamera;
+  camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
+  private readonly perspective: THREE.PerspectiveCamera;
+  private readonly mapCamera: THREE.OrthographicCamera;
   /** Orbit: higher phi = more oblique / horizon-forward */
   orbitTheta = 2.45;
   orbitPhi = 1.12;
@@ -15,25 +17,35 @@ export class CameraRig {
   private readonly currentPos = new THREE.Vector3();
   private readonly lookAt = new THREE.Vector3();
   private readonly convoyFocus = new THREE.Vector3();
+  private activeMode: ViewMode = 'tactical';
 
   constructor(aspect: number) {
-    this.camera = new THREE.PerspectiveCamera(42, aspect, 0.2, 1200);
+    this.perspective = new THREE.PerspectiveCamera(42, aspect, 0.2, 1200);
+    this.mapCamera = new THREE.OrthographicCamera(-70 * aspect, 70 * aspect, 70, -70, 0.2, 1200);
+    this.camera = this.perspective;
     this.camera.position.set(-40, 28, 55);
     this.currentPos.copy(this.camera.position);
   }
 
   setMode(mode: ViewMode): void {
-    if (mode === 'tactical') {
-      this.camera.fov = 42;
-      this.camera.near = 0.5;
-    } else if (mode === 'periscope') {
-      this.camera.fov = 28;
-      this.camera.near = 0.15;
-    } else {
-      this.camera.fov = 55;
-      this.camera.near = 0.5;
+    this.activeMode = mode;
+    const next = mode === 'map' ? this.mapCamera : this.perspective;
+    if (this.camera !== next) {
+      this.currentPos.copy(this.camera.position);
+      this.camera = next;
     }
-    this.camera.updateProjectionMatrix();
+    if (mode === 'map') return;
+    if (mode === 'tactical') {
+      this.perspective.fov = 42;
+      this.perspective.near = 0.5;
+    } else if (mode === 'periscope') {
+      this.perspective.fov = 28;
+      this.perspective.near = 0.15;
+    } else {
+      this.perspective.fov = mode === 'bridge' ? 62 : 55;
+      this.perspective.near = 0.5;
+    }
+    this.perspective.updateProjectionMatrix();
   }
 
   orbit(dx: number, dy: number): void {
@@ -64,14 +76,21 @@ export class CameraRig {
     const n = Math.max(1, sim.ships.length);
     this.convoyFocus.set(cx / n, 1.2, cz / n);
 
-    if (sim.viewMode === 'tactical') {
+    if (this.activeMode === 'tactical' || this.activeMode === 'free') {
       const x = this.target.x + Math.sin(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
       const y = this.target.y + Math.cos(this.orbitPhi) * this.orbitRadius + 6;
       const z = this.target.z + Math.cos(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
       this.desiredPos.set(x, y, z);
       this.lookAt.lerpVectors(this.target, this.convoyFocus, 0.32);
       this.lookAt.y = 1.2;
-    } else if (sim.viewMode === 'periscope') {
+    } else if (this.activeMode === 'chase') {
+      const stern = -14;
+      this.desiredPos.set(v.x + Math.cos(v.heading) * stern, this.target.y + 6, v.z + Math.sin(v.heading) * stern);
+      this.lookAt.set(v.x + Math.cos(v.heading) * 16, this.target.y + 1.5, v.z + Math.sin(v.heading) * 16);
+    } else if (this.activeMode === 'bridge') {
+      this.desiredPos.set(v.x + Math.cos(v.heading) * 0.9, Math.max(1.2, -v.depth + 4.2), v.z + Math.sin(v.heading) * 0.9);
+      this.lookAt.set(v.x + Math.cos(v.heading) * 90, this.desiredPos.y + 2, v.z + Math.sin(v.heading) * 90);
+    } else if (this.activeMode === 'periscope') {
       const heading = v.heading + this.periYaw;
       // Mast/optic extends to near waterline even when the hull is submerged
       const mastReach = 9.5;
@@ -84,16 +103,19 @@ export class CameraRig {
         v.z + Math.sin(heading) * lookDist,
       );
       this.camera.rotation.order = 'YXZ';
+    } else if (this.activeMode === 'map') {
+      this.desiredPos.set(v.x, 150, v.z);
+      this.lookAt.set(v.x, 0, v.z);
     } else {
       this.desiredPos.set(v.x, 95, v.z + 0.01);
       this.lookAt.set(v.x, 0, v.z);
     }
 
     const k = 1 - Math.exp(-5.5 * dt);
-    this.currentPos.lerp(this.desiredPos, sim.viewMode === 'periscope' ? Math.min(1, k * 1.8) : k);
+    this.currentPos.lerp(this.desiredPos, this.activeMode === 'periscope' ? Math.min(1, k * 1.8) : k);
     this.camera.position.copy(this.currentPos);
     this.camera.up.set(0, 1, 0);
-    if (sim.viewMode === 'periscope') {
+    if (this.activeMode === 'periscope') {
       this.camera.lookAt(this.lookAt);
       this.camera.rotateZ(v.roll * 0.35);
     } else {
@@ -102,7 +124,10 @@ export class CameraRig {
   }
 
   resize(aspect: number): void {
-    this.camera.aspect = aspect;
-    this.camera.updateProjectionMatrix();
+    this.perspective.aspect = aspect;
+    this.perspective.updateProjectionMatrix();
+    this.mapCamera.left = -70 * aspect;
+    this.mapCamera.right = 70 * aspect;
+    this.mapCamera.updateProjectionMatrix();
   }
 }
