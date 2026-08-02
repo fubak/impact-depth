@@ -20,9 +20,9 @@ const shipStats: Record<ShipKind, { hp: number; speed: number; name: string }> =
   merchant: { hp: 95, speed: 1.15, name: 'FREIGHTER' },
   destroyer: { hp: 120, speed: 2.35, name: 'DESTROYER' },
   patrol: { hp: 50, speed: 2.6, name: 'PATROL' },
-  cruiser: { hp: 165, speed: 2.1, name: 'CRUISER' },
-  battleship: { hp: 280, speed: 1.65, name: 'BATTLESHIP' },
-  sub: { hp: 85, speed: 1.7, name: 'U-BOAT' },
+  cruiser: { hp: 200, speed: 1.9, name: 'CRUISER' },
+  battleship: { hp: 420, speed: 1.35, name: 'BATTLESHIP' },
+  sub: { hp: 351, speed: 1.7, name: 'U-BOAT' },
 };
 const powerupKinds: Powerup['kind'][] = ['health', 'ammo', 'hull', 'weapon', 'speed', 'counter'];
 
@@ -31,7 +31,7 @@ export function seedWave(seed: number, wave: number, firstFreighter?: Ship): Shi
   const terrain = createTerrain(seed);
   const kinds: ShipKind[] = [
     ...Array<ShipKind>(2 + Math.min(3, wave)).fill('merchant'),
-    ...Array<ShipKind>(2 + Math.min(3, wave)).fill('destroyer'),
+    ...Array.from({ length: 2 + Math.min(3, wave) }, (_, index) => (['destroyer', 'patrol', 'cruiser'] as const)[(seed + wave + index) % 3]!),
     ...(wave >= 2 ? ['battleship' as const] : []),
     ...Array<ShipKind>(wave >= 3 ? 2 : 1).fill('sub'),
   ];
@@ -40,7 +40,7 @@ export function seedWave(seed: number, wave: number, firstFreighter?: Ship): Shi
     const angle = ((seed + wave * 29 + index * 47) % 360) * (Math.PI / 180);
     const point = snapToNavigable(terrain, 50 + Math.cos(angle) * (12 + (index % 3) * 4), 48 + Math.sin(angle) * (12 + (index % 3) * 4), 0.2);
     const stats = shipStats[kind];
-    return { id: `wave-${wave}-${kind}-${index}`, kind, name: stats.name, x: point.x, y: point.y, heading: angle + Math.PI / 2, speed: stats.speed, hp: stats.hp, maxHp: stats.hp, alert: 0 };
+    return { id: `wave-${wave}-${kind}-${index}`, kind, name: stats.name, x: point.x, y: point.y, heading: angle + Math.PI / 2, speed: stats.speed, hp: stats.hp, maxHp: stats.hp, alert: 0, holdContact: 0, weaponCooldown: 0, patrolIndex: index % 4, path: [], repathTimer: 0 };
   });
 }
 
@@ -61,14 +61,14 @@ export function createGame(seed = 1): GameState {
   return {
     phase: 'menu', tick: 0, time: 0, seed, rngState: seed >>> 0, submarine: createSubmarine(player.x, player.y, heading),
     ships: [
-      { id: 'freighter-1', kind: 'merchant', name: 'LONE FREIGHTER', x: freighter.x, y: freighter.y, heading: 0, speed: 0, hp: 48, maxHp: 48, alert: 0 },
+      { id: 'freighter-1', kind: 'merchant', name: 'LONE FREIGHTER', x: freighter.x, y: freighter.y, heading: 0, speed: 0, hp: 48, maxHp: 48, alert: 0, holdContact: 0, weaponCooldown: 0, patrolIndex: 0, path: [], repathTimer: 0 },
     ],
     torpedoes: [], depthCharges: [], aircraft: [], countermeasures: [], powerups: [],
     base: { x: base.x, y: base.y, radius: FOB_RADIUS }, terrainSeed: seed >>> 0, sonarContacts: [],
-    autopilot: { enabled: false, waypoint: null, targetId: null },
+    autopilot: { enabled: false, waypoint: null, targetId: null, tactic: 'manual', phase: 'idle', phaseTimer: 0, shotTimer: 0, path: [], repathTimer: 0 },
     stats: { score: 0, shipsSunk: 0, torpedoesFired: 0, damageDealt: 0, timeSurvived: 0, wave: 1, powerupsTaken: 0, repairs: 0 },
     weaponMode: 'torpedo', torpedoSpread: false, viewMode: 'tactical', selectedTargetId: null,
     missionFlavor: 'SHADOW CONVOY · REMAIN UNDETECTED', messages: [], settings: null, debugFacing: false,
-    dockHold: 0, pickupRespawn: 19,
+    dockHold: 0, pickupRespawn: 19, sonarPing: 0, sonarCooldown: 0, aircraftCooldown: 55 + (seed % 41),
   };
 }

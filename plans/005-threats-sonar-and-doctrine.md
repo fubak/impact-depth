@@ -46,13 +46,13 @@ Silent Depths becomes a game when the player must reason about sound, depth, ter
 
 ## Done criteria
 
-- [ ] All ship classes use only their PRD weapons.
-- [ ] No AI path enters land and path search respects node budgets.
-- [ ] Sonar/thermocline/contact decay values have boundary tests.
-- [ ] Doctrine state transitions and emergency overrides are replay-deterministic.
-- [ ] Clear target and cancel autopilot stop engagement drift in the next tick.
-- [ ] Aircraft and ASW events are source-attributed.
-- [ ] 30-minute soak has no state divergence or unbounded arrays/maps.
+- [x] All ship classes use only their PRD weapons.
+- [x] No AI path enters land and path search respects node budgets.
+- [x] Sonar/thermocline/contact decay values have boundary tests.
+- [x] Doctrine state transitions and emergency overrides are replay-deterministic.
+- [x] Clear target and cancel autopilot stop engagement drift in the next tick.
+- [x] Aircraft and ASW events are source-attributed.
+- [x] 30-minute soak has no state divergence or unbounded arrays/maps.
 
 ## STOP conditions
 

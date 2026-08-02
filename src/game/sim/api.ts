@@ -8,6 +8,7 @@ import type {
   GameState,
   Point,
   SpeedOrder,
+  AutopilotTactic,
   WeaponMode,
 } from './types';
 import { snapToNavigable as snap, getTerrain } from './world';
@@ -47,8 +48,15 @@ export const toggleTorpedoSpread = (state: GameState): GameState => ({
   ...state,
   torpedoSpread: !state.torpedoSpread,
 });
-export const setAutopilot = (state: GameState, waypoint: Point): GameState =>
-  stepGame(state, [{ type: 'setAutopilot', waypoint }], 0);
+export function setAutopilot(state: GameState, tactic: AutopilotTactic, targetId?: string | null): GameState;
+export function setAutopilot(state: GameState, waypoint: Point): GameState;
+export function setAutopilot(state: GameState, tacticOrWaypoint: AutopilotTactic | Point, targetId?: string | null): GameState {
+  if (typeof tacticOrWaypoint === 'string') {
+    return stepGame(state, [{ type: 'setAutopilot', tactic: tacticOrWaypoint, targetId }], 0);
+  }
+
+  return stepGame(state, [{ type: 'setAutopilot', waypoint: tacticOrWaypoint }], 0);
+}
 export const cancelAutopilot = (state: GameState): GameState =>
   stepGame(state, [{ type: 'cancelAutopilot' }], 0);
 export const orderMove = (state: GameState, waypoint: Point): GameState =>
@@ -64,7 +72,8 @@ export const deployCountermeasure = (state: GameState): GameState =>
   stepGame(state, [{ type: 'deployBubble' }], 0);
 export const fireWeapon = (state: GameState): GameState =>
   stepGame(state, [{ type: 'fireWeapon' }], 0);
-export const sonarPulse = (): ApiResult => ({ ok: false, reason: 'not_implemented' });
+export const sonarPulse = (state: GameState): GameState =>
+  stepGame(state, [{ type: 'sonarPulse' }], 0);
 export const updateGame = (
   state: GameState,
   commands: GameCommand[] = [],

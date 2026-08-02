@@ -36,7 +36,7 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 | 002 | Build the deterministic game-domain foundation | P1 | 1–2 weeks | 001 | DONE |
 | 003 | Deliver the first complete patrol vertical slice | P1 | 2–3 weeks | 002 | DONE |
 | 004 | Complete weapons, damage, FOB, powerups, waves, and outcomes | P1 | 2–3 weeks | 003 | DONE |
-| 005 | Complete sonar, enemies, ASW, aircraft, navigation, and doctrine AI | P1 | 2–4 weeks | 004 | TODO |
+| 005 | Complete sonar, enemies, ASW, aircraft, navigation, and doctrine AI | P1 | 2–4 weeks | 004 | DONE |
 | 006 | Raise the Three.js world to production visual quality | P1 | 3–6 weeks | 003; parallel after interfaces settle | TODO |
 | 007 | Complete HUD, controls, audio, tutorial, and accessibility | P1 | 2–4 weeks | 004, 005, 006 | TODO |
 | 008 | Harden, balance, optimize, and ship the solo game | P1 | 2–4 weeks | 005, 006, 007 | TODO |

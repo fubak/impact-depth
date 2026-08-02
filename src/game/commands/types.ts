@@ -1,4 +1,4 @@
-import type { DepthOrder, Point, SpeedOrder, ThreatKind, WeaponMode } from '../sim/types';
+import type { AutopilotTactic, DepthOrder, Point, SpeedOrder, ThreatKind, WeaponMode } from '../sim/types';
 
 export type GameCommand =
   | { type: 'helm'; surge: number; yaw: number; depth: number }
@@ -7,8 +7,9 @@ export type GameCommand =
   | { type: 'setPhase'; phase: 'menu' | 'playing' | 'paused' | 'gameover' | 'victory' }
   | { type: 'setWeapon'; weapon: WeaponMode }
   | { type: 'setViewMode'; viewMode: 'tactical' | 'periscope' | 'sonar' }
-  | { type: 'setAutopilot'; waypoint: Point }
+  | { type: 'setAutopilot'; waypoint?: Point; tactic?: AutopilotTactic; targetId?: string | null }
   | { type: 'cancelAutopilot' }
+  | { type: 'sonarPulse' }
   | { type: 'selectTarget'; id: string | null }
   | { type: 'fireWeapon' }
   | { type: 'deployBubble' }
