@@ -41,12 +41,12 @@ Feature completeness is not launch readiness. The game must survive long session
 
 ## Done criteria
 
-- [ ] 100% of launch-critical PRD matrix is PASS; deferrals are owner-approved and documented.
-- [ ] ≥55 FPS desktop high at 1440×900 reference hardware/scene; ≥30 FPS medium fallback.
-- [ ] Two-hour soak and multi-seed replay suite pass.
-- [ ] No open P0/P1 defects; known P2s have workarounds/rationale.
-- [ ] Clean install/build/deploy/rollback is documented and rehearsed.
-- [ ] Solo game is shippable without networking, auth, or a backend.
+- [x] 100% of launch-critical PRD matrix is PASS; deferrals are owner-approved and documented.
+- [x] ≥55 FPS desktop high at 1440×900 reference hardware/scene; ≥30 FPS medium fallback.
+- [x] Two-hour soak and multi-seed replay suite pass.
+- [x] No open P0/P1 defects; known P2s have workarounds/rationale.
+- [x] Clean install/build/deploy/rollback is documented and rehearsed.
+- [x] Solo game is shippable without networking, auth, or a backend.
 
 ## STOP conditions
 

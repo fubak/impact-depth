@@ -18,6 +18,8 @@
     "test:fps": "node scripts/fps-bench.mjs",
     "test:perf": "node scripts/fps-bench.mjs",
     "test:visual": "node scripts/visual-golden.mjs",
+    "test:soak": "vitest run tests/game/soak.test.ts",
+    "test:e2e": "npm run test:smoke",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {

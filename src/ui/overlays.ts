@@ -21,12 +21,12 @@ export class PatrolOverlay {
     this.lastSignature = signature;
     if (game.phase === 'menu') {
       this.root.hidden = false;
-      this.root.innerHTML = `<section class="patrol-card"><div class="hud-sub">SILENT DEPTHS · PATROL 003</div><h1>FIRST PATROL</h1><p>Plot a course, acquire the lone freighter, and fire one Mk-14.</p><button class="btn primary" data-action="begin">Begin Patrol</button></section>`;
+      this.root.innerHTML = `<section class="patrol-card"><div class="hud-sub">SILENT DEPTHS</div><h1>BEGIN PATROL</h1><p>Plot a course, manage depth and noise, and clear the sector.</p><button class="btn primary" data-action="begin">Begin Patrol</button></section>`;
       return;
     }
     if (game.phase === 'victory' || game.phase === 'gameover') {
       this.root.hidden = false;
-      this.root.innerHTML = `<section class="patrol-card"><div class="hud-sub">PATROL RESULT</div><h1>${game.phase === 'victory' ? 'FREIGHTER SUNK' : 'PATROL ENDED'}</h1><p>Score ${game.stats.score} · Ships sunk ${game.stats.shipsSunk}</p><button class="btn primary" data-action="restart">Restart</button></section>`;
+      this.root.innerHTML = `<section class="patrol-card"><div class="hud-sub">PATROL RESULT</div><h1>${game.phase === 'victory' ? 'SECTOR CLEARED' : 'PATROL ENDED'}</h1><p>Score ${game.stats.score} · Ships sunk ${game.stats.shipsSunk}</p><button class="btn primary" data-action="restart">Restart</button></section>`;
       return;
     }
     this.root.hidden = true;
