@@ -81,13 +81,13 @@ Centralize numeric design constants and create tests for high-risk values: world
 
 ## Done criteria
 
-- [ ] Simulation modules have no Three.js/DOM/WebAudio/network imports.
-- [ ] No simulation path uses `Math.random()` or wall-clock time.
-- [ ] Coordinate/depth contract is documented and tested.
-- [ ] Required API surface exists with explicit results.
-- [ ] Current look-dev remains playable via an adapter.
-- [ ] 10,000-tick deterministic replay passes.
-- [ ] `npm run verify` and browser smoke pass.
+- [x] Simulation modules have no Three.js/DOM/WebAudio/network imports.
+- [x] No simulation path uses `Math.random()` or wall-clock time.
+- [x] Coordinate/depth contract is documented and tested.
+- [x] Required API surface exists with explicit results.
+- [x] Current look-dev remains playable via an adapter.
+- [x] 10,000-tick deterministic replay passes.
+- [x] `npm run verify` and browser smoke pass.
 
 ## STOP conditions
 

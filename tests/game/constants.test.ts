@@ -1,0 +1,6 @@
+import { expect, it } from 'vitest';
+import * as constants from '../../src/game/sim/constants';
+
+it('exports PRD numeric constants', () => {
+  expect(constants).toMatchObject({ WORLD_SIZE: 96, LAND_LEVEL: 0.78, FOB_RADIUS: 4.2, VICTORY_TARGET: 8, DEFAULT_CRUISE: 1.6, DC_ENGAGE_RANGE: 3.25, THERMOCLINE: 0.48, ACTIVE_PING_RANGE: 22, ACTIVE_PING_DURATION: 4.8, ACTIVE_COOLDOWN: 6.5, DAY_LENGTH: 480, SEAMOUNT_CRUSH_DPS: 18 });
+});

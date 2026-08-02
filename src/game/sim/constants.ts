@@ -1,0 +1,14 @@
+export const WORLD_SIZE = 96;
+export const LAND_LEVEL = 0.78;
+export const FOB_RADIUS = 4.2;
+export const VICTORY_TARGET = 8;
+export const DEFAULT_CRUISE = 1.6;
+export const DC_ENGAGE_RANGE = 3.25;
+export const THERMOCLINE = 0.48;
+export const ACTIVE_PING_RANGE = 22;
+export const ACTIVE_PING_DURATION = 4.8;
+export const ACTIVE_COOLDOWN = 6.5;
+export const DAY_LENGTH = 480;
+export const SEAMOUNT_CRUSH_DPS = 18;
+export const METERS_PER_UNIT = 5;
+export const MAX_DEPTH = 0.95;

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "note": "Production asset manifest. Prefer optimized glTF; procedural fallbacks used until assets land.",
+  "licenseLedger": [
+    {
+      "id": "procedural-fallback",
+      "source": "in-house procedural meshes (src/render/vessels.ts)",
+      "license": "project-owned",
+      "usage": "fallback until glTF replacements exist"
+    },
+    {
+      "id": "generated-textures-v1",
+      "source": "AI-generated concept albedo maps in public/assets/textures/",
+      "license": "project-owned generated",
+      "usage": "look-dev / material prototyping; replace with authored PBR before final ship"
+    }
+  ],
+  "budgets": {
+    "heroVesselTris": 12000,
+    "escortTris": 8000,
+    "merchantTris": 6000,
+    "propTris": 2000,
+    "textureMaxPx": 2048,
+    "lodDistancesM": [40, 120, 280]
+  },
+  "entities": {
+    "sub_nautilus": {
+      "gltf": null,
+      "fallback": "procedural-submarine",
+      "silhouetteRef": "textures/submarine-silhouette-ref.png"
+    },
+    "destroyer": { "gltf": null, "fallback": "procedural-destroyer" },
+    "freighter": { "gltf": null, "fallback": "procedural-merchant" },
+    "patrol": { "gltf": null, "fallback": "procedural-destroyer-scaled" },
+    "cruiser": { "gltf": null, "fallback": "procedural-destroyer-scaled" },
+    "battleship": { "gltf": null, "fallback": "procedural-destroyer-scaled" },
+    "uboat": { "gltf": null, "fallback": "procedural-submarine-large" },
+    "aircraft": { "gltf": null, "fallback": "procedural-placeholder" },
+    "fob_argus": { "gltf": null, "fallback": "procedural-placeholder" },
+    "torpedo": { "gltf": null, "fallback": "procedural-placeholder" },
+    "crate": { "gltf": null, "fallback": "procedural-placeholder" }
+  },
+  "textures": {
+    "hullMetal": "textures/hull-metal-albedo.png",
+    "seabedSand": "textures/seabed-sand-albedo.png"
+  }
+}

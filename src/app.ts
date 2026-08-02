@@ -1,13 +1,13 @@
 import { loadSettings, saveSettings } from './core/settings';
 import {
   advanceAccumulator,
-  createInitialSim,
   FIXED_DT,
-  setViewMode,
-  stepSim,
-  togglePause,
 } from './core/sim';
 import type { LookDevSettings, SimState, ViewMode } from './core/types';
+import { adaptToLookDevSim } from './game/adapt/lookdev';
+import type { GameCommand } from './game/commands/types';
+import { createGame, setPhase, updateGame } from './game/sim/api';
+import type { GameState } from './game/sim/types';
 import { InputController } from './input/controls';
 import { CameraRig } from './render/cameras';
 import { RendererHost } from './render/renderer';
@@ -25,6 +25,7 @@ function $(id: string): HTMLElement {
 
 export class App {
   private settings: LookDevSettings;
+  private game: GameState;
   private sim: SimState;
   private readonly renderer: RendererHost;
   private readonly scene: GameScene;
@@ -46,7 +47,8 @@ export class App {
 
   constructor() {
     this.settings = loadSettings();
-    this.sim = createInitialSim();
+    this.game = { ...setPhase(createGame(), 'playing'), settings: this.settings };
+    this.sim = adaptToLookDevSim(this.game);
     this.reducedMotion =
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
@@ -74,6 +76,7 @@ export class App {
     this.panel = new LookDevPanel($('lookdev'), this.settings, {
       onChange: (s) => {
         this.settings = s;
+        this.game = { ...this.game, settings: s };
         this.renderer.setExposure(s.atmosphere.exposure);
         this.applyPresentationCss();
       },
@@ -84,7 +87,8 @@ export class App {
     this.input = new InputController(canvas, {
       setViewMode: (mode) => this.changeView(mode),
       togglePause: () => {
-        this.sim = togglePause(this.sim);
+        this.game = setPhase(this.game, this.game.phase === 'paused' ? 'playing' : 'paused');
+        this.sim = adaptToLookDevSim(this.game);
         this.pauseBanner.hidden = !this.sim.paused;
       },
       togglePanel: () => this.panel.toggle(),
@@ -103,7 +107,8 @@ export class App {
   }
 
   private changeView(mode: ViewMode): void {
-    this.sim = setViewMode(this.sim, mode);
+    this.game = updateGame(this.game, [{ type: 'setViewMode', viewMode: mode }], 0);
+    this.sim = adaptToLookDevSim(this.game);
     this.cameras.setMode(mode);
     this.syncOverlays();
   }
@@ -145,8 +150,10 @@ export class App {
 
     if (!this.sim.paused) {
       for (let i = 0; i < tick.steps; i++) {
-        this.sim = stepSim(this.sim, this.input.intent, this.settings, FIXED_DT);
+        const command: GameCommand = { type: 'helm', ...this.input.intent };
+        this.game = updateGame(this.game, [command], FIXED_DT);
       }
+      this.sim = adaptToLookDevSim(this.game);
     }
 
     this.scene.sync(this.sim, this.settings);
