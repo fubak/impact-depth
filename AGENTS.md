@@ -11,19 +11,19 @@ Read this before changing code. Execute exactly one plan from `plans/` per Curso
 
 ## Exact commands
 
-| Purpose | Command |
-|---------|---------|
-| Install | `npm ci` |
-| Typecheck | `npm run typecheck` |
-| Lint | `npm run lint` |
-| Format check | `npm run format:check` |
-| Unit tests | `npm test` |
-| Coverage | `npm run test:coverage` |
-| Watch tests | `npm run test:watch` |
-| Production build | `npm run build` |
-| Preview build | `npm run preview` |
-| Browser smoke | `npm run test:smoke` (preview must be serving on `:8080`) |
-| Full gate | `npm run verify` |
+| Purpose          | Command                                                   |
+| ---------------- | --------------------------------------------------------- |
+| Install          | `npm ci`                                                  |
+| Typecheck        | `npm run typecheck`                                       |
+| Lint             | `npm run lint`                                            |
+| Format check     | `npm run format:check`                                    |
+| Unit tests       | `npm test`                                                |
+| Coverage         | `npm run test:coverage`                                   |
+| Watch tests      | `npm run test:watch`                                      |
+| Production build | `npm run build`                                           |
+| Preview build    | `npm run preview`                                         |
+| Browser smoke    | `npm run test:smoke` (preview must be serving on `:8080`) |
+| Full gate        | `npm run verify`                                          |
 
 Before finishing a milestone: `npm ci && npm run verify`, then `npm run build && npm run preview` in one terminal and `npm run test:smoke` in another when the plan requires browser proof.
 

@@ -285,7 +285,7 @@ export function togglePause(state: SimState): SimState {
 }
 
 export function headingDegrees(heading: number): number {
-  let deg = ((-heading * 180) / Math.PI + 90 + 360) % 360;
+  const deg = ((-heading * 180) / Math.PI + 90 + 360) % 360;
   return Math.round(deg);
 }
 

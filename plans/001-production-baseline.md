@@ -87,12 +87,12 @@ Add a GitHub Actions workflow for Node 20 that runs `npm ci`, `npm run verify`, 
 
 ## Done criteria
 
-- [ ] Local Git baseline exists with no remote created.
-- [ ] `npm run verify` exits 0.
-- [ ] Browser smoke covers all three current modes with zero application console errors.
-- [ ] Deterministic replay fixture exists and passes.
-- [ ] CI runs the same gates.
-- [ ] No changes under `.archive/` or `docs/prd.md`.
+- [x] Local Git baseline exists with no remote created.
+- [x] `npm run verify` exits 0.
+- [x] Browser smoke covers all three current modes with zero application console errors.
+- [x] Deterministic replay fixture exists and passes.
+- [x] CI runs the same gates.
+- [x] No changes under `.archive/` or `docs/prd.md`.
 
 ## STOP conditions
 

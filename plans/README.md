@@ -2,7 +2,7 @@
 
 Generated on 2026-08-02 from `docs/prd.md`, the current Three.js look-development prototype, and the preserved `.archive/silent-depths-project.zip`. These plans are written for Cursor Agent to execute one at a time. The archive is reference material only and must never be modified.
 
-The workspace was not a Git repository when planned, so `plans/BASELINE.sha256` is the initial drift record. Plan 001 establishes version control and the verification contract; later executors must use the resulting commit SHA for drift checks.
+Plan 001 established local Git. Drift checks for later plans should use commit `c6c344dbf0d2267c551249ed110bd94601a6500b` (baseline) plus subsequent history; `plans/BASELINE.sha256` remains the pre-Git snapshot record.
 
 ## Product decisions used by every plan
 
@@ -32,7 +32,7 @@ The workspace was not a Git repository when planned, so `plans/BASELINE.sha256` 
 
 | Plan | Title | Priority | Solo effort | Depends on | Status |
 |------|-------|----------|-------------|------------|--------|
-| 001 | Establish the production and Cursor execution baseline | P1 | 2–4 days | — | TODO |
+| 001 | Establish the production and Cursor execution baseline | P1 | 2–4 days | — | DONE |
 | 002 | Build the deterministic game-domain foundation | P1 | 1–2 weeks | 001 | TODO |
 | 003 | Deliver the first complete patrol vertical slice | P1 | 2–3 weeks | 002 | TODO |
 | 004 | Complete weapons, damage, FOB, powerups, waves, and outcomes | P1 | 2–3 weeks | 003 | TODO |
