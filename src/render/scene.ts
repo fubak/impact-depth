@@ -20,9 +20,7 @@ export class GameScene {
   readonly atmosphere: Atmosphere;
   readonly islands: IslandField;
   readonly sub: THREE.Group;
-  readonly destroyer: THREE.Group;
-  readonly merchants: THREE.Group[] = [];
-  readonly wakes: THREE.Mesh[] = [];
+  private readonly shipEntities = new Map<string, { mesh: THREE.Group; wake: THREE.Mesh }>();
   readonly rangeRings: THREE.Group;
   readonly labelsRoot = new THREE.Group();
   readonly tacticalGrid: THREE.GridHelper;
@@ -45,28 +43,10 @@ export class GameScene {
     this.sub.renderOrder = 1;
     this.scene.add(this.sub);
 
-    this.destroyer = createDestroyer();
-    this.destroyer.renderOrder = 3;
-    this.scene.add(this.destroyer);
-
-    for (let i = 0; i < 2; i++) {
-      const m = createMerchant();
-      m.renderOrder = 3;
-      this.merchants.push(m);
-      this.scene.add(m);
-    }
-
     // Transparent water after opaque littoral + vessels
     this.ocean = new Ocean(560, 200);
     this.scene.add(this.ocean.mesh);
 
-    const wakeTargets = [this.sub, this.destroyer, ...this.merchants];
-    for (const _ of wakeTargets) {
-      const wake = createWakeRibbon();
-      wake.renderOrder = 4;
-      this.wakes.push(wake);
-      this.scene.add(wake);
-    }
 
     this.rangeRings = new THREE.Group();
     this.rangeRings.name = 'rangeRings';
@@ -162,51 +142,55 @@ export class GameScene {
     const peri = sim.viewMode === 'periscope';
     this.sub.visible = !peri;
 
-    const dd = sim.ships.find((s) => s.kind === 'destroyer')!;
-    this.destroyer.position.set(dd.x, dd.heave * 0.85 + 0.55, dd.z);
-    this.destroyer.rotation.order = 'YXZ';
-    this.destroyer.rotation.y = -dd.heading;
-    this.destroyer.rotation.x = dd.pitch;
-    this.destroyer.rotation.z = dd.roll;
-
-    const merchants = sim.ships.filter((s) => s.kind === 'merchant');
-    merchants.forEach((ship, i) => {
-      const mesh = this.merchants[i];
-      if (!mesh) return;
-      mesh.position.set(ship.x, ship.heave * 0.9 + 0.5, ship.z);
-      mesh.rotation.order = 'YXZ';
-      mesh.rotation.y = -ship.heading;
-      mesh.rotation.x = ship.pitch;
-      mesh.rotation.z = ship.roll;
-    });
-
-    const bodies = [
-      { mesh: this.sub, heading: v.heading, speed: v.speed, length: 7, yLift: 0.05, own: true },
-      { mesh: this.destroyer, heading: dd.heading, speed: dd.speed, length: 10, yLift: 0.06, own: false },
-      ...merchants.map((s, i) => ({
-        mesh: this.merchants[i],
-        heading: s.heading,
-        speed: s.speed,
-        length: 12,
-        yLift: 0.06,
-        own: false,
-      })),
-    ];
-    bodies.forEach((b, i) => {
-      const wake = this.wakes[i];
-      if (!wake || !b.mesh) return;
+    const active = new Set(sim.ships.map((ship) => ship.id));
+    for (const [id, entity] of this.shipEntities) {
+      if (!active.has(id)) {
+        this.scene.remove(entity.mesh, entity.wake);
+        entity.mesh.traverse((object) => {
+          if (object instanceof THREE.Mesh) {
+            object.geometry.dispose();
+            (object.material as THREE.Material).dispose();
+          }
+        });
+        entity.wake.geometry.dispose();
+        (entity.wake.material as THREE.Material).dispose();
+        this.shipEntities.delete(id);
+      }
+    }
+    const bodies = [{ mesh: this.sub, heading: v.heading, speed: v.speed, length: 7, yLift: 0.05, own: true }];
+    for (const ship of sim.ships) {
+      let entity = this.shipEntities.get(ship.id);
+      if (!entity) {
+        const mesh = ship.kind === 'destroyer' ? createDestroyer() : createMerchant();
+        const wake = createWakeRibbon();
+        mesh.renderOrder = 3;
+        wake.renderOrder = 4;
+        this.scene.add(mesh, wake);
+        entity = { mesh, wake };
+        this.shipEntities.set(ship.id, entity);
+      }
+      entity.mesh.position.set(ship.x, ship.heave * 0.9 + 0.5, ship.z);
+      entity.mesh.rotation.order = 'YXZ';
+      entity.mesh.rotation.set(ship.pitch, -ship.heading, ship.roll);
+      bodies.push({ mesh: entity.mesh, heading: ship.heading, speed: ship.speed, length: ship.kind === 'merchant' ? 12 : 10, yLift: 0.06, own: false });
+    }
+    bodies.forEach((b) => {
+      const wake = b.own ? undefined : [...this.shipEntities.values()].find((entity) => entity.mesh === b.mesh)?.wake;
+      if (!b.own && !wake) return;
+      const actualWake = wake ?? new THREE.Mesh();
+      if (b.own) return;
       const stern = b.length * 0.55;
       const wx = b.mesh.position.x - Math.cos(b.heading) * stern;
       const wz = b.mesh.position.z - Math.sin(b.heading) * stern;
       const wy = Math.max(0.05, b.yLift + (b.own ? 0 : Math.max(0, b.mesh.position.y) * 0.02));
-      wake.position.set(wx, wy, wz);
-      wake.rotation.y = -b.heading;
-      const mat = wake.material as THREE.MeshBasicMaterial;
+      actualWake.position.set(wx, wy, wz);
+      actualWake.rotation.y = -b.heading;
+      const mat = actualWake.material as THREE.MeshBasicMaterial;
       mat.opacity = Math.min(0.26, 0.05 + b.speed * 0.025);
       const stretch = 0.75 + b.speed * 0.05;
-      wake.scale.set(stretch, 1, 0.85 + b.speed * 0.03);
+      actualWake.scale.set(stretch, 1, 0.85 + b.speed * 0.03);
       const ownWakeOk = !peri && v.depth < 2.5;
-      wake.visible = b.speed > 0.4 && (b.own ? ownWakeOk : true);
+      actualWake.visible = b.speed > 0.4 && (b.own ? ownWakeOk : true);
     });
 
     this.ocean.follow(v.x, v.z);
@@ -241,17 +225,8 @@ export class GameScene {
           z: v.z + ownOffZ,
           show: dens > 0.12,
         },
-        {
-          id: 'dd',
-          text: dd.name,
-          kind: 'contact',
-          x: dd.x,
-          y: 7.5,
-          z: dd.z,
-          show: dens > 0.3,
-        },
       ];
-      merchants.forEach((s, i) => {
+      sim.ships.forEach((s, i) => {
         entries.push({
           id: s.id,
           text: s.name,
@@ -276,9 +251,15 @@ export class GameScene {
     this.seabed.dispose();
     this.islands.dispose();
     this.atmosphere.dispose();
-    for (const wake of this.wakes) {
-      wake.geometry.dispose();
-      (wake.material as THREE.Material).dispose();
+    for (const entity of this.shipEntities.values()) {
+      entity.mesh.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+          (object.material as THREE.Material).dispose();
+        }
+      });
+      entity.wake.geometry.dispose();
+      (entity.wake.material as THREE.Material).dispose();
     }
     this.rangeRings.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {

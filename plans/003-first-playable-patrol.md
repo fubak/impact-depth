@@ -47,12 +47,12 @@ A vertical slice exposes integration mistakes earlier than subsystem-by-subsyste
 
 ## Done criteria
 
-- [ ] One complete patrol loop works without look-dev/debug intervention.
-- [ ] Land and floor collision cannot be bypassed by direct helm or plotted course.
-- [ ] One Mk-14 consumes ammo, reloads, arms, hits, sinks, scores, and cleans up exactly once.
-- [ ] Restart with the same seed reproduces the scenario.
-- [ ] Renderer owns no gameplay truth and leaks no removed entity resources.
-- [ ] Existing Caribbean tactical/periscope/sonar presentation still works.
+- [x] One complete patrol loop works without look-dev/debug intervention.
+- [x] Land and floor collision cannot be bypassed by direct helm or plotted course.
+- [x] One Mk-14 consumes ammo, reloads, arms, hits, sinks, scores, and cleans up exactly once.
+- [x] Restart with the same seed reproduces the scenario.
+- [x] Renderer owns no gameplay truth and leaks no removed entity resources.
+- [x] Existing Caribbean tactical/periscope/sonar presentation still works.
 
 ## STOP conditions
 

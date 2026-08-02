@@ -1,9 +1,10 @@
 import { DEFAULT_CRUISE, FOB_RADIUS } from './constants';
 import type { GameState, Submarine } from './types';
+import { createTerrain, snapToNavigable } from './world';
 
-function createSubmarine(): Submarine {
+function createSubmarine(x = 48, y = 51.6, heading = -Math.PI / 2): Submarine {
   return {
-    x: 48, y: 51.6, z: 0.45, heading: -Math.PI / 2, displayHeading: -Math.PI / 2, bank: 0,
+    x, y, z: 0.45, heading, displayHeading: heading, bank: 0,
     speed: DEFAULT_CRUISE, targetSpeed: DEFAULT_CRUISE, speedOrder: 'twoThirds', maxSpeed: 2.4,
     hp: 100, maxHp: 100, torpedoes: 8, maxTorpedoes: 8, seekers: 4, maxSeekers: 4,
     reload: 0, reloadMk14: 0, reloadMk18: 0, reloadMk14Max: 2.5, reloadMk18Max: 3.4,
@@ -15,18 +16,20 @@ function createSubmarine(): Submarine {
   };
 }
 export function createGame(seed = 1): GameState {
+  const terrain = createTerrain(seed);
+  const player = snapToNavigable(terrain, 42 + (seed % 7), 48, 0.45);
+  const freighter = snapToNavigable(terrain, 57 + ((seed >>> 3) % 9), 48 + ((seed >>> 6) % 7), 0.1);
+  const heading = Math.atan2(freighter.y - player.y, freighter.x - player.x);
   return {
-    phase: 'menu', tick: 0, time: 0, seed, rngState: seed >>> 0, submarine: createSubmarine(),
+    phase: 'menu', tick: 0, time: 0, seed, rngState: seed >>> 0, submarine: createSubmarine(player.x, player.y, heading),
     ships: [
-      { id: 'dd-42', kind: 'destroyer', name: 'DD ESCORT', x: 57.6, y: 49.2, heading: 0.05, speed: 1.2, hp: 100, maxHp: 100, alert: 0 },
-      { id: 'ss-11', kind: 'merchant', name: 'MERCHANT A', x: 61.6, y: 52, heading: 0.02, speed: 1.02, hp: 100, maxHp: 100, alert: 0 },
-      { id: 'ss-12', kind: 'merchant', name: 'MERCHANT B', x: 65.6, y: 49.6, heading: -0.03, speed: 1, hp: 100, maxHp: 100, alert: 0 },
+      { id: 'freighter-1', kind: 'merchant', name: 'LONE FREIGHTER', x: freighter.x, y: freighter.y, heading: 0, speed: 0, hp: 48, maxHp: 48, alert: 0 },
     ],
     torpedoes: [], depthCharges: [], aircraft: [], countermeasures: [], powerups: [],
     base: { x: 8, y: 8, radius: FOB_RADIUS }, terrainSeed: seed >>> 0, sonarContacts: [],
     autopilot: { enabled: false, waypoint: null, targetId: null },
     stats: { score: 0, shipsSunk: 0, torpedoesFired: 0, damageDealt: 0, timeSurvived: 0, wave: 1, powerupsTaken: 0, repairs: 0 },
-    weaponMode: 'torpedo', torpedoSpread: false, viewMode: 'tactical',
+    weaponMode: 'torpedo', torpedoSpread: false, viewMode: 'tactical', selectedTargetId: null,
     missionFlavor: 'SHADOW CONVOY · REMAIN UNDETECTED', messages: [], settings: null, debugFacing: false,
   };
 }

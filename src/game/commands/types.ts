@@ -8,4 +8,7 @@ export type GameCommand =
   | { type: 'setWeapon'; weapon: WeaponMode }
   | { type: 'setViewMode'; viewMode: 'tactical' | 'periscope' | 'sonar' }
   | { type: 'setAutopilot'; waypoint: Point }
-  | { type: 'cancelAutopilot' };
+  | { type: 'cancelAutopilot' }
+  | { type: 'selectTarget'; id: string | null }
+  | { type: 'fireWeapon' }
+  | { type: 'toggleSilentRunning' };

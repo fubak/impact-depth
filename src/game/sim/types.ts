@@ -19,8 +19,8 @@ export interface Submarine {
   sysFlood: number; crewStress: number;
 }
 export interface Point { x: number; y: number }
-export interface Ship { id: string; kind: 'destroyer' | 'merchant' | 'battleship' | 'sub'; name: string; x: number; y: number; heading: number; speed: number; hp: number; maxHp: number; alert: number }
-export interface Torpedo { id: string; owner: 'player' | 'enemy'; x: number; y: number; z: number; heading: number; speed: number; life: number }
+export interface Ship { id: string; kind: 'destroyer' | 'merchant' | 'battleship' | 'sub'; name: string; x: number; y: number; heading: number; speed: number; hp: number; maxHp: number; alert: number; sinking?: number }
+export interface Torpedo { id: string; owner: 'player' | 'enemy'; x: number; y: number; z: number; heading: number; speed: number; life: number; armDelay: number; damage: number; targetId: string | null }
 export interface DepthCharge { id: string; x: number; y: number; z: number; fuse: number }
 export interface Aircraft { id: string; x: number; y: number; active: boolean }
 export interface Countermeasure { id: string; x: number; y: number; z: number; life: number }
@@ -35,7 +35,7 @@ export interface GameState {
   submarine: Submarine; ships: Ship[]; torpedoes: Torpedo[]; depthCharges: DepthCharge[];
   aircraft: Aircraft[]; countermeasures: Countermeasure[]; powerups: Powerup[]; base: Base;
   terrainSeed: number; sonarContacts: SonarContact[]; autopilot: Autopilot; stats: GameStats;
-  weaponMode: WeaponMode; torpedoSpread: boolean; viewMode: ViewMode; missionFlavor: string;
+  weaponMode: WeaponMode; torpedoSpread: boolean; viewMode: ViewMode; missionFlavor: string; selectedTargetId: string | null;
   messages: GameMessage[]; settings: LookDevSettings | null; debugFacing: boolean;
 }
 

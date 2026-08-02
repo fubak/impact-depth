@@ -34,7 +34,7 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 |------|-------|----------|-------------|------------|--------|
 | 001 | Establish the production and Cursor execution baseline | P1 | 2–4 days | — | DONE |
 | 002 | Build the deterministic game-domain foundation | P1 | 1–2 weeks | 001 | DONE |
-| 003 | Deliver the first complete patrol vertical slice | P1 | 2–3 weeks | 002 | TODO |
+| 003 | Deliver the first complete patrol vertical slice | P1 | 2–3 weeks | 002 | DONE |
 | 004 | Complete weapons, damage, FOB, powerups, waves, and outcomes | P1 | 2–3 weeks | 003 | TODO |
 | 005 | Complete sonar, enemies, ASW, aircraft, navigation, and doctrine AI | P1 | 2–4 weeks | 004 | TODO |
 | 006 | Raise the Three.js world to production visual quality | P1 | 3–6 weeks | 003; parallel after interfaces settle | TODO |
