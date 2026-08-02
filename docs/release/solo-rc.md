@@ -1,6 +1,6 @@
 # Solo Release Candidate — Silent Depths
 
-**RC commit:** `40042f3` (pre-008 baseline) + this Plan 008 ship gate  
+**RC commit / tag:** `solo-rc` → `4480c3f`  
 **Date:** 2026-08-02  
 **Scope:** Solo offline Chromium/WebGL2. Co-op (Plan 009) deferred.
 
@@ -21,11 +21,12 @@
 
 ## Performance notes
 
-- Target: ≥55 FPS high @ 1440×900; ≥30 FPS medium fallback.
+- Target: ≥55 FPS high @ 1440×900; ≥30 FPS medium fallback on GPU desktop Chromium.
 - `QualityGovernor` steps high→medium→low with hysteresis on frame-time EMA.
-- HUD DOM rebuilds throttled to ~8 Hz (`src/ui/hud.ts`).
+- HUD DOM rebuilds throttled to ~8 Hz; patrol overlay rebuilds only on phase/score change.
 - Terrain heightfield cached by seed (`getTerrain`).
-- Measure: `npm run build && npm run preview` then `npm run test:perf -- <preview-url>`.
+- Measure: `npm run test:perf -- <preview-url>` (clicks Begin Patrol first).
+- Headless/llvmpipe agents may fail WebGL context creation; treat agent FPS as directional only.
 
 ## Known gaps (P2, documented)
 
