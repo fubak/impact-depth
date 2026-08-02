@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Informational frame-time probe (median + p95). Not a hard gate until Plan 008.
- * Expects `npm run preview` (or `npm run dev`) on :8080.
+ * Frame-time probe (median + p95) after entering a patrol.
+ * Headless Chromium is often software-rendered; treat numbers as directional,
+ * and prefer a GPU desktop Chromium for the ≥55 FPS acceptance gate.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -12,13 +13,13 @@ import { CHROMIUM_ARGS, DEFAULT_URL, VIEWPORT, median, percentile } from '../tes
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const artifactsDir = join(__dirname, '..', 'artifacts');
 const url = process.argv[2] || DEFAULT_URL;
-const sampleMs = Number(process.env.FPS_BENCH_MS || 3000);
+const sampleMs = Number(process.env.FPS_BENCH_MS || 4000);
 
 mkdirSync(artifactsDir, { recursive: true });
 
 const browser = await chromium.launch({
   headless: true,
-  args: CHROMIUM_ARGS,
+  args: [...CHROMIUM_ARGS, '--use-gl=angle', '--enable-webgl'],
 });
 
 try {
@@ -28,8 +29,13 @@ try {
     if (m.type() === 'error') console.log('CONSOLE', m.text());
   });
 
-  await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
-  await page.waitForTimeout(1000);
+  await page.goto(url, { waitUntil: 'load', timeout: 45000 });
+  await page.waitForSelector('#hud', { timeout: 45000 });
+  const begin = page.locator('button[data-action="begin"]');
+  if ((await begin.count()) > 0) {
+    await begin.first().click();
+    await page.waitForTimeout(800);
+  }
 
   const frameTimes = await page.evaluate(async (ms) => {
     return new Promise((resolve) => {
@@ -61,7 +67,7 @@ try {
     frames: frameTimes.length,
     frameTimeMs: { median: Number(med.toFixed(3)), p95: Number(p95.toFixed(3)) },
     fps: { median: Number(fpsMedian.toFixed(1)), atP95FrameTime: Number(fpsP95.toFixed(1)) },
-    note: 'Informational until Plan 008; not a CI failure gate.',
+    note: 'Headless probe after Begin Patrol. GPU desktop Chromium is authoritative for ≥55 FPS.',
   };
 
   const outPath = join(artifactsDir, 'fps-bench.json');
