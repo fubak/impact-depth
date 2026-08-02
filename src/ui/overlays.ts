@@ -1,6 +1,7 @@
 import type { GameState } from '../game/sim/types';
 
 export class PatrolOverlay {
+  private lastSignature = '';
   constructor(
     private readonly root: HTMLElement,
     private readonly onBegin: () => void,
@@ -15,6 +16,9 @@ export class PatrolOverlay {
   }
 
   render(game: GameState): void {
+    const signature = `${game.phase}:${game.stats.score}:${game.stats.shipsSunk}`;
+    if (signature === this.lastSignature) return;
+    this.lastSignature = signature;
     if (game.phase === 'menu') {
       this.root.hidden = false;
       this.root.innerHTML = `<section class="patrol-card"><div class="hud-sub">SILENT DEPTHS · PATROL 003</div><h1>FIRST PATROL</h1><p>Plot a course, acquire the lone freighter, and fire one Mk-14.</p><button class="btn primary" data-action="begin">Begin Patrol</button></section>`;

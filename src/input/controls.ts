@@ -10,6 +10,7 @@ export type InputCallbacks = {
   periLook: (dx: number, dy: number) => void;
   zoom: (delta: number) => void;
   getViewMode: () => ViewMode;
+  interact: (button: 0 | 2, x: number, y: number) => void;
 };
 
 export class InputController {
@@ -18,6 +19,7 @@ export class InputController {
   private dragging = false;
   private lastX = 0;
   private lastY = 0;
+  private pointerMoved = false;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
   private readonly onKeyUp: (e: KeyboardEvent) => void;
   private readonly onPointerDown: (e: PointerEvent) => void;
@@ -51,24 +53,27 @@ export class InputController {
       this.keys.delete(e.code);
     };
     this.onPointerDown = (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 && e.button !== 2) return;
       const tag = (e.target as HTMLElement)?.closest?.('aside, button, input, select, label, a');
       if (tag) return;
       this.dragging = true;
       this.lastX = e.clientX;
       this.lastY = e.clientY;
+      this.pointerMoved = false;
       this.target.setPointerCapture?.(e.pointerId);
     };
     this.onPointerMove = (e) => {
       if (!this.dragging) return;
       const dx = e.clientX - this.lastX;
       const dy = e.clientY - this.lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 3) this.pointerMoved = true;
       this.lastX = e.clientX;
       this.lastY = e.clientY;
       if (this.cb.getViewMode() === 'periscope') this.cb.periLook(dx, dy);
       else if (this.cb.getViewMode() === 'tactical') this.cb.orbit(dx, dy);
     };
     this.onPointerUp = (e) => {
+      if (!this.pointerMoved && (e.button === 0 || e.button === 2)) this.cb.interact(e.button, e.clientX, e.clientY);
       this.dragging = false;
       try {
         this.target.releasePointerCapture?.(e.pointerId);
@@ -76,6 +81,7 @@ export class InputController {
         /* already released */
       }
     };
+    target.addEventListener('contextmenu', (e) => e.preventDefault());
     this.onWheel = (e) => {
       if (this.cb.getViewMode() === 'tactical') {
         e.preventDefault();

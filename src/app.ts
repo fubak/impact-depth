@@ -4,14 +4,28 @@ import type { LookDevSettings, SimState, ViewMode } from './core/types';
 import { adaptToLookDevSim } from './game/adapt/lookdev';
 import type { GameCommand } from './game/commands/types';
 import {
+  cancelAutopilot,
+  clearEngagement,
   createGame,
+  deployCountermeasure,
   fireWeapon,
+  orderMove,
   selectTarget,
+  setAutopilot,
+  setDepthOrder,
   setPhase,
+  setSpeedOrder,
+  setWeapon,
+  snapToNavigable,
+  sonarPulse,
   startMission,
+  toggleScope,
   toggleSilentRunning,
+  toggleSnorkel,
+  toggleTorpedoSpread,
   updateGame,
 } from './game/sim/api';
+import { GameAudio } from './game/audio/audio';
 import type { GameState } from './game/sim/types';
 import { InputController } from './input/controls';
 import { CameraRig } from './render/cameras';
@@ -23,6 +37,7 @@ import { PatrolOverlay } from './ui/overlays';
 import { LookDevPanel } from './ui/panel';
 import { PeriscopeOverlay } from './ui/periscope';
 import { SonarScope } from './ui/sonar';
+import { TutorialOverlay } from './ui/tutorial';
 
 function $(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -43,6 +58,8 @@ export class App {
   private readonly patrol: PatrolOverlay;
   private readonly sonar: SonarScope;
   private readonly peri: PeriscopeOverlay;
+  private readonly tutorial: TutorialOverlay;
+  private readonly audio = new GameAudio();
   private readonly pauseBanner: HTMLElement;
   private readonly appRoot: HTMLElement;
   private accum = 0;
@@ -70,7 +87,12 @@ export class App {
     this.cameras = new CameraRig(window.innerWidth / Math.max(1, window.innerHeight));
     this.cameras.setMode(this.sim.viewMode);
 
-    this.hud = new Hud($('hud'), $('help-strip'));
+    this.hud = new Hud($('hud'), $('help-strip'), {
+      command: (action, value) => this.handleHudCommand(action, value),
+      plot: (x, y) => this.plot(x, y),
+      select: (id) => this.select(id),
+      isMuted: () => this.audio.isMuted,
+    });
     this.pauseBanner = $('pause-banner');
     this.sonar = new SonarScope(
       $('sonar-overlay'),
@@ -83,6 +105,7 @@ export class App {
       () => this.beginPatrol(),
       () => this.restartPatrol(),
     );
+    this.tutorial = new TutorialOverlay($('tutorial-overlay'));
 
     this.panel = new LookDevPanel($('lookdev'), this.settings, {
       onChange: (s) => {
@@ -97,23 +120,20 @@ export class App {
 
     this.input = new InputController(canvas, {
       setViewMode: (mode) => this.changeView(mode),
-      togglePause: () => {
-        if (this.game.phase !== 'playing' && this.game.phase !== 'paused') return;
-        this.game = setPhase(this.game, this.game.phase === 'paused' ? 'playing' : 'paused');
-        this.sim = adaptToLookDevSim(this.game);
-        this.pauseBanner.hidden = this.game.phase !== 'paused';
-      },
+      togglePause: () => this.inputPause(),
       togglePanel: () => this.panel.toggle(),
       orbit: (dx, dy) => this.cameras.orbit(dx, dy),
       periLook: (dx, dy) => this.cameras.periLook(dx, dy),
       zoom: (d) => this.cameras.zoom(d),
       getViewMode: () => this.sim.viewMode,
+      interact: (button, x, y) => this.handleWorldInteraction(button, x, y),
     });
 
     window.addEventListener('keydown', this.onKeyDown);
     this.applyPresentationCss();
     this.syncOverlays();
     this.patrol.render(this.game);
+    window.addEventListener('pointerdown', () => this.audio.unlock(), { once: true });
 
     window.addEventListener('resize', this.onResize);
     window.addEventListener('beforeunload', this.onUnload);
@@ -126,6 +146,8 @@ export class App {
     if (freighter) this.game = selectTarget(this.game, freighter.id);
     this.sim = adaptToLookDevSim(this.game);
     this.patrol.render(this.game);
+    this.tutorial.show();
+    this.audio.unlock();
   }
 
   private restartPatrol(): void {
@@ -144,6 +166,10 @@ export class App {
       this.game = toggleSilentRunning(this.game);
       this.sim = adaptToLookDevSim(this.game);
     }
+    if (e.code === 'KeyC' && this.game.phase === 'playing') {
+      this.game = deployCountermeasure(this.game);
+      this.sim = adaptToLookDevSim(this.game);
+    }
     if (e.code === 'KeyT' && this.game.phase === 'playing' && this.game.ships[0]) {
       this.game = selectTarget(this.game, this.game.ships[0]!.id);
       this.sim = adaptToLookDevSim(this.game);
@@ -155,11 +181,63 @@ export class App {
       const speed = (
         { Digit0: 'stop', KeyI: 'oneThird', KeyO: 'twoThirds', KeyP: 'flank' } as const
       )[e.code];
-      if (depth) this.game = updateGame(this.game, [{ type: 'setDepthOrder', order: depth }], 0);
-      if (speed) this.game = updateGame(this.game, [{ type: 'setSpeedOrder', order: speed }], 0);
+      if (depth) this.game = setDepthOrder(this.game, depth);
+      if (speed) this.game = setSpeedOrder(this.game, speed);
       if (depth || speed) this.sim = adaptToLookDevSim(this.game);
     }
   };
+
+  private handleHudCommand(action: string, value?: string): void {
+    if (action === 'help') { this.tutorial.show(true); return; }
+    if (action === 'mute') { this.audio.setMuted(!this.audio.isMuted); return; }
+    if (action === 'pause') { this.inputPause(); return; }
+    if (this.game.phase !== 'playing') return;
+    if (action === 'weapon' && value) this.game = setWeapon(this.game, value as 'torpedo' | 'seeker' | 'decoy');
+    if (action === 'screen') this.game = deployCountermeasure(this.game);
+    if (action === 'spread') this.game = toggleTorpedoSpread(this.game);
+    if (action === 'sonar') this.game = sonarPulse(this.game);
+    if (action === 'fire') this.game = fireWeapon(this.game);
+    if (action === 'silent') this.game = toggleSilentRunning(this.game);
+    if (action === 'scope') this.game = toggleScope(this.game);
+    if (action === 'snorkel') this.game = toggleSnorkel(this.game);
+    if (action === 'tactic' && value) this.game = setAutopilot(this.game, value as 'ambush' | 'stalk' | 'intercept' | 'evade' | 'exfil', this.game.selectedTargetId);
+    if (action === 'stop-ai') this.game = cancelAutopilot(this.game);
+    if (action === 'clear') this.game = clearEngagement(this.game);
+    if (action === 'depth' && value) this.game = setDepthOrder(this.game, value as 'surface' | 'periscope' | 'attack' | 'deep');
+    if (action === 'speed' && value) this.game = setSpeedOrder(this.game, value as 'stop' | 'oneThird' | 'twoThirds' | 'flank');
+    this.audio.unlock();
+    this.audio.sfxClick();
+    this.sim = adaptToLookDevSim(this.game);
+  }
+
+  private inputPause(): void {
+    if (this.game.phase !== 'playing' && this.game.phase !== 'paused') return;
+    this.game = setPhase(this.game, this.game.phase === 'paused' ? 'playing' : 'paused');
+    this.sim = adaptToLookDevSim(this.game);
+    this.pauseBanner.hidden = this.game.phase !== 'paused';
+  }
+
+  private select(id: string): void {
+    this.game = this.game.selectedTargetId === id ? clearEngagement(this.game) : selectTarget(this.game, id);
+    this.sim = adaptToLookDevSim(this.game);
+  }
+
+  private plot(x: number, y: number): void {
+    if (this.game.phase !== 'playing') return;
+    this.game = orderMove(this.game, snapToNavigable(this.game, { x, y }));
+    this.sim = adaptToLookDevSim(this.game);
+  }
+
+  private handleWorldInteraction(button: 0 | 2, clientX: number, clientY: number): void {
+    if (this.game.phase !== 'playing') return;
+    const canvas = $('scene').getBoundingClientRect();
+    const point = snapToNavigable(this.game, { x: ((clientX - canvas.left) / canvas.width) * 96, y: ((clientY - canvas.top) / canvas.height) * 96 });
+    const ship = this.game.ships.find((candidate) => Math.hypot(candidate.x - point.x, candidate.y - point.y) < 3);
+    if (button === 2) this.game = fireWeapon(this.game);
+    else if (ship) this.select(ship.id);
+    else this.plot(point.x, point.y);
+    this.sim = adaptToLookDevSim(this.game);
+  }
 
   private changeView(mode: ViewMode): void {
     this.game = updateGame(this.game, [{ type: 'setViewMode', viewMode: mode }], 0);
@@ -217,6 +295,7 @@ export class App {
     this.renderer.render(this.scene.scene, this.cameras.camera);
 
     this.hud.render(this.game, this.sim, this.settings);
+    this.audio.observe(this.game);
     this.peri.render(this.sim, this.settings, this.cameras.periYaw);
     this.sonar.render(this.sim, renderDt, this.reducedMotion);
     this.patrol.render(this.game);
@@ -241,6 +320,8 @@ export class App {
     window.removeEventListener('beforeunload', this.onUnload);
     window.removeEventListener('keydown', this.onKeyDown);
     this.input.dispose();
+    this.tutorial.dispose();
+    this.audio.dispose();
     this.scene.dispose();
     this.renderer.dispose();
   }

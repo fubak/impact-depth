@@ -48,12 +48,12 @@ The full simulation is unusable without a command surface that preserves player 
 
 ## Done criteria
 
-- [ ] All PRD section 13 panels/actions exist and do not overlap at target resolutions.
-- [ ] Sticky intent is correct under damage, silent running, battery caps, and autopilot.
-- [ ] Tutorial has exactly 11 complete, camera-appropriate steps.
-- [ ] Every required sound API is event-driven, muteable, and browser-unlock safe.
-- [ ] Keyboard-only and reduced-motion journeys pass.
-- [ ] UI never mutates game state outside commands.
+- [x] All PRD section 13 panels/actions exist and do not overlap at target resolutions.
+- [x] Sticky intent is correct under damage, silent running, battery caps, and autopilot.
+- [x] Tutorial has exactly 11 complete, camera-appropriate steps.
+- [x] Every required sound API is event-driven, muteable, and browser-unlock safe.
+- [x] Keyboard-only and reduced-motion journeys pass.
+- [x] UI never mutates game state outside commands.
 
 ## STOP conditions
 
