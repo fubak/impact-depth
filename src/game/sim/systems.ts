@@ -269,7 +269,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       ...state,
       sonarContacts: state.ships
         .filter((ship) => !ship.sinking)
-        .map((ship) => ({ id: ship.id, x: ship.x, y: ship.y, strength: 1, age: 0 })),
+        .map((ship) => ({ id: ship.id, x: ship.x, y: ship.y, strength: 1, age: 0 }))
+        .concat(state.countermeasures.filter((cm) => cm.kind === 'foxer').map((cm) => ({ id: cm.id, x: cm.x, y: cm.y, strength: 0.8, age: 0 }))),
     };
   },
   enemies(state, _commands, dt) {
@@ -279,6 +280,9 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         ...ship,
         x: clampSim(ship.x + Math.cos(ship.heading) * ship.speed * dt),
         y: clampSim(ship.y + Math.sin(ship.heading) * ship.speed * dt),
+        alert: state.countermeasures.some((cm) => cm.kind === 'foxer' && Math.hypot(ship.x - cm.x, ship.y - cm.y) <= 20)
+          ? Math.max(0, ship.alert - dt * 0.15)
+          : ship.alert,
       })),
     };
   },
@@ -296,6 +300,11 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       if (next.kind === 'mk18' && next.targetId) {
         const target = ships.find((ship) => ship.id === next.targetId);
         if (target) next = { ...next, heading: turnToward(next.heading, Math.atan2(target.y - next.y, target.x - next.x), next.turnRate, dt) };
+      }
+      const foxer = next.owner === 'enemy' && state.countermeasures.find((cm) => cm.kind === 'foxer' && Math.hypot(cm.x - next.x, cm.y - next.y) <= cm.radius);
+      if (foxer) {
+        next = { ...next, heading: turnToward(next.heading, Math.atan2(foxer.y - next.y, foxer.x - next.x), next.turnRate, dt) };
+        if (Math.hypot(next.x - foxer.x, next.y - foxer.y) < 0.7) return [];
       }
       const target = next.targetId ? ships.find((ship) => ship.id === next.targetId) : undefined;
       if (
@@ -368,11 +377,14 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     let stats = state.stats;
     if (sub.docked) {
       const oldHp = sub.hp;
+      const restockTick = Math.floor(state.time / 2) !== Math.floor((state.time + dt) / 2);
       sub = {
         ...sub, hp: clamp(sub.hp + 12 * dt, 0, sub.maxHp), battery: clamp(sub.battery + 18 * dt, 0, sub.maxBattery),
         torpedoes: Math.min(sub.maxTorpedoes, sub.torpedoes + 0.35 * dt), seekers: Math.min(sub.maxSeekers, sub.seekers + 0.2 * dt),
         sysSonar: clamp(sub.sysSonar + 0.3 * dt, 0, 1), sysPropulsion: clamp(sub.sysPropulsion + 0.3 * dt, 0, 1),
         sysTubes: clamp(sub.sysTubes + 0.3 * dt, 0, 1), sysFlood: clamp(sub.sysFlood - 0.4 * dt, 0, 1),
+        cmCharges: restockTick ? Math.min(sub.maxCmCharges, sub.cmCharges + 1) : sub.cmCharges,
+        decoys: restockTick ? Math.min(3, sub.decoys + 1) : sub.decoys,
       };
       stats = { ...stats, repairs: stats.repairs + Math.max(0, sub.hp - oldHp) };
     }

@@ -40,12 +40,15 @@ describe('combat and progression', () => {
     let state = startMission(createGame(12));
     state = {
       ...state,
-      submarine: { ...state.submarine, x: state.base.x, y: state.base.y, speed: 0, targetSpeed: 0, speedOrder: 'stop', hp: 40, torpedoes: 0, seekers: 0 },
+      submarine: { ...state.submarine, x: state.base.x, y: state.base.y, speed: 0, targetSpeed: 0, speedOrder: 'stop', hp: 40, torpedoes: 0, seekers: 0, cmCharges: 0, decoys: 0 },
     };
     state = step(state, 1);
     expect(state.submarine.docked).toBe(true);
     expect(state.submarine.hp).toBeGreaterThan(40);
     expect(state.submarine.torpedoes).toBeGreaterThan(0);
+    state = step(state, 1);
+    expect(state.submarine.cmCharges).toBe(1);
+    expect(state.submarine.decoys).toBe(1);
     state = updateGame(state, [{ type: 'spawnThreat', threat: 'torpedo', sourceId: state.ships[0]!.id }], 0);
     expect(state.torpedoes.every((torpedo) => torpedo.owner === 'player')).toBe(true);
   });
