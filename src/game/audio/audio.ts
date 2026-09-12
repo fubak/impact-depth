@@ -25,23 +25,35 @@ const BANK_NAMES: readonly BankName[] = [
   'ambient2',
 ];
 
+const AMBIENT_CROSSFADE_SEC = 1.5;
+const AMBIENT_PRIMARY_GAIN = 0.5;
+const AMBIENT_LAYER_GAIN = 0.25;
+const AMBIENT_FALLBACK_GAIN = 0.025;
+
 /**
  * Small, dependency-free WebAudio bus. Audio is strictly observational: it never changes
  * simulation state. Authored PCM banks (`public/assets/audio/*.wav`) are loaded lazily on
  * unlock; every cue falls back to the original synthesized tone/oscillator if a bank is
  * missing, still loading, or fails to decode (offline dev, CI, broken CDN asset, etc.).
+ * When fallback ambient is already playing, a successful bank decode crossfades to authored audio.
  */
 export class GameAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
   private ambientSource: AudioBufferSourceNode | OscillatorNode | null = null;
+  private ambientGain: GainNode | null = null;
   /** Optional second ambient texture layered on top of `ambient.wav` when authored; never required. */
   private ambientLayerSource: AudioBufferSourceNode | null = null;
+  private ambientUsingFallback = false;
+  private ambientWantsPlaying = false;
   private muted = false;
   private lastEngine = 0;
   private previous: GameState | null = null;
   private readonly banks = new Map<BankName, AudioBuffer>();
+  private readonly bankLoads = new Set<Promise<void>>();
+  private readonly bankLoadsByName = new Map<BankName, Promise<void>>();
   private banksRequested = false;
+  private disposed = false;
 
   setMuted(muted: boolean): void {
     this.muted = muted;
@@ -68,67 +80,165 @@ export class GameAudio {
 
   private async loadBanks(): Promise<void> {
     await Promise.all(BANK_NAMES.map((name) => this.loadBank(name)));
+    this.upgradeAmbientIfReady();
+  }
+
+  /** Await in-flight bank decode jobs (for deterministic tests). */
+  async settleBankLoads(): Promise<void> {
+    await Promise.all([...this.bankLoads]);
+  }
+
+  /** Await one named bank decode job (for deterministic tests). */
+  async settleBankLoad(name: BankName): Promise<void> {
+    const job = this.bankLoadsByName.get(name);
+    if (job) await job;
   }
 
   /** Fetch + decode a single bank. Never throws: missing/broken files simply keep the tone fallback. */
   private async loadBank(name: BankName): Promise<void> {
-    if (!this.context) return;
+    if (!this.context || this.disposed) return;
+    const job = this.loadBankInner(name);
+    this.bankLoads.add(job);
+    this.bankLoadsByName.set(name, job);
+    try {
+      await job;
+    } finally {
+      this.bankLoads.delete(job);
+      this.bankLoadsByName.delete(name);
+    }
+  }
+
+  private async loadBankInner(name: BankName): Promise<void> {
+    if (!this.context || this.disposed) return;
     try {
       const response = await fetch(`/assets/audio/${name}.wav`);
       if (!response.ok) return;
       const data = await response.arrayBuffer();
+      if (!this.context || this.disposed) return;
       const buffer = await this.context.decodeAudioData(data);
+      if (!this.context || this.disposed) return;
       this.banks.set(name, buffer);
+      if (name === 'ambient' || name === 'ambient2') {
+        this.upgradeAmbientIfReady();
+      }
     } catch {
       // Missing file, offline dev, or unsupported codec: procedural tone fallback stays active.
     }
   }
 
   startAmbient(): void {
-    if (!this.context || this.ambientSource) return;
+    if (!this.context || !this.master) return;
+    this.ambientWantsPlaying = true;
+    if (this.ambientSource) return;
+
     const buffer = this.banks.get('ambient');
     if (buffer) {
-      const source = this.context.createBufferSource();
-      source.buffer = buffer;
-      source.loop = true;
-      const gain = this.context.createGain();
-      gain.gain.value = 0.5;
-      source.connect(gain).connect(this.master!);
-      source.start();
-      this.ambientSource = source;
-      this.startAmbientLayer();
+      this.startAuthoredAmbient(buffer);
       return;
     }
+
+    this.startFallbackAmbient();
+  }
+
+  private startAuthoredAmbient(buffer: AudioBuffer): void {
+    if (!this.context || !this.master) return;
+    const source = this.context.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    const gain = this.context.createGain();
+    gain.gain.value = AMBIENT_PRIMARY_GAIN;
+    source.connect(gain).connect(this.master);
+    source.start();
+    this.ambientSource = source;
+    this.ambientGain = gain;
+    this.ambientUsingFallback = false;
+    this.startAmbientLayer();
+  }
+
+  private startFallbackAmbient(): void {
+    if (!this.context || !this.master) return;
     const oscillator = this.context.createOscillator();
     const gain = this.context.createGain();
     oscillator.type = 'sine';
     oscillator.frequency.value = 48;
-    gain.gain.value = 0.025;
-    oscillator.connect(gain).connect(this.master!);
+    gain.gain.value = AMBIENT_FALLBACK_GAIN;
+    oscillator.connect(gain).connect(this.master);
     oscillator.start();
     this.ambientSource = oscillator;
+    this.ambientGain = gain;
+    this.ambientUsingFallback = true;
+  }
+
+  /** Crossfade fallback ambient to authored banks once decode completes. */
+  private upgradeAmbientIfReady(): void {
+    if (!this.context || !this.master || this.disposed || !this.ambientWantsPlaying) return;
+
+    const ambientBuffer = this.banks.get('ambient');
+    if (this.ambientUsingFallback && ambientBuffer && this.ambientSource) {
+      this.crossfadeAmbientToAuthored(ambientBuffer);
+      return;
+    }
+
+    if (!this.ambientUsingFallback && this.ambientSource && !this.ambientLayerSource) {
+      this.startAmbientLayer();
+    }
+  }
+
+  private crossfadeAmbientToAuthored(buffer: AudioBuffer): void {
+    if (!this.context || !this.master) return;
+    const oldSource = this.ambientSource;
+    const oldGain = this.ambientGain;
+    if (!this.ambientUsingFallback || !oldSource || !oldGain) return;
+
+    const source = this.context.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    const gain = this.context.createGain();
+    gain.gain.value = 0;
+    source.connect(gain).connect(this.master);
+    source.start();
+
+    const now = this.context.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(AMBIENT_PRIMARY_GAIN, now + AMBIENT_CROSSFADE_SEC);
+    oldGain.gain.setValueAtTime(oldGain.gain.value, now);
+    oldGain.gain.linearRampToValueAtTime(0.0001, now + AMBIENT_CROSSFADE_SEC);
+
+    this.ambientSource = source;
+    this.ambientGain = gain;
+    this.ambientUsingFallback = false;
+
+    try {
+      oldSource.stop(now + AMBIENT_CROSSFADE_SEC);
+    } catch {
+      // Oscillator may already be stopped after dispose.
+    }
+    this.startAmbientLayer();
   }
 
   /** Layers `ambient2.wav` under the primary ambient loop if that bank loaded; otherwise a no-op. */
   private startAmbientLayer(): void {
-    if (!this.context || !this.master || this.ambientLayerSource) return;
+    if (!this.context || !this.master || this.ambientLayerSource || this.ambientUsingFallback) return;
     const buffer = this.banks.get('ambient2');
     if (!buffer) return;
     const source = this.context.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
     const gain = this.context.createGain();
-    gain.gain.value = 0.25;
+    gain.gain.value = AMBIENT_LAYER_GAIN;
     source.connect(gain).connect(this.master);
     source.start();
     this.ambientLayerSource = source;
   }
 
   stopAmbient(): void {
+    this.ambientWantsPlaying = false;
     this.ambientSource?.stop();
     this.ambientSource = null;
+    this.ambientGain = null;
     this.ambientLayerSource?.stop();
     this.ambientLayerSource = null;
+    this.ambientUsingFallback = false;
   }
 
   sfxClick(): void { this.playBankOrTone('click', 680, 0.035, 'square', 0.05); }
@@ -160,8 +270,12 @@ export class GameAudio {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.stopAmbient();
     void this.context?.close();
+    this.context = null;
+    this.master = null;
+    this.banks.clear();
   }
 
   /** Play the authored bank if loaded/decoded; otherwise fall back to the synthesized tone. */

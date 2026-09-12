@@ -2,25 +2,62 @@
  * Normalize licensed source meshes into game-oriented local space and write
  * public/assets/models/v2/*.glb plus a machine-readable import report.
  *
- * Plan 015 constraints:
+ * Plan 015 / 018 constraints:
  * - Never downloads, never reads cookies, never invents licenses.
- * - Inputs come only from checked-in sources.json (local absolute/relative paths).
+ * - Inputs come only from config/fleet-source-manifest.json staged under artifacts/fleet-sources/.
  * - Outputs land under models/v2 (immutable path for this content set).
+ * - Validate or dry-run before any output mutation.
  *
- * Usage: node scripts/import-modern-fleet.mjs
+ * Usage:
+ *   node scripts/import-modern-fleet.mjs [--validate] [--dry-run] [--manifest <path>]
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { getBounds } from '@gltf-transform/functions';
+import {
+  parseImportFlags,
+  validateFleetSourceManifest,
+} from './lib/fleet-source-manifest.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const sourcesPath = resolve(root, 'artifacts/fleet-sources/sources.json');
-const outDir = resolve(root, 'public/assets/models/v2');
-const reportDir = resolve(root, 'artifacts/fleet-sources');
+const flags = parseImportFlags(process.argv.slice(2));
+
+const validation = validateFleetSourceManifest(flags.manifestPath, root);
+if (!validation.ok) {
+  console.error('Fleet source manifest validation failed:');
+  for (const err of validation.errors) console.error(`  ${err}`);
+  process.exit(1);
+}
+
+const { manifest, stagingRoot, outputDir } = validation;
+const reportDir = resolve(root, manifest.reportDir ?? 'artifacts/fleet-sources');
+
+if (flags.validate) {
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        mode: flags.dryRun ? 'dry-run' : 'validate',
+        manifest: flags.manifestPath,
+        entities: validation.entities.length,
+        stagingRoot,
+        outputDir,
+      },
+      null,
+      2,
+    ),
+  );
+  if (flags.dryRun) {
+    for (const entity of validation.entities) {
+      console.log(`would import ${entity.kind} ← ${entity.inputRel} → models/v2/${entity.kind}.glb`);
+    }
+  }
+  process.exit(0);
+}
 
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
 
@@ -135,30 +172,14 @@ async function normalizeFile(inputPath, targetLength) {
   };
 }
 
-function resolveInput(entry) {
-  const primary = resolve(root, entry.input);
-  if (existsSync(primary)) return primary;
-  if (entry.fallbackInput) {
-    const fallback = resolve(root, entry.fallbackInput);
-    if (existsSync(fallback)) return fallback;
-  }
-  // Last resort: reuse already-shipped production mesh if source pack missing.
-  if (entry.productionFallback) {
-    const prod = resolve(root, entry.productionFallback);
-    if (existsSync(prod)) return prod;
-  }
-  return null;
-}
-
-const sources = JSON.parse(readFileSync(sourcesPath, 'utf8'));
-mkdirSync(outDir, { recursive: true });
+mkdirSync(outputDir, { recursive: true });
 mkdirSync(reportDir, { recursive: true });
 
 const report = [];
 const creditsById = new Map();
 const failures = [];
 
-for (const [kind, entry] of Object.entries(sources.entities)) {
+for (const [kind, entry] of Object.entries(manifest.entities)) {
   creditsById.set(entry.licenseId, {
     id: entry.licenseId,
     source: entry.source,
@@ -166,18 +187,12 @@ for (const [kind, entry] of Object.entries(sources.entities)) {
     usage: entry.usage,
   });
 
-  const input = resolveInput(entry);
-  if (!input) {
-    failures.push({ kind, reason: `missing source: ${entry.input}` });
-    console.error('MISS', kind, entry.input);
-    continue;
-  }
-
+  const input = resolve(stagingRoot, entry.input);
   const outName = `${kind}.glb`;
   console.log('normalize', input, '→', outName, '@', entry.targetLengthM, 'm');
   try {
     const { document, stats } = await normalizeFile(input, entry.targetLengthM);
-    const dest = resolve(outDir, outName);
+    const dest = resolve(outputDir, outName);
     await io.write(dest, document);
     const bytes = readFileSync(dest).byteLength;
     console.log(
@@ -202,29 +217,6 @@ for (const [kind, entry] of Object.entries(sources.entities)) {
     failures.push({ kind, reason: String(err) });
     console.error('FAIL', kind, err);
   }
-}
-
-// If any CC-BY sub/destroyer sources were missing, copy current production meshes into v2.
-const productionCopy = {
-  sub_nautilus: 'public/assets/models/v1/sub_nautilus.glb',
-  uboat: 'public/assets/models/v1/uboat.glb',
-  destroyer: 'public/assets/models/v1/destroyer.glb',
-};
-for (const [kind, rel] of Object.entries(productionCopy)) {
-  const dest = resolve(outDir, `${kind}.glb`);
-  if (existsSync(dest)) continue;
-  const src = resolve(root, rel);
-  if (!existsSync(src)) continue;
-  copyFileSync(src, dest);
-  console.log('copy production', rel, '→', `models/v2/${kind}.glb`);
-  report.push({
-    kind,
-    file: `models/v2/${kind}.glb`,
-    bytes: readFileSync(dest).byteLength,
-    input: rel,
-    credit: sources.entities[kind]?.licenseId ?? 'unknown',
-    note: 'copied production mesh — source import missing',
-  });
 }
 
 writeFileSync(
