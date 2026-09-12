@@ -1,8 +1,16 @@
 import * as THREE from 'three';
 import type { SimState, ViewMode } from '../core/types';
+import { updateImmersion, type ImmersionState } from './presentation/immersion';
 
 /** Optional lock id is presentation-only; picking/commands stay on the mean sea plane. */
 export type CameraSimState = SimState & { selectedTargetId?: string | null };
+
+export type CameraPresentation = {
+  lightning?: number;
+  reducedMotion?: boolean;
+  /** Latest GPU / fallback surface height at the camera xz. */
+  waterHeight?: number | null;
+};
 
 export class CameraRig {
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
@@ -20,9 +28,11 @@ export class CameraRig {
   private readonly currentPos = new THREE.Vector3();
   private readonly lookAt = new THREE.Vector3();
   private readonly convoyFocus = new THREE.Vector3();
+  private readonly projectScratch = new THREE.Vector3();
   private activeMode: ViewMode = 'tactical';
   readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
+  private immersion: ImmersionState = { underwater: false, waterHeight: 0, eyeRelative: 0 };
 
   constructor(aspect: number) {
     this.perspective = new THREE.PerspectiveCamera(42, aspect, 0.2, 1200);
@@ -67,10 +77,28 @@ export class CameraRig {
     this.orbitRadius = THREE.MathUtils.clamp(this.orbitRadius + delta * 0.05, 40, 160);
   }
 
+  getImmersion(): ImmersionState {
+    return this.immersion;
+  }
+
+  /** Project a world-metre point into NDC for screen-proximate picking. */
+  projectNdc(x: number, y: number, z: number): { ndcX: number; ndcY: number; clipW: number } {
+    this.projectScratch.set(x, y, z).project(this.camera);
+    return {
+      ndcX: this.projectScratch.x,
+      ndcY: this.projectScratch.y,
+      clipW: this.projectScratch.z > 1 || this.projectScratch.z < -1 ? -1 : 1,
+    };
+  }
+
+  lastPickNdc(): { x: number; y: number } {
+    return { x: this.ndc.x, y: this.ndc.y };
+  }
+
   update(
     sim: CameraSimState,
     dt: number,
-    presentation?: { lightning?: number; reducedMotion?: boolean },
+    presentation?: CameraPresentation,
   ): void {
     const v = sim.vessel;
     // Frame the hull itself; surface bias was hiding deep boats under the water sheet.
@@ -120,9 +148,13 @@ export class CameraRig {
         v.z + Math.sin(v.heading) * 90,
       );
     } else if (this.activeMode === 'periscope') {
-      // Mast/optic extends to near waterline even when the hull is submerged
+      // Mast/optic tracks the hull + mast reach. Sampled water is for immersion
+      // hysteresis only — do not pin the eye above crests.
       const mastReach = 9.5;
-      const eyeY = Math.max(0.35, -v.depth + mastReach) + v.heave * 0.15;
+      const water = presentation?.waterHeight;
+      const surfaceBias =
+        water === undefined || water === null || !Number.isFinite(water) ? 0 : water * 0.05;
+      const eyeY = -v.depth + mastReach + v.heave * 0.15 + surfaceBias;
       this.desiredPos.set(v.x, eyeY, v.z);
       const locked = sim.selectedTargetId
         ? sim.ships.find((ship) => ship.id === sim.selectedTargetId)
@@ -170,6 +202,13 @@ export class CameraRig {
       this.camera.lookAt(this.lookAt);
     }
     this.camera.updateMatrixWorld();
+    const waterHeight =
+      presentation?.waterHeight === undefined ? null : presentation.waterHeight;
+    this.immersion = updateImmersion({
+      eyeY: this.camera.position.y,
+      sampledWaterHeight: waterHeight,
+      previousUnderwater: this.immersion.underwater,
+    });
   }
 
   resize(aspect: number): void {

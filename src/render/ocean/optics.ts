@@ -3,13 +3,7 @@
  */
 import * as THREE from 'three';
 import { withRendererPass } from './resources';
-import type { QualityName } from '../quality';
-
-export const OPTICS_PROFILES = {
-  high: { scale: 0.65, interval: 2 },
-  medium: { scale: 0.45, interval: 3 },
-  low: { scale: 0.3, interval: 4 },
-} as const;
+import { QUALITY_PROFILES, type QualityName } from '../quality';
 
 /** Mark complete subtrees, including subsequently loaded glTF children, as UI cues. */
 export function excludeFromWaterCapture(object: THREE.Object3D): void {
@@ -71,7 +65,7 @@ export class WaterOptics {
 
   resize(width: number, height: number, dpr: number): void {
     this.width = width; this.height = height; this.dpr = dpr;
-    const scale = OPTICS_PROFILES[this.quality].scale;
+    const scale = QUALITY_PROFILES[this.quality].opticsScale;
     const w = Math.max(1, Math.min(1920, Math.ceil(width * dpr * scale)));
     const h = Math.max(1, Math.min(1200, Math.ceil(height * dpr * scale)));
     if (this.reflection.width === w && this.reflection.height === h) return;
@@ -96,7 +90,7 @@ export class WaterOptics {
     const changed = !source.matrixWorld.equals(this.lastCamera) ||
       !source.projectionMatrix.equals(this.lastProjection) || nextUnder !== this.under;
     this.under = nextUnder;
-    const due = this.frame++ % OPTICS_PROFILES[this.quality].interval === 0;
+    const due = this.frame++ % QUALITY_PROFILES[this.quality].opticsCadence === 0;
     if (!this.dirty && !changed && !due) return;
     const hidden: Array<[THREE.Object3D, boolean]> = [];
     scene.traverse((o) => {

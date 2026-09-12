@@ -6,31 +6,22 @@
 
 ## Current
 
-**Resume instruction (2026-09-12):** User requested the full realism-upgrade plan
-be saved after interrupting implementation. See
-[`plans/018-realism-upgrade-execution.md`](../plans/018-realism-upgrade-execution.md).
-The user subsequently requested all remaining drafts be committed and pushed.
-They are preserved as an unfinished implementation checkpoint; committing them
-does not activate the modules or establish integration/visual acceptance.
-Checkpoint checks: typecheck and 14 focused sky-lighting/environment/resource
-tests passed. Full integrated browser/GPU verification remains outstanding.
-Implementation is paused at the user's planning request. The graphics
-modules and the modified resource helper are unverified drafts, not connected or
-accepted features. Preserve them; review the inventory in the new plan before
-resuming. The baseline passed 217 tests and the main build gate, but the new
-drafts have not passed an integrated gate. Local browser setup was incomplete
-when first attempted. The fleet importer fails on a clean install despite older
-claims below; the new plan records the missing dependency/source-manifest issue.
+**Resume instruction (2026-09-12):** Plan 018 implementation continued. Critical
+spectral blank-screen bug fixed (probe RT leak + GLSL surface split). Machine
+gates green on candidate: typecheck, 296 tests, build, smoke, `test:e2e:ocean`.
+Fresh analysis: `docs/release/realism-upgrade-review.md`. Defaults remain
+Gerstner + legacy-v1. Operator GPU/lighting/fleet gates still PENDING — do not
+self-approve or flip defaults.
 
 | Field              | Value                                                                                        |
 | ------------------ | -------------------------------------------------------------------------------------------- |
 | Product            | Solo patrol game (Silent Depths) on Vite + Three.js                                          |
 | Technical RC       | `solo-rc` / Plan 008 — **not** `solo-production`                                             |
-| Plan track         | 001–008 DONE · 011 DONE · **018 IN PROGRESS** (replaces 013/016 implementation)              |
+| Plan track         | 001–008 DONE · 011 DONE · **018 IN PROGRESS** (machine candidate; operator accept open)      |
 | Fleet content      | **models/v2** + manifest **v5** · `@gltf-transform/core` + `extensions` 4.5.0 declared       |
 | HUD                | Clarity pass 2026-08-04 (tooltips, fold Gear/Doctrine, plain labels)                         |
 | Open plans (order) | **018 ocean world** · 012 camera · 014 audio · **015 fleet** (partial) · 017 operator accept |
-| Dev URL note       | Preview used `http://127.0.0.1:8080/` for 018 checkpoint 0/1                                 |
+| Dev URL note       | Preview often `http://127.0.0.1:8082/` when 8080 is busy (`npx vite preview …`)               |
 
 ## Done recently (agent + tree)
 
@@ -50,19 +41,21 @@ claims below; the new plan records the missing dependency/source-manifest issue.
 | 4 Preload / hot-swap                    | DONE enough for daily play (player gate + contact refresh); delayed-GLB browser test still thin |
 | 5 Operator visual accept/waive per kind | **PENDING**                                                                                     |
 
-## Plan 018 snapshot (2026-09-11)
+## Plan 018 snapshot (2026-09-12)
 
 | Step                                         | Status                                                                            |
 | -------------------------------------------- | --------------------------------------------------------------------------------- |
 | 0 Dirty-tree baseline                        | DONE — inventory + seed 19/77 10k-tick snapshots in `artifacts/plan-018/`         |
 | 1 Three r185 + Gerstner controller           | DONE — PCFShadowMap I1 fix; smoke/E2E green                                       |
 | 2 Versioned world + unit bridge              | DONE (machine) — 24 m depth, packed R32F bed mask                                 |
-| 3 Spectral ocean in a real patrol            | DONE (machine) — `test:e2e:ocean` backend=spectral, ready; default still Gerstner |
-| 4 Optics, cameras, vessel attitude           | PARTIAL — chase/peri/crate Y; optical probes still open                           |
-| 5 Littoral-v2 shared world                   | DONE (CPU) — opt-in `?world=littoral-v2`; default legacy-v1                       |
+| 3 Spectral ocean in a real patrol            | DONE (machine) — `test:e2e:ocean` PASS after probe RT + GLSL fixes; opt-in only   |
+| 4 Optics, cameras, vessel attitude           | PARTIAL — wired; probes no longer steal canvas RT; POV matrix thin                |
+| 5 Littoral-v2 shared world                   | DONE (CPU) — `createGame(seed, world)`; opt-in `?world=littoral-v2`               |
 | 6 Terrain / foliage / weather / local assets | PARTIAL — weather + assets:validate; no local HDR/foliage pack                    |
 | 7 GPU bounds, lifecycle, fallback            | PARTIAL — quality lock + dispose tests; operator GPU PENDING                      |
 | 8 Operator accept + switch defaults          | PENDING — do not self-approve                                                     |
+
+Fresh analysis: [`docs/release/realism-upgrade-review.md`](../docs/release/realism-upgrade-review.md).
 
 ## Open issues (fix list)
 

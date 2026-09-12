@@ -171,6 +171,43 @@ describe('EnvironmentController', () => {
       ready: false,
     });
   });
+
+  it('stays not ready until context resources are rebuilt and preserves mission generation', async () => {
+    const original = new FakeBackend('gerstner');
+    const replacement = new FakeBackend('gerstner');
+    let finish!: (backend: EnvironmentBackend) => void;
+    const controller = new EnvironmentController({
+      backend: original,
+      factory: () =>
+        new Promise<EnvironmentBackend>((resolve) => {
+          finish = resolve;
+        }),
+    });
+    controller.reset(11);
+    controller.invalidateForContextLoss();
+    expect(controller.getDiagnostics()).toMatchObject({
+      ready: false,
+      recoveryStatus: 'lost',
+      missionGeneration: 11,
+    });
+
+    const pending = controller.recover(new AbortController().signal);
+    expect(controller.getDiagnostics()).toMatchObject({
+      ready: false,
+      recoveryStatus: 'rebuilding',
+    });
+    finish(replacement);
+    await pending;
+
+    expect(controller.current).toBe(replacement);
+    expect(replacement.resets).toEqual([11]);
+    expect(original.disposed).toBe(1);
+    expect(controller.getDiagnostics()).toMatchObject({
+      ready: true,
+      recoveryStatus: 'ready',
+      missionGeneration: 11,
+    });
+  });
 });
 
 describe('Ocean spectral texture bind', () => {

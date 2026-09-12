@@ -125,7 +125,8 @@ export class SkyLighting {
     this.material.uniforms.uSunDir.value.copy(state.sunDir);
     this.material.uniforms.uSunColor.value.copy(state.sunColor);
     this.material.uniforms.uCloudCoverage.value = THREE.MathUtils.clamp(state.cloudCoverage, 0, 1);
-    this.material.uniforms.uLightning.value = THREE.MathUtils.clamp(state.lightning, 0, 1);
+    // Lightning is presentation-only (hemi/ambient flash); never bake into lasting IBL.
+    this.material.uniforms.uLightning.value = 0;
 
     const next = this.pmrem.fromScene(this.captureScene, 0.04);
     const previous = this.target;

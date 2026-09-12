@@ -74,7 +74,7 @@ export class GerstnerBackend implements EnvironmentBackend {
 
   setQuality(profile: EnvironmentQuality): void {
     if (this.disposed) return;
-    this.ocean.setSegments(QUALITY_PROFILES[profile].waterSegments);
+    this.ocean.setQuality(QUALITY_PROFILES[profile]);
   }
 
   reset(missionGeneration: number): void {

@@ -12,6 +12,8 @@ export interface FloatTargetOptions {
 
 export interface RendererStateSnapshot {
   target: THREE.WebGLRenderTarget | null;
+  activeCubeFace: number;
+  activeMipmapLevel: number;
   viewport: THREE.Vector4;
   scissor: THREE.Vector4;
   scissorTest: boolean;
@@ -26,31 +28,65 @@ export interface RendererStateSnapshot {
   localClippingEnabled: boolean;
   clippingPlanes: THREE.Plane[];
   shadowMapEnabled: boolean;
+  shadowMapAutoUpdate: boolean;
+  shadowMapNeedsUpdate: boolean;
   xrEnabled: boolean;
 }
 
-export function supportsFloatColorBuffer(renderer: THREE.WebGLRenderer): boolean {
+export interface FloatFramebufferSupport {
+  supported: boolean;
+  reason: string | null;
+}
+
+export function validateFloatFramebuffer(
+  renderer: THREE.WebGLRenderer,
+): FloatFramebufferSupport {
   let target: THREE.WebGLRenderTarget | null = null;
   try {
     const advertised =
       renderer.extensions.has('EXT_color_buffer_float') ||
       renderer.extensions.has('WEBGL_color_buffer_float');
-    if (!advertised) return false;
+    if (!advertised) {
+      return { supported: false, reason: 'floating-point color-buffer extension unavailable' };
+    }
 
-    // Extensions occasionally survive context/driver combinations that cannot
-    // actually complete a floating-point framebuffer. Force allocation and ask
-    // WebGL for the real status before committing the considerably larger FFT set.
     target = createFloatTarget({ width: 1, height: 1, type: THREE.FloatType });
     return withRendererPass(renderer, () => {
       renderer.setRenderTarget(target);
+      renderer.clear();
       const gl = renderer.getContext();
-      return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+      const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+      if (status !== gl.FRAMEBUFFER_COMPLETE) {
+        return {
+          supported: false,
+          reason: `floating-point framebuffer incomplete (0x${status.toString(16)})`,
+        };
+      }
+      const pixel = new Float32Array(4);
+      renderer.readRenderTargetPixels(target!, 0, 0, 1, 1, pixel);
+      const error = gl.getError();
+      if (error !== gl.NO_ERROR) {
+        return {
+          supported: false,
+          reason: `floating-point framebuffer readback failed (0x${error.toString(16)})`,
+        };
+      }
+      return { supported: true, reason: null };
     });
-  } catch {
-    return false;
+  } catch (error) {
+    return {
+      supported: false,
+      reason: `floating-point framebuffer validation failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
   } finally {
     target?.dispose();
   }
+}
+
+export function supportsFloatColorBuffer(renderer: THREE.WebGLRenderer): boolean {
+  return validateFloatFramebuffer(renderer).supported;
 }
 
 export function createFloatTarget(options: FloatTargetOptions): THREE.WebGLRenderTarget {
@@ -94,6 +130,27 @@ export function disposeMaterial(material: THREE.Material | null | undefined): vo
   material?.dispose();
 }
 
+export function replaceOwnedResources<T>(
+  current: T,
+  create: () => T,
+  activate: (resources: T) => void,
+  dispose: (resources: T) => void,
+): T {
+  const replacement = create();
+  try {
+    activate(replacement);
+  } catch (error) {
+    try {
+      activate(current);
+    } finally {
+      dispose(replacement);
+    }
+    throw error;
+  }
+  dispose(current);
+  return replacement;
+}
+
 export function createSpectrumDataTexture(data: Float32Array, size: number): THREE.DataTexture {
   const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.FloatType);
   texture.needsUpdate = true;
@@ -109,6 +166,8 @@ export function createSpectrumDataTexture(data: Float32Array, size: number): THR
 export function captureRendererState(renderer: THREE.WebGLRenderer): RendererStateSnapshot {
   return {
     target: renderer.getRenderTarget(),
+    activeCubeFace: renderer.getActiveCubeFace(),
+    activeMipmapLevel: renderer.getActiveMipmapLevel(),
     viewport: renderer.getViewport(new THREE.Vector4()),
     scissor: renderer.getScissor(new THREE.Vector4()),
     scissorTest: renderer.getScissorTest(),
@@ -123,6 +182,8 @@ export function captureRendererState(renderer: THREE.WebGLRenderer): RendererSta
     localClippingEnabled: renderer.localClippingEnabled,
     clippingPlanes: renderer.clippingPlanes.slice(),
     shadowMapEnabled: renderer.shadowMap.enabled,
+    shadowMapAutoUpdate: renderer.shadowMap.autoUpdate,
+    shadowMapNeedsUpdate: renderer.shadowMap.needsUpdate,
     xrEnabled: renderer.xr.enabled,
   };
 }
@@ -131,7 +192,7 @@ export function restoreRendererState(
   renderer: THREE.WebGLRenderer,
   snapshot: RendererStateSnapshot,
 ): void {
-  renderer.setRenderTarget(snapshot.target);
+  renderer.setRenderTarget(snapshot.target, snapshot.activeCubeFace, snapshot.activeMipmapLevel);
   renderer.setViewport(snapshot.viewport);
   renderer.setScissor(snapshot.scissor);
   renderer.setScissorTest(snapshot.scissorTest);
@@ -145,16 +206,26 @@ export function restoreRendererState(
   renderer.localClippingEnabled = snapshot.localClippingEnabled;
   renderer.clippingPlanes = snapshot.clippingPlanes;
   renderer.shadowMap.enabled = snapshot.shadowMapEnabled;
+  renderer.shadowMap.autoUpdate = snapshot.shadowMapAutoUpdate;
+  renderer.shadowMap.needsUpdate = snapshot.shadowMapNeedsUpdate;
   renderer.xr.enabled = snapshot.xrEnabled;
 }
 
 export function withRendererPass<T>(renderer: THREE.WebGLRenderer, fn: () => T): T {
   const snapshot = captureRendererState(renderer);
+  let result: T;
   try {
-    return fn();
-  } finally {
-    restoreRendererState(renderer, snapshot);
+    result = fn();
+  } catch (error) {
+    try {
+      restoreRendererState(renderer, snapshot);
+    } catch (restoreError) {
+      console.error('[silent-depths] renderer state restoration failed', restoreError);
+    }
+    throw error;
   }
+  restoreRendererState(renderer, snapshot);
+  return result;
 }
 
 export class SimulationPass {

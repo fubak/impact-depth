@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "stagingRoot": "tests/fixtures/fleet-import/staging",
+  "outputDir": "tests/fixtures/fleet-import/out",
+  "reportDir": "tests/fixtures/fleet-import",
+  "entities": {
+    "torpedo": {
+      "input": "torpedo-source.glb",
+      "targetLengthM": 1.6,
+      "licenseId": "procedural-fleet-class-hulls-v3",
+      "source": "project-owned procedural torpedo fixture",
+      "license": "project-owned",
+      "usage": "importer startup test fixture"
+    }
+  }
+}

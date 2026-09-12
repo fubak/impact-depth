@@ -41,6 +41,8 @@ export interface EnvironmentFrame {
   followZ: number;
   readability: { clarity: number; absorption: number };
   wakes: readonly WakeBody[];
+  terrainSeed?: number;
+  worldVersion?: WorldVersion;
 }
 
 export interface EnvironmentDiagnostics {
@@ -50,6 +52,7 @@ export interface EnvironmentDiagnostics {
   fallbackReason: string | null;
   missionGeneration: number;
   worldVersion: WorldVersion;
+  recoveryStatus?: 'ready' | 'lost' | 'rebuilding' | 'failed';
 }
 
 export interface EnvironmentBackend {
@@ -59,6 +62,7 @@ export interface EnvironmentBackend {
   resize(width: number, height: number, dpr: number): void;
   setQuality(profile: EnvironmentQuality): void;
   reset(missionGeneration: number): void;
+  rebind?(): void;
   getDiagnostics(): EnvironmentDiagnostics;
   dispose(): void;
 }

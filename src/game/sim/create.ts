@@ -1,6 +1,18 @@
-import { DEFAULT_CRUISE, FOB_RADIUS, WORLD_CENTER, WORLD_SIZE } from './constants';
+import { DEFAULT_CRUISE, FOB_RADIUS, WORLD_CENTER } from './constants';
 import type { FormationRole, GameState, Point, Powerup, Ship, ShipKind, Submarine } from './types';
-import { createTerrain, snapToNavigable } from './world';
+import { createTerrain, snapToNavigable, type Terrain } from './world';
+import type { WorldVersion } from '../world/definition';
+import {
+  enemySubNavProfile,
+  missionBaseSim,
+  missionConvoyApproachSim,
+  missionStartSim,
+  playerNavProfile,
+  snapWorld,
+  surfaceShipNavProfile,
+} from '../world/littoral';
+import { getWorld } from '../world/queries';
+import { shipClearRadius } from './pathfinding';
 
 const escortKinds: ReadonlySet<ShipKind> = new Set(['destroyer', 'patrol', 'cruiser']);
 const formationRoleCycle: readonly FormationRole[] = ['lead', 'wing', 'trail'];
@@ -69,33 +81,58 @@ const shipStats: Record<ShipKind, { hp: number; speed: number; name: string }> =
 };
 const powerupKinds: Powerup['kind'][] = ['health', 'ammo', 'hull', 'weapon', 'speed', 'counter'];
 
+function snapSpawn(
+  seed: number,
+  worldVersion: WorldVersion,
+  x: number,
+  y: number,
+  profile: ReturnType<typeof playerNavProfile>,
+  legacyDepth: number,
+): Point {
+  if (worldVersion === 'legacy-v1') {
+    return snapToNavigable(createTerrain(seed), x, y, legacyDepth);
+  }
+  return snapWorld(getWorld(worldVersion, seed), x, y, profile);
+}
+
+function shipProfile(kind: ShipKind) {
+  return kind === 'sub' ? enemySubNavProfile() : surfaceShipNavProfile(shipClearRadius(kind));
+}
+
 /** Deterministic closed patrol loop around a spawn cell. */
 function seedPatrolPath(
-  terrain: ReturnType<typeof createTerrain>,
+  terrain: Terrain | null,
   cx: number,
   cy: number,
   radius: number,
   count: number,
   seed: number,
   index: number,
+  worldVersion: WorldVersion,
+  kind: ShipKind,
 ): Point[] {
   const points: Point[] = [];
   for (let step = 0; step < count; step++) {
     const angle = (((seed + index * 41 + step * Math.floor(360 / count)) % 360) * Math.PI) / 180;
-    const point = snapToNavigable(
-      terrain,
-      cx + Math.cos(angle) * radius,
-      cy + Math.sin(angle) * radius,
-      0.2,
-    );
+    const x = cx + Math.cos(angle) * radius;
+    const y = cy + Math.sin(angle) * radius;
+    const point =
+      worldVersion === 'legacy-v1'
+        ? snapToNavigable(terrain!, x, y, 0.2)
+        : snapWorld(getWorld(worldVersion, seed), x, y, shipProfile(kind));
     points.push(point);
   }
   return points;
 }
 
 /** Deterministic wave data; doctrine is intentionally left to Plan 005. */
-export function seedWave(seed: number, wave: number, firstFreighter?: Ship): Ship[] {
-  const terrain = createTerrain(seed);
+export function seedWave(
+  seed: number,
+  wave: number,
+  firstFreighter?: Ship,
+  worldVersion: WorldVersion = 'legacy-v1',
+): Ship[] {
+  const terrain = worldVersion === 'legacy-v1' ? createTerrain(seed) : null;
   // Wave 1: fewer escorts so the opening patrol is tense but fair.
   const escortCount = wave === 1 ? 1 : 2 + Math.min(3, wave);
   const merchantCount = 2 + Math.min(3, wave);
@@ -112,12 +149,12 @@ export function seedWave(seed: number, wave: number, firstFreighter?: Ship): Shi
     const angle = ((seed + wave * 29 + index * 47) % 360) * (Math.PI / 180);
     // Scaled for 128 map — stay outside ~17u passive detection envelope.
     const radius = 34 + (index % 3) * 8;
-    const point = snapToNavigable(
-      terrain,
-      WORLD_CENTER + 2 + Math.cos(angle) * radius,
-      WORLD_CENTER + Math.sin(angle) * radius,
-      0.2,
-    );
+    const spawnX = WORLD_CENTER + 2 + Math.cos(angle) * radius;
+    const spawnY = WORLD_CENTER + Math.sin(angle) * radius;
+    const point =
+      worldVersion === 'legacy-v1'
+        ? snapToNavigable(terrain!, spawnX, spawnY, 0.2)
+        : snapWorld(getWorld(worldVersion, seed), spawnX, spawnY, shipProfile(kind));
     const stats = shipStats[kind];
     // Wave-1 weapon grace: escorts/subs cannot fire in the first seconds.
     const weaponCooldown = wave === 1 ? 6 + (index % 4) * 1.5 : 0;
@@ -130,6 +167,8 @@ export function seedWave(seed: number, wave: number, firstFreighter?: Ship): Shi
       kind === 'merchant' ? 4 : 5,
       seed,
       index,
+      worldVersion,
+      kind,
     );
     if (index === 0 && firstFreighter) {
       return {
@@ -198,16 +237,20 @@ export function seedWave(seed: number, wave: number, firstFreighter?: Ship): Shi
   });
 }
 
-export function seedPowerups(seed: number, count = 7): Powerup[] {
-  const terrain = createTerrain(seed);
+export function seedPowerups(
+  seed: number,
+  count = 7,
+  worldVersion: WorldVersion = 'legacy-v1',
+): Powerup[] {
+  const terrain = worldVersion === 'legacy-v1' ? createTerrain(seed) : null;
   return Array.from({ length: count }, (_, index) => {
     const angle = ((seed * 13 + index * 53) % 360) * (Math.PI / 180);
-    const point = snapToNavigable(
-      terrain,
-      WORLD_CENTER + Math.cos(angle) * (9 + index * 2.5),
-      WORLD_CENTER + Math.sin(angle) * (9 + index * 2.5),
-      0.4,
-    );
+    const x = WORLD_CENTER + Math.cos(angle) * (9 + index * 2.5);
+    const y = WORLD_CENTER + Math.sin(angle) * (9 + index * 2.5);
+    const point =
+      worldVersion === 'legacy-v1'
+        ? snapToNavigable(terrain!, x, y, 0.4)
+        : snapWorld(getWorld(worldVersion, seed), x, y, playerNavProfile(0.28));
     return {
       id: `pickup-${index}`,
       kind: powerupKinds[index % powerupKinds.length]!,
@@ -217,16 +260,29 @@ export function seedPowerups(seed: number, count = 7): Powerup[] {
     };
   });
 }
-export function createGame(seed = 1): GameState {
-  const terrain = createTerrain(seed);
-  const player = snapToNavigable(terrain, WORLD_CENTER - 6 + (seed % 7), WORLD_CENTER, 0.45);
-  const freighter = snapToNavigable(
-    terrain,
-    WORLD_CENTER + 9 + ((seed >>> 3) % 9),
-    WORLD_CENTER + ((seed >>> 6) % 7),
-    0.1,
+export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): GameState {
+  const terrain = worldVersion === 'legacy-v1' ? createTerrain(seed) : null;
+  const playerStart = missionStartSim(seed);
+  const convoyStart = missionConvoyApproachSim(seed);
+  const baseStart = missionBaseSim();
+  const player = snapSpawn(
+    seed,
+    worldVersion,
+    playerStart.x,
+    playerStart.y,
+    playerNavProfile(0.28),
+    0.45,
   );
-  const base = snapToNavigable(terrain, WORLD_SIZE * 0.08, WORLD_SIZE * 0.08, 0.2);
+  const freighter =
+    worldVersion === 'legacy-v1'
+      ? snapToNavigable(terrain!, convoyStart.x, convoyStart.y, 0.1)
+      : snapWorld(
+          getWorld(worldVersion, seed),
+          convoyStart.x,
+          convoyStart.y,
+          surfaceShipNavProfile(shipClearRadius('merchant')),
+        );
+  const base = snapSpawn(seed, worldVersion, baseStart.x, baseStart.y, playerNavProfile(0.5), 0.2);
   const heading = Math.atan2(freighter.y - player.y, freighter.x - player.x);
   return {
     phase: 'menu',
@@ -261,7 +317,7 @@ export function createGame(seed = 1): GameState {
     powerups: [],
     base: { x: base.x, y: base.y, radius: FOB_RADIUS },
     terrainSeed: seed >>> 0,
-    worldVersion: 'legacy-v1',
+    worldVersion,
     sonarContacts: [],
     autopilot: {
       enabled: false,

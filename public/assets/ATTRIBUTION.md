@@ -2,8 +2,8 @@
 
 Production meshes: **`public/assets/models/v2/`** (manifest v5).  
 SSOT for license strings: `manifest.json` → `licenseLedger`.  
-Staging map: `artifacts/fleet-sources/sources.json`.  
-Re-import: place local sources → `npm run assets:import-modern` → `npm run assets:validate`.  
+Staging contract: `config/fleet-source-manifest.json` (sources under `artifacts/fleet-sources/`).  
+Re-import: stage local sources → `npm run assets:import-modern -- --validate` → import → `npm run assets:validate`.  
 In-game credits: Look-dev panel → **ASSET CREDITS**.
 
 | Entity | Model / pack | Author | License | Path |

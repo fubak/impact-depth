@@ -1,17 +1,48 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { LookDevSettings, SimState } from '../core/types';
 import { sampleSeabedY } from '../core/terrain';
 import type { GameState } from '../game/sim/types';
-import { getWorld } from '../game/world/queries';
+import { worldMetersToSim } from '../game/sim/coords';
+import { getWorld, worldHeight } from '../game/world/queries';
+import { sampleLittoralBedMetres } from '../game/world/littoral';
 import { worldCacheKey } from '../game/world/definition';
-import { packWorldHeightTexture } from './environment/terrain-texture';
+import {
+  normalizedBedToMetres,
+  packWorldHeightTexture,
+} from './environment/terrain-texture';
 import {
   entityDepthY,
   metersToEntityY,
   simToWorldMeters,
   SURFACE_SPLASH_Y,
 } from './presentation/coordinates';
+import {
+  VesselAttitudeSmoother,
+  attitudeSpanForKind,
+  groupFootprint,
+  type VesselAttitudeResult,
+} from './presentation/vessel-attitude';
+import { immersionFogFactor, updateImmersion } from './presentation/immersion';
+import {
+  SurfaceProbeQueue,
+  buildFootprintRequests,
+  probeSampleId,
+  type SurfaceProbeMaps,
+  type SurfaceProbeRequest,
+} from './ocean/surface-probes';
+import { DEFAULT_CASCADES } from './ocean/spectrum';
+import { excludeFromWaterCapture, WaterOptics } from './ocean/optics';
+import {
+  UnderwaterCaustics,
+  type CausticReceiverRole,
+  type CausticSurfaceMaps,
+} from './ocean/caustics';
+import {
+  SurfaceEffects,
+  type SurfaceCrestSample,
+  type SurfaceWakeBody,
+  type SubmergedEmitter,
+} from './ocean/surface-effects';
 import { Atmosphere } from './atmosphere';
 import {
   AssetRegistry,
@@ -21,8 +52,10 @@ import {
   type AssetMeshSource,
 } from './assets';
 import { IslandField } from './islands';
+import { OutdoorLighting } from './environment/outdoor-lighting';
 import { updateEntityLods, wrapWithLod } from './lod';
 import { EnvironmentController } from './environment/controller';
+import type { WorldVersion } from './environment/types';
 import { WeatherController, presentationOcean } from './environment/weather';
 import { Ocean } from './ocean';
 import { GerstnerBackend } from './ocean/gerstner-backend';
@@ -52,6 +85,9 @@ type ShipVisual = { mesh: THREE.Group; wake: THREE.Mesh; beacon: THREE.Mesh; hit
 export class GameScene {
   readonly scene = new THREE.Scene();
   readonly ocean: Ocean;
+  readonly optics: WaterOptics;
+  readonly caustics: UnderwaterCaustics;
+  readonly surfaceEffects: SurfaceEffects;
   readonly environment: EnvironmentController;
   readonly seabed: Seabed;
   readonly atmosphere: Atmosphere;
@@ -65,7 +101,7 @@ export class GameScene {
   readonly labelsRoot = new THREE.Group();
   readonly tacticalGrid: THREE.GridHelper;
   private readonly labelSprites = new Map<string, THREE.Sprite>();
-  private envMap: THREE.Texture | null = null;
+  private readonly outdoorLighting = new OutdoorLighting();
   private readonly subHit: THREE.Mesh;
   private readonly subBeacon: THREE.Mesh;
   private heightFieldKey = '';
@@ -73,6 +109,35 @@ export class GameScene {
   private envQuality: QualityProfile['name'] = 'high';
   private reducedMotion = false;
   private readonly weather = new WeatherController();
+  private currentTerrainSeed = 0;
+  private currentWorldVersion: WorldVersion = 'legacy-v1';
+  private readonly probes = new SurfaceProbeQueue(32);
+  private readonly attitudes = new VesselAttitudeSmoother();
+  private missionGeneration = 0;
+  private probeBackendGeneration = 0;
+  private lastBackendName: string | null = null;
+  private lastWaterHeight: number | null = null;
+  private lastSimTime = 0;
+  private immersionUnder = false;
+  private lastProbeSubjects: Array<{
+    entityId: string;
+    x: number;
+    z: number;
+    heading: number;
+    span: number;
+    depth: number;
+  }> = [];
+  private presentationTime = 0;
+  private presentationPaused = false;
+  private presentationWindDetail = 0.5;
+  private lastSeaState = 0.32;
+  private lastWaveHeight = 0.55;
+  private lastSunDir = { x: 0.4, y: 0.8, z: 0.2 };
+  private lastHistoryDt = 1 / 60;
+  private lastEffectWakes: SurfaceWakeBody[] = [];
+  private lastEffectCrests: SurfaceCrestSample[] = [];
+  private lastEffectSubmerged: SubmergedEmitter[] = [];
+  private readonly splashIds = new Set<string>();
 
   constructor() {
     this.scene.background = new THREE.Color(0xd5efff);
@@ -85,6 +150,11 @@ export class GameScene {
     this.scene.add(this.seabed.mesh);
 
     this.islands = new IslandField();
+    this.islands.setQuality({
+      vegetationDensity: 0.8,
+      vegetationLodDistance: 120,
+      vegetationShadows: true,
+    });
     this.scene.add(this.islands.group);
 
     // Stable transform shell; mesh children appear only after asset preload settles
@@ -105,6 +175,13 @@ export class GameScene {
     // Transparent water after opaque littoral + vessels
     this.ocean = new Ocean(720, 220);
     this.scene.add(this.ocean.mesh);
+    this.optics = new WaterOptics();
+    this.caustics = new UnderwaterCaustics(this.envQuality);
+    this.surfaceEffects = new SurfaceEffects({ quality: this.envQuality });
+    this.scene.add(this.surfaceEffects.group);
+    this.caustics.attachToObject(this.seabed.mesh, 'seabed');
+    this.caustics.attachToObject(this.islands.group, 'rock');
+    excludeFromWaterCapture(this.surfaceEffects.group);
     const gerstner = new GerstnerBackend(this.ocean);
     this.environment = new EnvironmentController({
       backend: gerstner,
@@ -115,14 +192,23 @@ export class GameScene {
           if (!this.glRenderer) {
             throw new Error('spectral backend requires an injected WebGLRenderer');
           }
+          const bedSampler = (worldX: number, worldZ: number): number => {
+            const world = getWorld(this.currentWorldVersion, this.currentTerrainSeed);
+            if (world.version === 'littoral-v2') {
+              return sampleLittoralBedMetres(world, worldX, worldZ);
+            }
+            const sim = worldMetersToSim(worldX, worldZ);
+            return normalizedBedToMetres(worldHeight(world, sim.x, sim.y));
+          };
           return createSpectralBackend(
             {
               renderer: this.glRenderer,
               ocean: this.ocean,
               quality: this.envQuality,
-              worldVersion: this.environment.getDiagnostics().worldVersion,
+              worldVersion: this.currentWorldVersion,
               requestedBackend: 'spectral',
               seed: 19,
+              bedSampler,
             },
             signal,
           );
@@ -153,6 +239,7 @@ export class GameScene {
       this.rangeRings.add(ring);
     }
     this.scene.add(this.rangeRings);
+    excludeFromWaterCapture(this.rangeRings);
 
     this.tacticalGrid = new THREE.GridHelper(240, 24, 0x5a8a92, 0x3a6068);
     this.tacticalGrid.position.y = 0.04;
@@ -169,6 +256,11 @@ export class GameScene {
     this.scene.add(this.tacticalGrid);
     this.scene.add(this.labelsRoot);
     this.scene.add(this.vfx.group);
+    excludeFromWaterCapture(this.tacticalGrid);
+    excludeFromWaterCapture(this.labelsRoot);
+    excludeFromWaterCapture(this.vfx.group);
+    excludeFromWaterCapture(this.subBeacon);
+    excludeFromWaterCapture(this.subHit);
     void this.assets.preload().then(() => {
       this.mountPlayerMesh();
       this.refreshShipMeshesFromAssets();
@@ -222,6 +314,7 @@ export class GameScene {
     this.sub.userData.assetSource = gltf ? 'gltf' : 'procedural';
     this.sub.userData.hasLod = true;
     this.sub.visible = true;
+    this.caustics.attachToObject(this.sub, 'hull');
   }
 
   /** After preload, rebuild contact meshes that had to use procedural fall-through. */
@@ -239,6 +332,7 @@ export class GameScene {
       this.scene.remove(entity.mesh);
       this.disposeGroup(entity.mesh);
       this.scene.add(next);
+      this.caustics.attachToObject(next, 'hull');
       entity.mesh = next;
     }
   }
@@ -289,6 +383,35 @@ export class GameScene {
     return null;
   }
 
+  /**
+   * Screen-space proximity pick for tiny distant hulls. Does not use world
+   * distance — empty water next to a nearby ship must still plot a waypoint.
+   */
+  pickShipIdNearScreen(
+    clientX: number,
+    clientY: number,
+    canvas: DOMRect,
+    camera: THREE.Camera,
+    maxPixels = 28,
+  ): string | null {
+    let bestId: string | null = null;
+    let bestDist = maxPixels;
+    const ndc = new THREE.Vector3();
+    for (const [id, entity] of this.shipEntities) {
+      ndc.setFromMatrixPosition(entity.mesh.matrixWorld);
+      ndc.project(camera);
+      if (ndc.z < -1 || ndc.z > 1) continue;
+      const sx = (ndc.x * 0.5 + 0.5) * canvas.width + canvas.left;
+      const sy = (-ndc.y * 0.5 + 0.5) * canvas.height + canvas.top;
+      const dist = Math.hypot(sx - clientX, sy - clientY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestId = id;
+      }
+    }
+    return bestId;
+  }
+
   private tagPickId(root: THREE.Object3D, pickId: string): void {
     root.userData.pickId = pickId;
     root.traverse((object) => {
@@ -312,11 +435,21 @@ export class GameScene {
     });
   }
 
-  /** Dense volume fog when the eye is below the sea plane. */
+  /** Latest sampled (or mean-sea) height for camera immersion. Presentation only. */
+  get sampledWaterHeight(): number | null {
+    return this.lastWaterHeight;
+  }
+
+  /** Dense volume fog when the eye is below the sampled surface (hysteresis). */
   applyImmersion(camera: THREE.Camera): void {
-    const y = camera.position.y;
-    if (y >= 0.85) return;
-    const t = THREE.MathUtils.clamp((0.85 - y) / 12, 0, 1);
+    const next = updateImmersion({
+      eyeY: camera.position.y,
+      sampledWaterHeight: this.lastWaterHeight,
+      previousUnderwater: this.immersionUnder,
+    });
+    this.immersionUnder = next.underwater;
+    if (!next.underwater) return;
+    const t = immersionFogFactor(camera.position.y, next.waterHeight, true);
     const fog = new THREE.Color().setRGB(0.02, 0.1, 0.13);
     this.scene.background = fog;
     this.scene.fog = new THREE.FogExp2(fog.getHex(), 0.02 + t * 0.065);
@@ -325,25 +458,55 @@ export class GameScene {
     this.atmosphere.ambient.intensity *= 1 - t * 0.35;
   }
 
-  /** Soft studio IBL so MeshStandard hulls/land respond without going black. */
+  /** Procedural outdoor PMREM aligned with sun/sky/weather (replaces studio RoomEnvironment). */
   bindEnvironment(renderer: THREE.WebGLRenderer): void {
     this.glRenderer = renderer;
-    if (this.envMap) return;
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    this.envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environment = this.envMap;
-    this.scene.environmentIntensity = 0.95;
-    pmrem.dispose();
+    this.outdoorLighting.bind(renderer, this.scene);
+  }
+
+  invalidateForContextLoss(): void {
+    this.environment.invalidateForContextLoss();
+  }
+
+  async recoverPresentationResources(
+    renderer: THREE.WebGLRenderer,
+    camera: THREE.Camera,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await this.environment.recover(signal);
+    if (signal.aborted) throw signal.reason;
+    this.outdoorLighting.dispose();
+    this.outdoorLighting.bind(renderer, this.scene);
+    this.optics.reset();
+    this.caustics.reset(this.missionGeneration);
+    await renderer.compileAsync(this.scene, camera);
+    if (signal.aborted) throw signal.reason;
   }
 
   setQuality(profile: QualityProfile): void {
     this.envQuality = profile.name;
     this.environment.setQuality(profile.name);
+    this.islands.setQuality(profile);
     this.vfx.setCap(profile.particleCap);
+    this.optics.setQuality(profile.name);
+    this.caustics.setQuality(profile.name);
+    this.surfaceEffects.setQuality(profile.name);
+  }
+
+  getOutdoorLightingDiagnostics() {
+    return this.outdoorLighting.getDiagnostics();
   }
 
   setReducedMotion(value: boolean): void {
     this.reducedMotion = value;
+    this.surfaceEffects.setReducedMotion(value);
+  }
+
+  /** Apply URL/runtime world before spectral backend activation. */
+  setPresentationWorld(version: WorldVersion, terrainSeed = 0): void {
+    this.currentWorldVersion = version;
+    this.currentTerrainSeed = terrainSeed;
+    this.environment.setWorldVersion(version);
   }
 
   get weatherLightning(): number {
@@ -351,13 +514,28 @@ export class GameScene {
   }
 
   resetEnvironment(missionGeneration: number): void {
+    this.missionGeneration = missionGeneration;
+    this.probeBackendGeneration += 1;
+    this.probes.reset();
+    this.attitudes.reset();
+    this.lastWaterHeight = null;
+    this.immersionUnder = false;
+    this.lastProbeSubjects = [];
     this.weather.reset();
     this.atmosphere.reset();
+    this.outdoorLighting.reset();
     this.environment.reset(missionGeneration);
+    this.optics.reset();
+    this.caustics.reset(missionGeneration);
+    this.surfaceEffects.reset(missionGeneration);
+    this.ocean.bindOptics(null);
+    this.splashIds.clear();
   }
 
   resize(width: number, height: number, dpr = 1): void {
     this.environment.resize(width, height, dpr);
+    this.optics.resize(width, height, dpr);
+    this.caustics.resize(width, height, dpr);
   }
 
   /** CheapWater ripple normals — must run with the same camera as the main pass. */
@@ -367,12 +545,65 @@ export class GameScene {
       backend.bindPassTargets(renderer, camera);
     }
     this.environment.renderPasses();
+    this.submitSurfaceProbes(renderer, camera);
     updateEntityLods(this.sub, camera);
     for (const entity of this.shipEntities.values()) {
       updateEntityLods(entity.mesh, camera);
     }
     for (const entity of this.entities.values()) {
       updateEntityLods(entity, camera);
+    }
+    this.islands.updatePresentation(
+      this.presentationTime,
+      this.presentationWindDetail,
+      camera.position,
+      this.presentationPaused,
+      this.reducedMotion,
+    );
+    const maps = this.spectralSurfaceMaps();
+    const coastal = this.ocean.coastalTexture();
+    const coastalOrigin = this.ocean.coastalOrigin();
+    this.caustics.update(renderer, {
+      time: this.presentationTime,
+      dt: this.lastHistoryDt,
+      paused: this.presentationPaused,
+      followX: this.ocean.mesh.position.x,
+      followZ: this.ocean.mesh.position.z,
+      sunDir: this.lastSunDir,
+      waveHeight: this.lastWaveHeight,
+      seaState: this.lastSeaState,
+      storm: this.lastSeaState >= 0.6 ? 1 : 0,
+      maps,
+      bed: this.ocean.bedBind(),
+      coastal,
+      coastalOrigin: coastal ? { x: coastalOrigin.x, z: coastalOrigin.z } : undefined,
+      coastalExtent: coastal ? coastalOrigin.extent : undefined,
+      swellDirection: this.ocean.swellDirection(),
+    });
+    this.optics.render(
+      renderer,
+      this.scene,
+      camera,
+      this.ocean.mesh,
+      this.lastWaterHeight ?? 0,
+    );
+    this.ocean.bindOptics(this.optics);
+    this.surfaceEffects.update({
+      time: this.presentationTime,
+      dt: this.lastHistoryDt,
+      paused: this.presentationPaused,
+      reducedMotion: this.reducedMotion,
+      followX: this.ocean.mesh.position.x,
+      followZ: this.ocean.mesh.position.z,
+      cameraY: camera.position.y,
+      seaState: this.lastSeaState,
+      crests: this.lastEffectCrests,
+      wakes: this.lastEffectWakes,
+      submerged: this.lastEffectSubmerged,
+    });
+    // Aux FFT/optics/probe passes must not leave a bound target for the canvas frame.
+    if (renderer.getRenderTarget() !== null) {
+      renderer.setRenderTarget(null);
     }
   }
 
@@ -381,6 +612,8 @@ export class GameScene {
     const key = worldCacheKey(world.version, world.seed, world.size);
     if (key === this.heightFieldKey) return;
     this.heightFieldKey = key;
+    this.currentTerrainSeed = game.terrainSeed;
+    this.currentWorldVersion = game.worldVersion;
     const packed = packWorldHeightTexture(world);
     const backend = this.environment.current;
     if (backend instanceof GerstnerBackend) backend.bindHeightField(packed);
@@ -408,6 +641,8 @@ export class GameScene {
         entity = this.resolveEntityMesh(kind);
         this.entities.set(id, entity);
         this.scene.add(entity);
+        const role = this.receiverRoleForKind(kind);
+        if (role) this.caustics.attachToObject(entity, role);
       }
       entity.position.set(x, y, z);
       entity.rotation.y = -heading;
@@ -428,8 +663,10 @@ export class GameScene {
     for (const charge of game.depthCharges) {
       const p = simToWorldMeters(charge.x, charge.y);
       add(`charge:${charge.id}`, 'torpedo', p.x, entityDepthY(charge.z), p.z);
-      if (charge.fuse < 0.35)
+      if (charge.fuse < 0.35) {
         this.vfx.emit('plume', new THREE.Vector3(p.x, entityDepthY(charge.z), p.z), game.time);
+        this.emitCombatSplash(`charge:${charge.id}`, p.x, entityDepthY(charge.z), p.z, 1.4, 'burst');
+      }
     }
     for (const aircraft of game.aircraft.filter((a) => a.active)) {
       const p = simToWorldMeters(aircraft.x, aircraft.y);
@@ -438,6 +675,12 @@ export class GameScene {
     for (const powerup of game.powerups) {
       const p = simToWorldMeters(powerup.x, powerup.y);
       add(`powerup:${powerup.id}`, 'crate', p.x, SURFACE_SPLASH_Y, p.z);
+    }
+    for (const ship of game.ships) {
+      if (ship.sinking !== undefined) {
+        const p = simToWorldMeters(ship.x, ship.y);
+        this.emitCombatSplash(`sink:${ship.id}`, p.x, SURFACE_SPLASH_Y, p.z, 1.6, 'burst');
+      }
     }
     const base = simToWorldMeters(game.base.x, game.base.y);
     add('fob:argus', 'fob_argus', base.x, 0.5, base.z);
@@ -602,6 +845,19 @@ export class GameScene {
         fogDensity: weather.gains.fogDensity,
       },
     );
+    this.outdoorLighting.update({
+      atmosphere: atmo,
+      cloudCoverage: weather.gains.cloudCoverage,
+      lightning: weather.lightning,
+      nowSeconds: sim.time,
+    });
+    this.presentationTime = sim.time;
+    this.presentationPaused = sim.paused;
+    this.presentationWindDetail = weather.gains.windDetail;
+    this.lastHistoryDt = historyDt;
+    this.lastSeaState = settings.ocean.seaState;
+    this.lastWaveHeight = settings.ocean.waveHeight;
+    this.lastSunDir = { x: atmo.sunDir.x, y: atmo.sunDir.y, z: atmo.sunDir.z };
     // Soften world fog while deep so surface contacts stay readable from below.
     if (this.scene.fog instanceof THREE.FogExp2 && sim.vessel.depth > 2.5) {
       const punch = Math.min(0.78, (sim.vessel.depth - 2.5) / 14);
@@ -613,16 +869,22 @@ export class GameScene {
 
     const v = sim.vessel;
     const selectedId = selectedTargetId;
-    const spectralBoost = this.environment.getDiagnostics().backend === 'spectral' ? 1.28 : 1;
+    this.lastSimTime = sim.time;
+    this.noteBackendGeneration();
+    const poses = this.consumeVesselAttitudes(sim, dt);
+    const playerPose = poses.get('player');
     const seabedY = sampleSeabedY(v.x, v.z);
-    const rawSubY = metersToEntityY(v.depth) + v.heave * spectralBoost;
+    // Probe heave replaces the old spectral 1.28 multiplier. GPU samples never
+    // write GameState; missing/stale probes use look-dev fallback heave.
+    const rawSubY = metersToEntityY(v.depth) + (playerPose?.presentationY ?? v.heave);
     // Keep the hull above the bathymetry mesh at every depth order.
     const subY = Math.max(rawSubY, seabedY + 1.6);
     this.sub.position.set(v.x, subY, v.z);
     this.sub.rotation.order = 'YXZ';
     this.sub.rotation.y = -v.heading;
-    this.sub.rotation.x = v.pitch * (v.depth < 4 ? 1 : 0.35);
-    this.sub.rotation.z = v.roll * (v.depth < 4 ? 1 : 0.35);
+    const pitchGain = v.depth < 4 ? 1 : 0.35;
+    this.sub.rotation.x = (playerPose?.pitch ?? v.pitch) * pitchGain;
+    this.sub.rotation.z = (playerPose?.roll ?? v.roll) * pitchGain;
 
     const peri = sim.viewMode === 'periscope';
     // Hide the shell until preload mounts a mesh (avoids empty shell + procedural flash).
@@ -689,17 +951,21 @@ export class GameScene {
         mesh.renderOrder = 3;
         wake.renderOrder = 4;
         this.scene.add(mesh, wake, beacon, hit);
+        this.caustics.attachToObject(mesh, 'hull');
+        excludeFromWaterCapture(beacon);
+        excludeFromWaterCapture(hit);
         entity = { mesh, wake, beacon, hit };
         this.shipEntities.set(ship.id, entity);
       }
       const selected = ship.id === selectedId;
       // Look-dev projects game `sub` → visual `uboat` with a submerged depth.
       const submerged = ship.kind === 'uboat' ? Math.max(ship.depth, 8) : 0;
-      const shipY =
-        submerged > 0 ? -submerged + ship.heave * 0.12 * spectralBoost : ship.heave * spectralBoost;
+      const pose = poses.get(ship.id);
+      const heave = pose?.presentationY ?? ship.heave;
+      const shipY = submerged > 0 ? -submerged + heave * 0.12 : heave;
       entity.mesh.position.set(ship.x, shipY, ship.z);
       entity.mesh.rotation.order = 'YXZ';
-      entity.mesh.rotation.set(ship.pitch, -ship.heading, ship.roll);
+      entity.mesh.rotation.set(pose?.pitch ?? ship.pitch, -ship.heading, pose?.roll ?? ship.roll);
       entity.mesh.visible = true;
       entity.mesh.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
@@ -798,7 +1064,55 @@ export class GameScene {
           stern: ship.kind === 'merchant' ? 9 : 7,
         })),
       ],
+      terrainSeed: this.currentTerrainSeed,
+      worldVersion: this.currentWorldVersion,
     });
+    this.lastEffectWakes = [
+      {
+        x: v.x,
+        z: v.z,
+        heading: v.heading,
+        speed: v.speed,
+        depth: v.depth,
+        stern: 5,
+      },
+      ...sim.ships.map((ship) => ({
+        x: ship.x,
+        z: ship.z,
+        heading: ship.heading,
+        speed: ship.speed,
+        depth: ship.kind === 'uboat' ? Math.max(ship.depth, 8) : 0,
+        stern: ship.kind === 'merchant' ? 9 : 7,
+      })),
+    ];
+    this.lastEffectCrests =
+      settings.ocean.seaState > 0.4
+        ? this.lastEffectWakes
+            .filter((wake) => (wake.depth ?? 0) < 2.5 && wake.speed > 0.6)
+            .map((wake) => ({
+              x: wake.x,
+              z: wake.z,
+              energy: Math.min(1, settings.ocean.seaState * 0.7 + wake.speed * 0.04),
+            }))
+        : [];
+    this.lastEffectSubmerged = [];
+    if (v.depth > 0.6) {
+      this.lastEffectSubmerged.push({
+        x: v.x,
+        y: metersToEntityY(v.depth),
+        z: v.z,
+        speed: v.speed,
+      });
+    }
+    for (const ship of sim.ships) {
+      if (ship.kind !== 'uboat') continue;
+      this.lastEffectSubmerged.push({
+        x: ship.x,
+        y: metersToEntityY(Math.max(ship.depth, 8)),
+        z: ship.z,
+        speed: ship.speed,
+      });
+    }
 
     this.rangeRings.visible = sim.viewMode === 'tactical';
     this.tacticalGrid.visible = sim.viewMode === 'tactical' && settings.presentation.tacticalGrid;
@@ -849,15 +1163,195 @@ export class GameScene {
     }
   }
 
+  private noteBackendGeneration(): void {
+    const name = this.environment.getDiagnostics().backend;
+    if (this.lastBackendName === name) return;
+    this.lastBackendName = name;
+    this.probeBackendGeneration += 1;
+    this.probes.reset();
+    this.attitudes.reset();
+    this.lastWaterHeight = null;
+  }
+
+  private consumeVesselAttitudes(
+    sim: SimState,
+    dt: number,
+  ): Map<string, VesselAttitudeResult> {
+    const living = new Set<string>(['player', 'camera', ...sim.ships.map((ship) => ship.id)]);
+    this.attitudes.retain(living);
+    const samples = this.probes.consume({
+      missionGeneration: this.missionGeneration,
+      backendGeneration: this.probeBackendGeneration,
+      now: sim.time,
+      livingIds: living,
+    });
+    const cameraSample = samples.find((sample) => sample.entityId === 'camera');
+    const playerCenter = samples.find(
+      (sample) => sample.entityId === 'player' && sample.site === 'center',
+    );
+    if (cameraSample) this.lastWaterHeight = cameraSample.height;
+    else if (playerCenter) this.lastWaterHeight = playerCenter.height;
+
+    const poses = new Map<string, VesselAttitudeResult>();
+    const subjects: Array<{
+      entityId: string;
+      x: number;
+      z: number;
+      heading: number;
+      span: number;
+      depth: number;
+    }> = [
+      {
+        entityId: 'player',
+        x: sim.vessel.x,
+        z: sim.vessel.z,
+        heading: sim.vessel.heading,
+        span: attitudeSpanForKind('sub_nautilus'),
+        depth: sim.vessel.depth,
+      },
+    ];
+    poses.set(
+      'player',
+      this.attitudes.update({
+        entityId: 'player',
+        heading: sim.vessel.heading,
+        depth: sim.vessel.depth,
+        waterlineOffset: 0,
+        fallback: {
+          heave: sim.vessel.heave,
+          pitch: sim.vessel.pitch,
+          roll: sim.vessel.roll,
+        },
+        footprint: groupFootprint(samples, 'player'),
+        probeTime: latestProbeTime(samples, 'player'),
+        now: sim.time,
+        dt,
+      }),
+    );
+    for (const ship of sim.ships) {
+      const depth = ship.kind === 'uboat' ? Math.max(ship.depth, 8) : 0;
+      subjects.push({
+        entityId: ship.id,
+        x: ship.x,
+        z: ship.z,
+        heading: ship.heading,
+        span: attitudeSpanForKind(ship.kind),
+        depth,
+      });
+      poses.set(
+        ship.id,
+        this.attitudes.update({
+          entityId: ship.id,
+          heading: ship.heading,
+          depth,
+          waterlineOffset: 0,
+          fallback: { heave: ship.heave, pitch: ship.pitch, roll: ship.roll },
+          footprint: groupFootprint(samples, ship.id),
+          probeTime: latestProbeTime(samples, ship.id),
+          now: sim.time,
+          dt,
+        }),
+      );
+    }
+    this.lastProbeSubjects = subjects;
+    return poses;
+  }
+
+  private submitSurfaceProbes(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+    const backend = this.environment.current;
+    if (!(backend instanceof SpectralBackend)) return;
+    const maps = spectralProbeMaps(backend);
+    if (!maps) return;
+    const requests: SurfaceProbeRequest[] = [];
+    for (const subject of this.lastProbeSubjects) {
+      if (subject.entityId !== 'player' && subject.depth > 8) continue;
+      requests.push(
+        ...buildFootprintRequests(
+          subject.entityId,
+          subject.x,
+          subject.z,
+          subject.heading,
+          subject.span,
+        ),
+      );
+    }
+    requests.push({
+      id: probeSampleId('camera', 'center'),
+      entityId: 'camera',
+      site: 'center',
+      x: camera.position.x,
+      z: camera.position.z,
+    });
+    this.probes.request(renderer, maps, requests, {
+      time: this.lastSimTime,
+      missionGeneration: this.missionGeneration,
+      backendGeneration: this.probeBackendGeneration,
+    });
+  }
+
+  private emitCombatSplash(
+    id: string,
+    x: number,
+    y: number,
+    z: number,
+    strength: number,
+    kind: 'impact' | 'splash' | 'burst',
+  ): void {
+    if (this.splashIds.has(id)) return;
+    this.splashIds.add(id);
+    this.surfaceEffects.emitImpact({ x, y, z, strength, kind });
+  }
+
+  private receiverRoleForKind(kind: AssetEntity): CausticReceiverRole | null {
+    switch (kind) {
+      case 'torpedo':
+        return 'weapon';
+      case 'sub_nautilus':
+      case 'uboat':
+      case 'patrol':
+      case 'destroyer':
+      case 'freighter':
+      case 'cruiser':
+      case 'battleship':
+        return 'hull';
+      case 'aircraft':
+      case 'fob_argus':
+      case 'crate':
+        return null;
+      default: {
+        const _exhaustive: never = kind;
+        return _exhaustive;
+      }
+    }
+  }
+
+  private spectralSurfaceMaps(): CausticSurfaceMaps | null {
+    const backend = this.environment.current;
+    if (!(backend instanceof SpectralBackend)) return null;
+    const displacements = backend.displacementTextures;
+    const slopes = backend.slopeTextures;
+    if (displacements.length < 3 || slopes.length < 3) return null;
+    return {
+      displacements,
+      slopes,
+      lengths: DEFAULT_CASCADES.map((spec) => spec.length),
+    };
+  }
+
   dispose(): void {
+    this.ocean.bindOptics(null);
+    this.probes.dispose();
+    this.attitudes.reset();
     this.weather.reset();
     this.environment.dispose();
+    this.optics.dispose();
+    this.caustics.dispose();
+    this.surfaceEffects.dispose();
     this.ocean.dispose();
     this.seabed.dispose();
     this.islands.dispose();
     this.atmosphere.dispose();
-    this.envMap?.dispose();
-    this.envMap = null;
+    this.outdoorLighting.dispose();
     this.scene.environment = null;
     this.disposeGroup(this.sub);
     for (const entity of this.shipEntities.values()) {
@@ -894,4 +1388,27 @@ export class GameScene {
       }
     });
   }
+}
+
+function latestProbeTime(
+  samples: readonly { entityId: string; time: number }[],
+  entityId: string,
+): number | null {
+  let latest: number | null = null;
+  for (const sample of samples) {
+    if (sample.entityId !== entityId) continue;
+    if (latest === null || sample.time > latest) latest = sample.time;
+  }
+  return latest;
+}
+
+function spectralProbeMaps(backend: SpectralBackend): SurfaceProbeMaps | null {
+  const displacements = backend.displacementTextures;
+  const slopes = backend.slopeTextures;
+  if (displacements.length < 3 || slopes.length < 3) return null;
+  return {
+    displacements,
+    slopes,
+    lengths: DEFAULT_CASCADES.map((spec) => spec.length),
+  };
 }

@@ -11,6 +11,7 @@ import {
 import { worldMetersToSim } from '../game/sim/coords';
 import type { AutopilotTactic, DepthOrder, GameState, SpeedOrder } from '../game/sim/types';
 import { getTerrain, isLand } from '../game/sim/world';
+import { findPixelProximateContact, MAP_PROXIMATE_PX } from '../input/world-click';
 import { listFirmContacts, type FirmContact } from './sonar';
 
 const MODE_LABEL: Record<SimState['viewMode'], string> = {
@@ -800,9 +801,22 @@ export class Hud {
       this.cb.select(direct.dataset.shipId);
       return;
     }
-    const nearby = this.lastShips.find((ship) => Math.hypot(ship.x - x, ship.y - y) <= 3.2);
-    if (nearby) {
-      this.cb.select(nearby.id);
+    const pxX = event.clientX - rect.left;
+    const pxY = event.clientY - rect.top;
+    const scaleX = rect.width / WORLD_SIZE;
+    const scaleY = rect.height / WORLD_SIZE;
+    const proximate = findPixelProximateContact(
+      pxX,
+      pxY,
+      this.lastShips.map((ship) => ({
+        id: ship.id,
+        x: ship.x * scaleX,
+        y: ship.y * scaleY,
+      })),
+      MAP_PROXIMATE_PX,
+    );
+    if (proximate) {
+      this.cb.select(proximate);
       return;
     }
     this.cb.plot(x, y);

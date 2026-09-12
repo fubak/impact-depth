@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "stagingRoot": "artifacts/fleet-sources",
+  "outputDir": "public/assets/models/v2",
+  "reportDir": "artifacts/fleet-sources",
+  "entities": {
+    "sub_nautilus": {
+      "input": "sketchfab/sub_nautilus.glb",
+      "targetLengthM": 12.5,
+      "licenseId": "sketchfab-uss-los-angeles-ccby",
+      "source": "https://sketchfab.com/3d-models/uss-los-angeles-ssn-688-submarine-c297103b4e054be98c9a9c6803c5a196 (Muhamad Mirza Arrafi)",
+      "license": "CC BY 4.0",
+      "usage": "player submarine visual (models/v2/sub_nautilus.glb)"
+    },
+    "uboat": {
+      "input": "sketchfab/uboat.glb",
+      "targetLengthM": 18.5,
+      "licenseId": "sketchfab-akula-lowpoly-ccby",
+      "source": "https://sketchfab.com/3d-models/low-poly-akula-class-submarine-f63019488c94474dbf60d59a7251dce8 (SIpriv)",
+      "license": "CC BY 4.0",
+      "usage": "enemy submarine visual (models/v2/uboat.glb)"
+    },
+    "destroyer": {
+      "input": "sketchfab/destroyer.glb",
+      "targetLengthM": 17.8,
+      "licenseId": "sketchfab-visby-corvette-ccby",
+      "source": "https://sketchfab.com/3d-models/visby-corvette-06d445dc90304c598286d63f52f2ff85 (Vavtrudner)",
+      "license": "CC BY 4.0",
+      "usage": "destroyer visual only (models/v2/destroyer.glb)"
+    },
+    "patrol": {
+      "input": "kenney-watercraft/boat-speed-e.glb",
+      "targetLengthM": 11.2,
+      "licenseId": "kenney-watercraft-cc0",
+      "source": "Kenney Watercraft Kit — https://kenney.nl/assets/watercraft-kit (boat-speed-e)",
+      "license": "CC0 1.0",
+      "usage": "patrol escort (models/v2/patrol.glb)"
+    },
+    "cruiser": {
+      "input": "kenney-watercraft/ship-large.glb",
+      "targetLengthM": 22.5,
+      "licenseId": "kenney-watercraft-cc0",
+      "source": "Kenney Watercraft Kit — https://kenney.nl/assets/watercraft-kit (ship-large)",
+      "license": "CC0 1.0",
+      "usage": "cruiser (models/v2/cruiser.glb)"
+    },
+    "battleship": {
+      "input": "kenney-watercraft/ship-ocean-liner.glb",
+      "targetLengthM": 32,
+      "licenseId": "kenney-watercraft-cc0",
+      "source": "Kenney Watercraft Kit — https://kenney.nl/assets/watercraft-kit (ship-ocean-liner)",
+      "license": "CC0 1.0",
+      "usage": "battleship (models/v2/battleship.glb)"
+    },
+    "freighter": {
+      "input": "kenney-watercraft/ship-cargo-a.glb",
+      "targetLengthM": 20,
+      "licenseId": "kenney-watercraft-cc0",
+      "source": "Kenney Watercraft Kit — https://kenney.nl/assets/watercraft-kit (ship-cargo-a)",
+      "license": "CC0 1.0",
+      "usage": "freighter (models/v2/freighter.glb)"
+    },
+    "fob_argus": {
+      "input": "kenney-watercraft/boat-house-d.glb",
+      "targetLengthM": 18,
+      "licenseId": "kenney-watercraft-cc0",
+      "source": "Kenney Watercraft Kit — https://kenney.nl/assets/watercraft-kit (boat-house-d)",
+      "license": "CC0 1.0",
+      "usage": "FOB platform (models/v2/fob_argus.glb)"
+    },
+    "crate": {
+      "input": "kenney-watercraft/crate.glb",
+      "targetLengthM": 1.6,
+      "licenseId": "kenney-watercraft-cc0",
+      "source": "Kenney Watercraft Kit — https://kenney.nl/assets/watercraft-kit",
+      "license": "CC0 1.0",
+      "usage": "pickup crate (models/v2/crate.glb)"
+    },
+    "aircraft": {
+      "input": "staging/aircraft_src.glb",
+      "targetLengthM": 9.5,
+      "licenseId": "oga-lowpoly-light-plane-cc0",
+      "source": "Lowpoly Light Plane by iPoly3D — https://opengameart.org/content/lowpoly-light-plane (exported to GLB via Blender 4)",
+      "license": "CC0 1.0",
+      "usage": "aircraft visual (models/v2/aircraft.glb)"
+    },
+    "torpedo": {
+      "input": "procedural/torpedo.glb",
+      "targetLengthM": 1.6,
+      "licenseId": "procedural-fleet-class-hulls-v3",
+      "source": "glTF export of in-house procedural geometry via scripts/export-procedural-fleet.mjs",
+      "license": "project-owned",
+      "usage": "torpedo prop (models/v2/torpedo.glb)"
+    }
+  }
+}

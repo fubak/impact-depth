@@ -3,6 +3,7 @@ import {
   generatePalmPlacements,
   generateShrubPlacements,
   hash2,
+  ISLAND_MESH_RADIUS_FACTOR,
   type FoliagePlacement,
   type IslandSpec,
 } from '../../core/terrain';
@@ -14,7 +15,9 @@ export type VegetationQuality = {
 };
 
 type WindMaterial = THREE.MeshStandardMaterial & {
-  userData: { wind?: { time: { value: number }; direction: { value: THREE.Vector2 }; strength: { value: number } } };
+  userData: {
+    wind?: { time: { value: number }; direction: { value: THREE.Vector2 }; strength: { value: number } };
+  };
 };
 
 function windMaterial(color: number, sway = 0.16): WindMaterial {
@@ -32,7 +35,11 @@ function windMaterial(color: number, sway = 0.16): WindMaterial {
       strength: { value: 0.5 },
     };
     material.userData.wind = wind;
-    Object.assign(shader.uniforms, { uVegetationTime: wind.time, uWindDirection: wind.direction, uWindStrength: wind.strength });
+    Object.assign(shader.uniforms, {
+      uVegetationTime: wind.time,
+      uWindDirection: wind.direction,
+      uWindStrength: wind.strength,
+    });
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -79,7 +86,8 @@ function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return geometry;
 }
 
-function palmCrownGeometry(): THREE.BufferGeometry {
+/** Exported for geometry nondegeneracy tests. */
+export function palmCrownGeometry(): THREE.BufferGeometry {
   const leaves: THREE.BufferGeometry[] = [];
   for (let i = 0; i < 11; i++) {
     const angle = (i / 11) * Math.PI * 2;
@@ -120,20 +128,35 @@ function makeInstances(
   mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  mesh.frustumCulled = true;
+  mesh.frustumCulled = false;
   mesh.userData.capacity = placements.length;
   mesh.userData.isVegetation = true;
   void specs;
   return mesh;
 }
 
+type IslandBounds = { center: THREE.Vector3; radius: number };
+
+function islandBoundsFromSpec(spec: IslandSpec): IslandBounds {
+  const radius = spec.radius * ISLAND_MESH_RADIUS_FACTOR + 48;
+  return { center: new THREE.Vector3(spec.cx, 0, spec.cz), radius };
+}
+
 /** Seeded, instanced littoral vegetation with bounded density, distance LOD and shader wind. */
 export class VegetationField {
   readonly group = new THREE.Group();
   private readonly meshes: THREE.InstancedMesh[] = [];
-  private quality: VegetationQuality = { vegetationDensity: 1, vegetationLodDistance: 300, vegetationShadows: true };
+  private readonly islandBounds: IslandBounds[] = [];
+  private quality: VegetationQuality = {
+    vegetationDensity: 1,
+    vegetationLodDistance: 300,
+    vegetationShadows: true,
+  };
+  private frozenWindTime = 0;
 
   constructor(specs: readonly IslandSpec[]) {
+    this.islandBounds = specs.map(islandBoundsFromSpec);
+
     const palms = specs.flatMap((spec) => generatePalmPlacements(spec, 3.1).map((item) => ({ spec, item })));
     const ground = specs.flatMap((spec) => generateShrubPlacements(spec, 2.35).map((item) => ({ spec, item })));
     const trunks = makeInstances(
@@ -175,25 +198,53 @@ export class VegetationField {
     const base = new THREE.Color(colorHex);
     for (const [index, mesh] of this.meshes.entries()) {
       if (index === 0) continue;
-      (mesh.material as THREE.MeshStandardMaterial).color.copy(base).offsetHSL(index === 3 ? 0.02 : 0, 0, index === 2 ? -0.05 : 0.03);
+      (mesh.material as THREE.MeshStandardMaterial).color
+        .copy(base)
+        .offsetHSL(index === 3 ? 0.02 : 0, 0, index === 2 ? -0.05 : 0.03);
     }
   }
 
-  update(time: number, windDirection: number, windStrength: number, cameraPosition?: THREE.Vector3): void {
+  update(
+    time: number,
+    windDirection: number,
+    windStrength: number,
+    cameraPosition?: THREE.Vector3,
+    paused = false,
+  ): void {
+    if (!paused) this.frozenWindTime = time;
+    const windTime = paused ? this.frozenWindTime : time;
     const direction = new THREE.Vector2(Math.cos(windDirection), Math.sin(windDirection));
+    const strength = Math.max(0, Math.min(1.5, windStrength));
+
+    let visible = true;
+    if (cameraPosition) {
+      const reach = this.quality.vegetationLodDistance;
+      visible = this.islandBounds.some(
+        (bound) => cameraPosition.distanceTo(bound.center) <= reach + bound.radius,
+      );
+    }
+
     for (const mesh of this.meshes) {
+      mesh.visible = visible;
       const wind = (mesh.material as WindMaterial).userData.wind;
       if (wind) {
-        wind.time.value = time;
+        wind.time.value = windTime;
         wind.direction.value.copy(direction);
-        wind.strength.value = Math.max(0, Math.min(1.5, windStrength));
-      }
-      if (cameraPosition) {
-        const sphere = mesh.geometry.boundingSphere;
-        const center = sphere?.center ?? new THREE.Vector3();
-        mesh.visible = cameraPosition.distanceTo(center) <= this.quality.vegetationLodDistance + 260;
+        wind.strength.value = strength;
       }
     }
+  }
+
+  /** Read wind uniform hooks after materials compile (tests / diagnostics). */
+  getWindUniforms(): Array<{ time: number; direction: THREE.Vector2; strength: number }> {
+    return this.meshes
+      .map((mesh) => (mesh.material as WindMaterial).userData.wind)
+      .filter((wind): wind is NonNullable<typeof wind> => Boolean(wind))
+      .map((wind) => ({
+        time: wind.time.value,
+        direction: wind.direction.value.clone(),
+        strength: wind.strength.value,
+      }));
   }
 
   dispose(): void {
