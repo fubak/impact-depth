@@ -1,0 +1,31 @@
+import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
+import { skyLightingSignature } from '../../src/render/environment/sky-lighting';
+
+function state(overrides: Partial<Parameters<typeof skyLightingSignature>[0]> = {}) {
+  return {
+    sunDir: new THREE.Vector3(0.2, 0.9, 0.3).normalize(),
+    sunColor: new THREE.Color(1, 0.9, 0.7),
+    skyTop: new THREE.Color(0.2, 0.5, 0.9),
+    skyHorizon: new THREE.Color(0.8, 0.9, 1),
+    cloudCoverage: 0.5,
+    lightning: 0,
+    isNight: false,
+    ...overrides,
+  };
+}
+
+describe('procedural sky lighting key', () => {
+  it('ignores sub-bin weather movement to bound PMREM refreshes', () => {
+    expect(skyLightingSignature(state({ cloudCoverage: 0.5 }))).toBe(
+      skyLightingSignature(state({ cloudCoverage: 0.51 })),
+    );
+  });
+
+  it('changes for material day, weather, and lightning transitions', () => {
+    const base = skyLightingSignature(state());
+    expect(skyLightingSignature(state({ isNight: true }))).not.toBe(base);
+    expect(skyLightingSignature(state({ cloudCoverage: 0.9 }))).not.toBe(base);
+    expect(skyLightingSignature(state({ lightning: 1 }))).not.toBe(base);
+  });
+});

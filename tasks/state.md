@@ -9,7 +9,12 @@
 **Resume instruction (2026-09-12):** User requested the full realism-upgrade plan
 be saved after interrupting implementation. See
 [`plans/018-realism-upgrade-execution.md`](../plans/018-realism-upgrade-execution.md).
-Implementation is paused at the user's planning request. Untracked graphics
+The user subsequently requested all remaining drafts be committed and pushed.
+They are preserved as an unfinished implementation checkpoint; committing them
+does not activate the modules or establish integration/visual acceptance.
+Checkpoint checks: typecheck and 14 focused sky-lighting/environment/resource
+tests passed. Full integrated browser/GPU verification remains outstanding.
+Implementation is paused at the user's planning request. The graphics
 modules and the modified resource helper are unverified drafts, not connected or
 accepted features. Preserve them; review the inventory in the new plan before
 resuming. The baseline passed 217 tests and the main build gate, but the new

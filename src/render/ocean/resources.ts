@@ -30,14 +30,26 @@ export interface RendererStateSnapshot {
 }
 
 export function supportsFloatColorBuffer(renderer: THREE.WebGLRenderer): boolean {
+  let target: THREE.WebGLRenderTarget | null = null;
   try {
-    return (
+    const advertised =
       renderer.extensions.has('EXT_color_buffer_float') ||
-      renderer.extensions.has('WEBGL_color_buffer_float') ||
-      renderer.capabilities.isWebGL2
-    );
+      renderer.extensions.has('WEBGL_color_buffer_float');
+    if (!advertised) return false;
+
+    // Extensions occasionally survive context/driver combinations that cannot
+    // actually complete a floating-point framebuffer. Force allocation and ask
+    // WebGL for the real status before committing the considerably larger FFT set.
+    target = createFloatTarget({ width: 1, height: 1, type: THREE.FloatType });
+    return withRendererPass(renderer, () => {
+      renderer.setRenderTarget(target);
+      const gl = renderer.getContext();
+      return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    });
   } catch {
     return false;
+  } finally {
+    target?.dispose();
   }
 }
 
