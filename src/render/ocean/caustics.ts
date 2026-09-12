@@ -62,6 +62,8 @@ export interface CausticFrame {
   readonly maps?: CausticSurfaceMaps | null;
   readonly bed?: CausticBedBind | null;
   readonly coastal?: THREE.Texture | null;
+  readonly coastalOrigin?: { x: number; z: number };
+  readonly coastalExtent?: number;
   readonly swellDirection?: { x: number; z: number };
 }
 
@@ -717,6 +719,10 @@ export class UnderwaterCaustics {
     if (frame.coastal) {
       u.uCoastal.value = frame.coastal;
       u.uCoastalEnabled.value = 1;
+      if (frame.coastalOrigin) {
+        (u.uCoastalOrigin.value as THREE.Vector2).set(frame.coastalOrigin.x, frame.coastalOrigin.z);
+      }
+      if (frame.coastalExtent !== undefined) u.uCoastalExtent.value = frame.coastalExtent;
     } else {
       u.uCoastal.value = this.dummyCoastal;
       u.uCoastalEnabled.value = 0;

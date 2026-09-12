@@ -9,6 +9,9 @@ import {
 } from './environment/bed-data-texture';
 import { SHORE_WET_BAND_METRES, type PackedHeightField } from './environment/terrain-texture';
 import { SPECTRUM_SAMPLE_GLSL } from './ocean/spectrum';
+import { SURFACE_GLSL } from './ocean/surface';
+import type { WaterOptics } from './ocean/optics';
+import type { QualityProfile } from './quality';
 import { WaterRipplePass } from './water-ripples';
 
 export interface SpectralMapBind {
@@ -16,6 +19,46 @@ export interface SpectralMapBind {
   slopes: readonly THREE.Texture[];
   lengths: readonly number[];
   sizes: readonly number[];
+}
+
+export interface OpticsBindSource {
+  readonly reflection: { readonly texture: THREE.Texture };
+  readonly refraction: {
+    readonly texture: THREE.Texture;
+    readonly depthTexture?: THREE.Texture | null;
+  };
+  readonly reflectionMatrix: THREE.Matrix4;
+  readonly refractionMatrix: THREE.Matrix4;
+  readonly inverseProjection: THREE.Matrix4;
+  readonly cameraWorld: THREE.Matrix4;
+}
+
+/** Fail closed: disabled optics keep dummy textures so Gerstner shading is unchanged. */
+export function applyOpticsUniforms(
+  uniforms: THREE.ShaderMaterial['uniforms'],
+  dummyColor: THREE.Texture,
+  dummyDepth: THREE.Texture,
+  optics: OpticsBindSource | null,
+): void {
+  if (!optics) {
+    uniforms.uOpticsEnabled!.value = 0;
+    uniforms.uReflection!.value = dummyColor;
+    uniforms.uRefraction!.value = dummyColor;
+    uniforms.uRefractionDepth!.value = dummyDepth;
+    (uniforms.uReflectionMatrix!.value as THREE.Matrix4).identity();
+    (uniforms.uRefractionMatrix!.value as THREE.Matrix4).identity();
+    (uniforms.uInverseProjection!.value as THREE.Matrix4).identity();
+    (uniforms.uCameraWorld!.value as THREE.Matrix4).identity();
+    return;
+  }
+  uniforms.uOpticsEnabled!.value = 1;
+  uniforms.uReflection!.value = optics.reflection.texture;
+  uniforms.uRefraction!.value = optics.refraction.texture;
+  uniforms.uRefractionDepth!.value = optics.refraction.depthTexture ?? dummyDepth;
+  (uniforms.uReflectionMatrix!.value as THREE.Matrix4).copy(optics.reflectionMatrix);
+  (uniforms.uRefractionMatrix!.value as THREE.Matrix4).copy(optics.refractionMatrix);
+  (uniforms.uInverseProjection!.value as THREE.Matrix4).copy(optics.inverseProjection);
+  (uniforms.uCameraWorld!.value as THREE.Matrix4).copy(optics.cameraWorld);
 }
 
 export function applySpectralMapUniforms(
@@ -50,6 +93,36 @@ export function applySpectralMapUniforms(
     maps.sizes[1] ?? maps.sizes[0] ?? 1,
     maps.sizes[2] ?? maps.sizes[0] ?? 1,
   );
+}
+
+function createDummyOpticsColor(): THREE.DataTexture {
+  const texture = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+  texture.needsUpdate = true;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.colorSpace = THREE.LinearSRGBColorSpace;
+  texture.generateMipmaps = false;
+  return texture;
+}
+
+function createDummyOpticsDepth(): THREE.DataTexture {
+  const texture = new THREE.DataTexture(
+    new Float32Array([1, 1, 1, 1]),
+    1,
+    1,
+    THREE.RGBAFormat,
+    THREE.FloatType,
+  );
+  texture.needsUpdate = true;
+  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.NearestFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.generateMipmaps = false;
+  return texture;
 }
 
 function createDummyWaveTexture(): THREE.DataTexture {
@@ -270,6 +343,13 @@ uniform float uBedEnabled;
 uniform float uWetBand;
 uniform float uSpectral;
 
+// Coastal field uniforms
+uniform sampler2D uCoastal;
+uniform float uCoastalEnabled;
+uniform vec2 uCoastalOrigin;
+uniform float uCoastalExtent;
+uniform vec2 uSwellDirection;
+
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
 varying float vFoam;
@@ -281,6 +361,7 @@ varying vec2 vUv;
 
 ${commonGlsl}
 ${SPECTRUM_SAMPLE_GLSL}
+${SURFACE_GLSL}
 
 vec3 gerstner(
   vec3 pos,
@@ -345,17 +426,18 @@ void main() {
   vec3 spectralDisp = vec3(0.0);
 
   if (uSpectral > 0.5) {
-    float fade = smoothstep(0.015, 0.8, depth);
-    vec3 swell = texture2D(uDisplacement0, cascadeUv(flatXZ, uCascadeLength.x)).xyz;
-    vec3 wind = texture2D(uDisplacement1, cascadeUv(flatXZ, uCascadeLength.y)).xyz;
-    vec3 chop = texture2D(uDisplacement2, cascadeUv(flatXZ, uCascadeLength.z)).xyz;
-    float spectralGain = 0.62 + uWaveHeight * 0.85;
-    spectralDisp =
-      (swell * 1.25 + wind * 1.15 * fade + chop * 1.35 * fade) * spectralGain;
+    spectralDisp = oceanDisplacement(flatXZ);
     pos = restPos + spectralDisp;
-    vec2 slope = spectralSlope(flatXZ);
-    tangent = vec3(1.0, slope.x, 0.0);
-    binormal = vec3(0.0, slope.y, 1.0);
+    vec3 normal = oceanNormal(flatXZ);
+    tangent = cross(vec3(0.0, 1.0, 0.0), normal);
+    binormal = cross(normal, tangent);
+    if (length(tangent) < 0.1) {
+      tangent = vec3(1.0, 0.0, 0.0);
+      binormal = vec3(0.0, 0.0, 1.0);
+    } else {
+      tangent = normalize(tangent);
+      binormal = normalize(binormal);
+    }
   } else {
     pos = gerstner(pos, uWaveAmp.x, uWaveLen.x, uWaveDir.x, uWaveSteep.x, uWavePhase.x, heightScale, chopScale, depth, tangent, binormal);
     pos = gerstner(pos, uWaveAmp.y, uWaveLen.y, uWaveDir.y, uWaveSteep.y, uWavePhase.y, heightScale, chopScale, depth, tangent, binormal);
@@ -377,7 +459,8 @@ void main() {
     : pos.y / max(heightScale * 0.85, 0.001);
   float crestBand = smoothstep(0.55, 0.9, crest) * (1.0 - smoothstep(0.9, 1.2, crest));
   float breakNoise = sin(vWorldPos.x * 1.4 + uTime * 1.8) * sin(vWorldPos.z * 1.1 - uTime * 1.3);
-  vFoam = crestBand * (0.25 + 0.75 * step(0.2, breakNoise));
+  float cascadeFoam = uSpectral > 0.5 ? oceanFoam(flatXZ) : 0.0;
+  vFoam = max(crestBand * (0.25 + 0.75 * step(0.2, breakNoise)), cascadeFoam * 0.6);
   vCrest = clamp(crest * 0.5 + 0.5, 0.0, 1.0);
 
   gl_Position = projectionMatrix * viewMatrix * world;
@@ -415,6 +498,14 @@ uniform float uBedExtent;
 uniform float uBedEnabled;
 uniform float uWetBand;
 uniform float uSpectral;
+uniform float uOpticsEnabled;
+uniform sampler2D uReflection;
+uniform sampler2D uRefraction;
+uniform sampler2D uRefractionDepth;
+uniform mat4 uReflectionMatrix;
+uniform mat4 uRefractionMatrix;
+uniform mat4 uInverseProjection;
+uniform mat4 uCameraWorld;
 
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
@@ -507,6 +598,32 @@ void main() {
   vec3 skyReflect = mix(uSkyColor * 0.85, vec3(0.78, 0.92, 1.0), fresnel);
   water = mix(water, skyReflect, 0.18 + fresnel * 0.55);
 
+  if (uOpticsEnabled > 0.5) {
+    vec3 body = water;
+    vec4 reflectClip = uReflectionMatrix * vec4(vWorldPos, 1.0);
+    vec2 reflectUv = reflectClip.xy / max(reflectClip.w, 1e-4);
+    reflectUv += N.xz * 0.045;
+    vec4 refractClip = uRefractionMatrix * vec4(vWorldPos, 1.0);
+    vec2 refractUv = refractClip.xy / max(refractClip.w, 1e-4);
+    refractUv += N.xz * 0.03;
+    float reflectEdge = smoothstep(0.0, 0.05, reflectUv.x) * smoothstep(0.0, 0.05, reflectUv.y)
+      * smoothstep(0.0, 0.05, 1.0 - reflectUv.x) * smoothstep(0.0, 0.05, 1.0 - reflectUv.y);
+    float refractEdge = smoothstep(0.0, 0.05, refractUv.x) * smoothstep(0.0, 0.05, refractUv.y)
+      * smoothstep(0.0, 0.05, 1.0 - refractUv.x) * smoothstep(0.0, 0.05, 1.0 - refractUv.y);
+    vec3 reflected = mix(skyReflect, texture2D(uReflection, clamp(reflectUv, 0.0, 1.0)).rgb, reflectEdge);
+    float sceneDepth = texture2D(uRefractionDepth, clamp(refractUv, 0.0, 1.0)).r;
+    float depthValid = step(sceneDepth, 0.999) * refractEdge;
+    vec3 refracted = mix(body, texture2D(uRefraction, clamp(refractUv, 0.0, 1.0)).rgb, depthValid);
+    vec4 ndc = vec4(clamp(refractUv, 0.0, 1.0) * 2.0 - 1.0, sceneDepth * 2.0 - 1.0, 1.0);
+    vec4 viewPos = uInverseProjection * ndc;
+    viewPos /= max(viewPos.w, 1e-4);
+    vec4 sceneWorld = uCameraWorld * viewPos;
+    float column = max(0.0, vWorldPos.y - sceneWorld.y);
+    float opticsAbsorb = 1.0 - exp(-column * absorbCoeff);
+    refracted = mix(refracted, body, opticsAbsorb * 0.72);
+    water = mix(refracted, reflected, fresnel);
+  }
+
   vec3 L = normalize(uSunDir);
   float ndotl = max(dot(N, L), 0.0);
   water += uSunColor * ndotl * 0.07;
@@ -588,7 +705,11 @@ export class Ocean {
   private wakeTimer = 0;
   private readonly dummyBed: THREE.DataTexture;
   private readonly dummyWave: THREE.DataTexture;
+  private readonly dummyOpticsColor: THREE.DataTexture;
+  private readonly dummyOpticsDepth: THREE.DataTexture;
   private bedTexture: THREE.DataTexture;
+  private foamScale = 1;
+  private causticsScale = 1;
 
   constructor(size = 720, segments = 200) {
     this.size = size;
@@ -597,6 +718,8 @@ export class Ocean {
     this.ripples = new WaterRipplePass();
     this.dummyBed = createDummyBedDataTexture();
     this.dummyWave = createDummyWaveTexture();
+    this.dummyOpticsColor = createDummyOpticsColor();
+    this.dummyOpticsDepth = createDummyOpticsDepth();
     this.bedTexture = this.dummyBed;
 
     const amps = BASE_WAVES.map((w) => w.amplitude);
@@ -652,6 +775,11 @@ export class Ocean {
         uSlope2: { value: this.dummyWave },
         uCascadeLength: { value: new THREE.Vector3(1792, 211, 27.3) },
         uCascadeSize: { value: new THREE.Vector3(128, 128, 128) },
+        uCoastal: { value: this.dummyWave },
+        uCoastalEnabled: { value: 0 },
+        uCoastalOrigin: { value: new THREE.Vector2(0, 0) },
+        uCoastalExtent: { value: 2048 },
+        uSwellDirection: { value: new THREE.Vector2(Math.cos(0.48), Math.sin(0.48)) },
         uDeepColor: { value: hexToVec3('#0b88c4') },
         uShallowColor: { value: hexToVec3('#42dde0') },
         uSandColor: { value: hexToVec3('#d9c39a') },
@@ -672,6 +800,14 @@ export class Ocean {
         uResolution: { value: this.ripples.resolutionUniform },
         uRippleStrength: { value: 3.6 },
         uOverlays: { value: 3 },
+        uOpticsEnabled: { value: 0 },
+        uReflection: { value: this.dummyOpticsColor },
+        uRefraction: { value: this.dummyOpticsColor },
+        uRefractionDepth: { value: this.dummyOpticsDepth },
+        uReflectionMatrix: { value: new THREE.Matrix4() },
+        uRefractionMatrix: { value: new THREE.Matrix4() },
+        uInverseProjection: { value: new THREE.Matrix4() },
+        uCameraWorld: { value: new THREE.Matrix4() },
       },
     });
 
@@ -688,6 +824,13 @@ export class Ocean {
     this.geometry = this.createGeometry(segments);
     this.mesh.geometry = this.geometry;
     old.dispose();
+  }
+
+  setQuality(profile: QualityProfile): void {
+    this.setSegments(profile.waterSegments);
+    this.foamScale = profile.foamScale;
+    this.causticsScale = profile.causticsScale;
+    this.material.uniforms.uCaustics.value = 0.9 * this.causticsScale;
   }
 
   resize(width: number, height: number, dpr = 1): void {
@@ -719,9 +862,9 @@ export class Ocean {
     u.uDeepColor.value.copy(hexToVec3(ocean.deepColor));
     u.uShallowColor.value.copy(hexToVec3(ocean.shallowColor));
     u.uSandColor.value.copy(hexToVec3(sandColorHex));
-    u.uFoamAmount.value = ocean.foamAmount;
+    u.uFoamAmount.value = ocean.foamAmount * this.foamScale;
     // Map look-dev foam slider into shore foam without losing the shoreline stack.
-    u.uShoreFoam.value = 0.45 + ocean.foamAmount * 2.8;
+    u.uShoreFoam.value = (0.45 + ocean.foamAmount * 2.8) * this.foamScale;
     this.setReadability(ocean.clarity, ocean.absorption);
     u.uFogDensity.value = fogDensity;
     u.uFogColor.value.set(fogColor.r, fogColor.g, fogColor.b);
@@ -757,6 +900,77 @@ export class Ocean {
     applySpectralMapUniforms(this.material.uniforms, this.dummyWave, maps);
   }
 
+  bindOptics(optics: WaterOptics | OpticsBindSource | null): void {
+    applyOpticsUniforms(
+      this.material.uniforms,
+      this.dummyOpticsColor,
+      this.dummyOpticsDepth,
+      optics,
+    );
+  }
+
+  bedBind(): { texture: THREE.Texture; origin: THREE.Vector2; extent: number } | null {
+    if ((this.material.uniforms.uBedEnabled.value as number) < 0.5) return null;
+    return {
+      texture: this.material.uniforms.uBedTex.value as THREE.Texture,
+      origin: this.material.uniforms.uBedOrigin.value as THREE.Vector2,
+      extent: this.material.uniforms.uBedExtent.value as number,
+    };
+  }
+
+  coastalTexture(): THREE.Texture | null {
+    if ((this.material.uniforms.uCoastalEnabled.value as number) < 0.5) return null;
+    const texture = this.material.uniforms.uCoastal.value as THREE.Texture;
+    return texture === this.dummyWave ? null : texture;
+  }
+
+  swellDirection(): { x: number; z: number } {
+    const dir = this.material.uniforms.uSwellDirection.value as THREE.Vector2;
+    return { x: dir.x, z: dir.y };
+  }
+
+  coastalOrigin(): { x: number; z: number; extent: number } {
+    const origin = this.material.uniforms.uCoastalOrigin.value as THREE.Vector2;
+    return {
+      x: origin.x,
+      z: origin.y,
+      extent: this.material.uniforms.uCoastalExtent.value as number,
+    };
+  }
+
+  bindCoastalField(field: { data: Float32Array; resolution: number; originX: number; originZ: number; extent: number; directionX: number; directionZ: number } | null): void {
+    if (field) {
+      const texture = new THREE.DataTexture(
+        field.data,
+        field.resolution,
+        field.resolution,
+        THREE.RGBAFormat,
+        THREE.FloatType,
+      );
+      texture.needsUpdate = true;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.colorSpace = THREE.NoColorSpace;
+      texture.generateMipmaps = false;
+
+      // Dispose old coastal texture if it exists
+      const oldTexture = this.material.uniforms.uCoastal.value;
+      if (oldTexture !== this.dummyWave) {
+        oldTexture.dispose();
+      }
+
+      this.material.uniforms.uCoastal.value = texture;
+      this.material.uniforms.uCoastalEnabled.value = 1;
+      this.material.uniforms.uCoastalOrigin.value.set(field.originX, field.originZ);
+      this.material.uniforms.uCoastalExtent.value = field.extent;
+      this.material.uniforms.uSwellDirection.value.set(field.directionX, field.directionZ);
+    } else {
+      this.material.uniforms.uCoastalEnabled.value = 0;
+    }
+  }
+
   bindHeightField(field: PackedHeightField): void {
     const next = createPackedBedDataTexture(field);
     const prev = this.bedTexture;
@@ -776,6 +990,8 @@ export class Ocean {
     if (this.bedTexture !== this.dummyBed) this.bedTexture.dispose();
     this.dummyBed.dispose();
     this.dummyWave.dispose();
+    this.dummyOpticsColor.dispose();
+    this.dummyOpticsDepth.dispose();
     this.material.dispose();
     this.ripples.dispose();
   }
