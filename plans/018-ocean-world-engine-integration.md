@@ -1,5 +1,12 @@
 # Plan 018: Integrate the spectral ocean and a shared world into Silent Depths
 
+> **2026-09-12 execution update:** Read
+> [018-realism-upgrade-execution.md](018-realism-upgrade-execution.md) for the
+> source-reviewed baseline, interrupted draft inventory, complete upgrade work
+> breakdown, evidence matrix and final review requirements. Some checkpoint
+> summaries below are historical and do not establish current completion. The
+> latest user request is planning only; preserve the partial implementation.
+
 > **Executor: Grok.** Read this entire file and `AGENTS.md` before editing. Execute
 > only this plan, in order. Its checkpoints belong to one migration; do not execute
 > Plans 012–017 alongside it. Preserve the existing playable game throughout.

@@ -1,12 +1,21 @@
 # Silent Depths implementation plans
 
-## Current integration direction (2026-09-11)
+## Current integration direction (2026-09-12)
+
+**Current execution update:** [Complete realism upgrade](018-realism-upgrade-execution.md).
+The September 12 review found that the spectral foundation exists but optics,
+coastal coupling, projected lighting, animated foliage, vessel probes and runtime
+resource scaling remain incomplete. The new execution document records the
+verified baseline, interrupted unverified drafts, full implementation sequence,
+test matrix and fresh-analysis handoff. The latest user request is to save the
+plan; implementation is paused, not completed.
 
 The operator requested a complete, executable plan to integrate
 [`iamtechartist/ocean-simulation`](https://github.com/iamtechartist/ocean-simulation)
 into Silent Depths. **[Plan 018](018-ocean-world-engine-integration.md) is the next
-selected integration track**, written for Grok. It is TODO; writing the plan does
-not constitute implementing or accepting it.
+selected integration track**. It is IN PROGRESS; the original document contains
+historical checkpoint notes. Use the execution update above for current scope and
+resume state. Writing either plan does not constitute implementing or accepting it.
 
 Execute only 018 when selecting this track. It replaces the implementation scope
 of 013 and 016, including their shoreline and performance acceptance obligations,

@@ -1,10 +1,21 @@
 # Silent Depths — project state
 
-> Rolling SSOT for agents. Last updated **2026-09-11**.  
+> Rolling SSOT for agents. Last updated **2026-09-12**.
 > Longer claims ledger: `docs/release/solo-production-status.md`  
 > Persistent notes: `memory/MEMORY.md`
 
 ## Current
+
+**Resume instruction (2026-09-12):** User requested the full realism-upgrade plan
+be saved after interrupting implementation. See
+[`plans/018-realism-upgrade-execution.md`](../plans/018-realism-upgrade-execution.md).
+Implementation is paused at the user's planning request. Untracked graphics
+modules and the modified resource helper are unverified drafts, not connected or
+accepted features. Preserve them; review the inventory in the new plan before
+resuming. The baseline passed 217 tests and the main build gate, but the new
+drafts have not passed an integrated gate. Local browser setup was incomplete
+when first attempted. The fleet importer fails on a clean install despite older
+claims below; the new plan records the missing dependency/source-manifest issue.
 
 | Field              | Value                                                                                        |
 | ------------------ | -------------------------------------------------------------------------------------------- |
