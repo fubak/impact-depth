@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -76,5 +76,53 @@ describe('import-modern-fleet manifest contract', () => {
     for (const path of tracked) {
       expect(sha256File(path)).toBe(before.get(path));
     }
+  });
+
+  it('rejects entity keys that escape the output directory', () => {
+    const bad = {
+      stagingRoot: 'tests/fixtures/fleet-import',
+      outputDir: 'public/assets/models/v2',
+      entities: {
+        '../../outside': {
+          input: 'torpedo_src.glb',
+          targetLengthM: 7,
+          licenseId: 'test',
+          source: 'fixture',
+          license: 'project-owned',
+          usage: 'test',
+        },
+      },
+    };
+    const tmp = resolve(root, 'artifacts/tmp-unsafe-kind-manifest.json');
+    writeFileSync(tmp, JSON.stringify(bad));
+    const validation = validateFleetSourceManifest(tmp, root);
+    expect(validation.ok).toBe(false);
+    expect(validation.errors.some((e) => e.includes('entity key must match'))).toBe(true);
+  });
+
+  it('rejects staged inputs that traverse into production outputs', () => {
+    const bad = {
+      stagingRoot: 'tests/fixtures/fleet-import',
+      outputDir: 'public/assets/models/v2',
+      entities: {
+        torpedo: {
+          input: '../../public/assets/models/v2/torpedo.glb',
+          targetLengthM: 7,
+          licenseId: 'test',
+          source: 'fixture',
+          license: 'project-owned',
+          usage: 'test',
+        },
+      },
+    };
+    const tmp = resolve(root, 'artifacts/tmp-traverse-manifest.json');
+    writeFileSync(tmp, JSON.stringify(bad));
+    const validation = validateFleetSourceManifest(tmp, root);
+    expect(validation.ok).toBe(false);
+    expect(
+      validation.errors.some(
+        (e) => e.includes('escapes staging root') || e.includes('must not reference production output'),
+      ),
+    ).toBe(true);
   });
 });

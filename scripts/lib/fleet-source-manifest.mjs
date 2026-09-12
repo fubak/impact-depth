@@ -2,13 +2,27 @@
  * Shared fleet source manifest validation for import-modern-fleet.mjs and tests.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const defaultManifestPath = resolve(__dirname, '../../config/fleet-source-manifest.json');
 
 const REQUIRED_ENTITY_FIELDS = ['input', 'targetLengthM', 'licenseId', 'source', 'license', 'usage'];
+/** Entity keys become `${kind}.glb` under outputDir — no path separators or traversal. */
+export const SAFE_ENTITY_KIND = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * True when `child` resolves inside `parent` (or equals it).
+ * @param {string} parent
+ * @param {string} child
+ */
+export function isPathInside(parent, child) {
+  const absParent = resolve(parent);
+  const absChild = resolve(child);
+  const rel = relative(absParent, absChild);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
 
 /**
  * @param {string} [manifestPath]
@@ -65,6 +79,13 @@ export function validateFleetSourceManifest(manifestPath = defaultManifestPath, 
       continue;
     }
 
+    if (!SAFE_ENTITY_KIND.test(kind)) {
+      errors.push(
+        `${kind}: entity key must match ${SAFE_ENTITY_KIND} (becomes ${kind}.glb under outputDir)`,
+      );
+      continue;
+    }
+
     for (const field of REQUIRED_ENTITY_FIELDS) {
       if (entry[field] === undefined || entry[field] === null || entry[field] === '') {
         errors.push(`${kind}: missing required field "${field}"`);
@@ -79,13 +100,20 @@ export function validateFleetSourceManifest(manifestPath = defaultManifestPath, 
     const stagedPath = resolve(stagingRoot, inputRel);
     const productionPath = resolve(outputDir, `${kind}.glb`);
 
-    if (inputRel && resolve(repoRoot, inputRel) === productionPath) {
+    if (!inputRel) continue;
+
+    if (!isPathInside(stagingRoot, stagedPath)) {
+      errors.push(
+        `${kind}: manifest input escapes staging root ${relativeFromRoot(repoRoot, stagingRoot)} (manifest input: ${inputRel})`,
+      );
+      continue;
+    }
+
+    if (resolve(stagedPath) === resolve(productionPath)) {
       errors.push(
         `${kind}: manifest input must not reference production output ${manifest.outputDir ?? 'public/assets/models/v2'}/${kind}.glb`,
       );
     }
-
-    if (!inputRel) continue;
 
     if (!existsSync(stagedPath)) {
       errors.push(

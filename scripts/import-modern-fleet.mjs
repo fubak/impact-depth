@@ -18,7 +18,9 @@ import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { getBounds } from '@gltf-transform/functions';
 import {
+  isPathInside,
   parseImportFlags,
+  SAFE_ENTITY_KIND,
   validateFleetSourceManifest,
 } from './lib/fleet-source-manifest.mjs';
 
@@ -180,6 +182,12 @@ const creditsById = new Map();
 const failures = [];
 
 for (const [kind, entry] of Object.entries(manifest.entities)) {
+  if (!SAFE_ENTITY_KIND.test(kind)) {
+    failures.push({ kind, reason: `unsafe entity key (must match ${SAFE_ENTITY_KIND})` });
+    console.error('FAIL', kind, 'unsafe entity key');
+    continue;
+  }
+
   creditsById.set(entry.licenseId, {
     id: entry.licenseId,
     source: entry.source,
@@ -188,11 +196,23 @@ for (const [kind, entry] of Object.entries(manifest.entities)) {
   });
 
   const input = resolve(stagingRoot, entry.input);
+  if (!isPathInside(stagingRoot, input)) {
+    failures.push({ kind, reason: `input escapes staging root: ${entry.input}` });
+    console.error('FAIL', kind, 'input escapes staging root');
+    continue;
+  }
+
   const outName = `${kind}.glb`;
+  const dest = resolve(outputDir, outName);
+  if (!isPathInside(outputDir, dest)) {
+    failures.push({ kind, reason: `destination escapes outputDir: ${outName}` });
+    console.error('FAIL', kind, 'destination escapes outputDir');
+    continue;
+  }
+
   console.log('normalize', input, '→', outName, '@', entry.targetLengthM, 'm');
   try {
     const { document, stats } = await normalizeFile(input, entry.targetLengthM);
-    const dest = resolve(outputDir, outName);
     await io.write(dest, document);
     const bytes = readFileSync(dest).byteLength;
     console.log(
