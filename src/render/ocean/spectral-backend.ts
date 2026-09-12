@@ -12,15 +12,18 @@ import type {
 import { Ocean } from '../ocean';
 import { QUALITY_PROFILES } from '../quality';
 import type { CoastalField } from './coastal';
+import { CoastalFieldCache, type CoastalFieldSpec } from './coastal-cache';
+import { createCoastalTexture, updateCoastalUniforms } from './surface';
 import {
   createFloatTarget,
   createSpectrumDataTexture,
   disposeMaterial,
   disposeTarget,
   disposeTexture,
+  replaceOwnedResources,
   SimulationPass,
   simulationMaterial,
-  supportsFloatColorBuffer,
+  validateFloatFramebuffer,
   withRendererPass,
 } from './resources';
 import {
@@ -60,6 +63,7 @@ export interface SpectralBackendOptions {
   requestedBackend?: OceanBackendName;
   seed?: number;
   coastal?: CoastalField | null;
+  bedSampler?: (x: number, z: number) => number;
 }
 
 function throwIfAborted(signal: AbortSignal): void {
@@ -216,6 +220,10 @@ export class SpectralBackend implements EnvironmentBackend {
   private readonly ocean: Ocean;
   private readonly seed: number;
   private readonly coastal: CoastalField | null;
+  private readonly bedSampler: ((x: number, z: number) => number) | null;
+  private readonly coastalCache: CoastalFieldCache;
+  private coastalTexture: THREE.DataTexture | null = null;
+  private currentCoastalField: CoastalField | null = null;
   private pass: SimulationPass | null = null;
   private cascades: GpuSpectralCascade[] = [];
   private time = 0;
@@ -223,6 +231,7 @@ export class SpectralBackend implements EnvironmentBackend {
   private frame = 0;
   private gpuReady = false;
   private camera: THREE.Camera | null = null;
+  private resourceFailure: string | null = null;
 
   constructor(options: SpectralBackendOptions) {
     this.renderer = options.renderer;
@@ -232,10 +241,18 @@ export class SpectralBackend implements EnvironmentBackend {
     this.requestedBackend = options.requestedBackend ?? 'spectral';
     this.seed = options.seed ?? DEFAULT_SPECTRUM_SEED;
     this.coastal = options.coastal ?? null;
+    this.bedSampler = options.bedSampler ?? null;
+    this.coastalCache = new CoastalFieldCache();
+    
+    // Initialize with existing coastal field if provided
+    if (this.coastal) {
+      this.currentCoastalField = this.coastal;
+      this.coastalTexture = createCoastalTexture(this.coastal);
+    }
   }
 
   get coastalField(): CoastalField | null {
-    return this.coastal;
+    return this.currentCoastalField;
   }
 
   get displacementTextures(): THREE.Texture[] {
@@ -248,9 +265,10 @@ export class SpectralBackend implements EnvironmentBackend {
 
   initializeGpu(signal: AbortSignal): void {
     throwIfAborted(signal);
-    if (!supportsFloatColorBuffer(this.renderer)) {
+    const support = validateFloatFramebuffer(this.renderer);
+    if (!support.supported) {
       throw new SpectralInitError(
-        'Floating-point render targets are required for the ocean simulation.',
+        support.reason ?? 'Floating-point framebuffer validation failed.',
         'no-float-targets',
       );
     }
@@ -301,23 +319,96 @@ export class SpectralBackend implements EnvironmentBackend {
       lengths: this.cascades.map((cascade) => cascade.length),
       sizes: this.cascades.map((cascade) => cascade.size),
     });
+    
+    // Update coastal uniforms
+    if (this.ocean.material.uniforms.uCoastal) {
+      updateCoastalUniforms(
+        this.ocean.material.uniforms as any,
+        this.currentCoastalField,
+        this.coastalTexture
+      );
+    }
+  }
+
+  rebind(): void {
+    if (!this.disposed && this.gpuReady) this.bindOceanMaps();
+  }
+
+  private updateCoastalField(
+    followX: number,
+    followZ: number,
+    terrainSeed: number,
+  ): void {
+    if (!this.bedSampler) return;
+
+    const extent = 2048; // 2km coastal field
+    const resolution = 256;
+    const swellDirection = 0.48; // Fixed incident swell direction
+
+    const spec: CoastalFieldSpec = {
+      originX: followX - extent / 2,
+      originZ: followZ - extent / 2,
+      extent,
+      resolution,
+      swellDirection,
+    };
+
+    // Build asynchronously and handle errors
+    this.coastalCache.buildOrRetrieve(
+      spec,
+      this.worldVersion,
+      terrainSeed,
+      this.bedSampler,
+    ).then(field => {
+      if (field && field !== this.currentCoastalField) {
+        // Dispose old texture
+        if (this.coastalTexture && this.currentCoastalField !== this.coastal) {
+          this.coastalTexture.dispose();
+        }
+        
+        this.currentCoastalField = field;
+        this.coastalTexture = createCoastalTexture(field);
+        this.ocean.bindCoastalField(field);
+      }
+    }).catch(error => {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return; // Ignore aborted builds
+      }
+      console.warn('Failed to build coastal field:', error);
+    });
   }
 
   prepare(frame: EnvironmentFrame): void {
     if (this.disposed || !this.gpuReady) return;
+    
     this.time = frame.time;
     this.dt = frame.paused ? 0 : frame.dt;
+    
+    // Update coastal field if needed (expensive work outside frame loop)
+    if (this.bedSampler && !frame.paused && this.frame % 60 === 0 && frame.terrainSeed !== undefined) { // Check every second, freeze when paused
+      this.updateCoastalField(frame.followX, frame.followZ, frame.terrainSeed);
+    }
+    
     const sea = frame.ocean.seaState;
     const chop = frame.ocean.choppiness;
+    const storm = Math.max(sea, chop);
+    
     const [swell, wind, detail] = this.cascades;
     swell?.setGain(1.45 * (0.35 + sea * 1.1));
     wind?.setGain(1.25 * (0.4 + chop));
     detail?.setGain(1.1);
-    for (const cascade of this.cascades) cascade.setTime(this.time);
+    
+    // Set storm conditions for foam generation
+    for (const cascade of this.cascades) {
+      cascade.setTime(this.time);
+      cascade.setFoamStorm(storm);
+    }
+    
     const fog = new THREE.Color(frame.fogColor.r, frame.fogColor.g, frame.fogColor.b);
     const sunDir = new THREE.Vector3(frame.sunDir.x, frame.sunDir.y, frame.sunDir.z);
     const sunColor = new THREE.Color(frame.sunColor.r, frame.sunColor.g, frame.sunColor.b);
     const sky = new THREE.Color(frame.skyColor.r, frame.skyColor.g, frame.skyColor.b);
+    
     this.ocean.update(
       frame.time,
       frame.ocean,
@@ -339,16 +430,22 @@ export class SpectralBackend implements EnvironmentBackend {
   renderPasses(): void {
     if (this.disposed || !this.gpuReady || !this.pass) return;
     const pass = this.pass;
+    
+    // Only update cascades when not paused
     if (this.dt > 0) {
       withRendererPass(this.renderer, () => {
         this.renderer.autoClear = true;
+        const cadence = QUALITY_PROFILES[this.quality].spectralCadence;
+        const intervals = [cadence.swell, cadence.wind, cadence.chop];
         this.cascades.forEach((cascade, i) => {
-          if (i === 0 && this.frame % 2 !== 0) return;
-          cascade.update(pass, this.renderer, i === 0 ? this.dt * 2 : this.dt);
+          const interval = intervals[i] ?? 1;
+          if (this.frame % interval !== 0) return;
+          cascade.update(pass, this.renderer, this.dt * interval);
         });
       });
       this.frame += 1;
     }
+    
     this.bindOceanMaps();
     if (this.camera) this.ocean.preRender(this.renderer, this.camera);
   }
@@ -358,13 +455,92 @@ export class SpectralBackend implements EnvironmentBackend {
   }
 
   setQuality(profile: EnvironmentQuality): void {
-    this.quality = profile;
-    this.ocean.setSegments(QUALITY_PROFILES[profile].waterSegments);
+    if (this.disposed || profile === this.quality) return;
+    if (!this.gpuReady || !this.pass) {
+      this.quality = profile;
+      this.ocean.setQuality(QUALITY_PROFILES[profile]);
+      return;
+    }
+
+    const replacement: GpuSpectralCascade[] = [];
+    try {
+      withRendererPass(this.renderer, () => {
+        for (const spec of cascadeSpecsForQuality(profile)) {
+          const cascade = new GpuSpectralCascade(
+            spec,
+            fftSizeForQuality(profile, spec.role),
+            cascadeSeed(this.seed, spec.role),
+            this.pass!,
+            this.renderer,
+          );
+          replacement.push(cascade);
+          cascade.setTime(this.time);
+          cascade.update(this.pass!, this.renderer, this.dt);
+        }
+      });
+
+      this.cascades = replaceOwnedResources(
+        this.cascades,
+        () => replacement,
+        (resources) => {
+          this.cascades = resources;
+          this.bindOceanMaps();
+        },
+        (resources) => {
+          for (const cascade of resources) cascade.dispose();
+        },
+      );
+      this.quality = profile;
+      this.ocean.setQuality(QUALITY_PROFILES[profile]);
+      this.resourceFailure = null;
+    } catch (error) {
+      for (const cascade of replacement) cascade.dispose();
+      this.bindOceanMaps();
+      this.resourceFailure = `FFT quality replacement failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    }
   }
 
   reset(missionGeneration: number): void {
+    const previousGeneration = this.missionGeneration;
     this.missionGeneration = missionGeneration;
     this.frame = 0;
+    this.time = 0;
+    
+    // Reset foam histories on new mission/backend replacement
+    if (previousGeneration !== missionGeneration && this.pass) {
+      withRendererPass(this.renderer, () => {
+        for (const cascade of this.cascades) {
+          // Clear foam history targets
+          const clear = simulationMaterial(
+            {},
+            'void main() { gl_FragColor = vec4(0.0); }',
+            PASS_VERTEX_GLSL,
+          );
+          try {
+            this.pass!.run(this.renderer, clear, cascade.normals[0]);
+            this.pass!.run(this.renderer, clear, cascade.normals[1]);
+            cascade.normalIndex = 0;
+          } finally {
+            disposeMaterial(clear);
+          }
+        }
+      });
+    }
+    
+    // Reset coastal cache on new mission
+    if (previousGeneration !== missionGeneration) {
+      this.coastalCache.reset();
+      if (this.coastalTexture && this.currentCoastalField !== this.coastal) {
+        this.coastalTexture.dispose();
+        this.coastalTexture = null;
+      }
+      this.currentCoastalField = this.coastal;
+      if (this.coastal) {
+        this.coastalTexture = createCoastalTexture(this.coastal);
+      }
+    }
   }
 
   getDiagnostics(): EnvironmentDiagnostics {
@@ -372,7 +548,8 @@ export class SpectralBackend implements EnvironmentBackend {
       backend: 'spectral',
       requestedBackend: this.requestedBackend,
       ready: this.gpuReady && !this.disposed,
-      fallbackReason: this.gpuReady ? null : 'fft gpu path not initialized',
+      fallbackReason:
+        this.resourceFailure ?? (this.gpuReady ? null : 'fft gpu path not initialized'),
       missionGeneration: this.missionGeneration,
       worldVersion: this.worldVersion,
     };
@@ -388,6 +565,14 @@ export class SpectralBackend implements EnvironmentBackend {
     this.cascades = [];
     this.pass?.dispose();
     this.pass = null;
+    
+    // Dispose coastal resources
+    this.coastalCache.dispose();
+    if (this.coastalTexture && this.currentCoastalField !== this.coastal) {
+      this.coastalTexture.dispose();
+    }
+    this.coastalTexture = null;
+    this.currentCoastalField = null;
   }
 }
 

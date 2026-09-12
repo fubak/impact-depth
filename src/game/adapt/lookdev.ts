@@ -19,7 +19,11 @@ function attitudeSpan(kind: ShipKind | 'uboat' | 'merchant'): number {
 /** Look-dev snapshot plus presentation-only lock id (never fed back into commands). */
 export type LookDevSim = SimState & { selectedTargetId: string | null };
 
-/** Projection only: render state is derived from authoritative GameState. */
+/**
+ * Projection only: render state is derived from authoritative GameState.
+ * GPU surface probes must never write back into GameState — they overlay this
+ * CPU Gerstner fallback in `vessel-attitude.ts` only.
+ */
 export function adaptToLookDevSim(game: GameState): LookDevSim {
   const vesselPosition = simToWorldMeters(game.submarine.x, game.submarine.y);
   const ocean = game.settings?.ocean ?? DEFAULT_SETTINGS.ocean;

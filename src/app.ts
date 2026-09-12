@@ -30,6 +30,7 @@ import { worldMetersToSim } from './game/sim/coords';
 import { GameAudio } from './game/audio/audio';
 import type { GameState, Point } from './game/sim/types';
 import { InputController } from './input/controls';
+import { resolveWorldClick } from './input/world-click';
 import { CameraRig } from './render/cameras';
 import { RendererHost } from './render/renderer';
 import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-selection';
@@ -65,6 +66,7 @@ export class App {
   private readonly audio = new GameAudio();
   private readonly pauseBanner: HTMLElement;
   private readonly appRoot: HTMLElement;
+  private readonly recoveryBanner: HTMLDivElement;
   private accum = 0;
   private last = performance.now();
   private running = true;
@@ -75,6 +77,7 @@ export class App {
   private readonly quality: QualityGovernor;
   private readonly runtime: RuntimeSelection;
   private missionGeneration = 0;
+  private activeQuality: RuntimeSelection['quality'];
 
   constructor() {
     this.runtime = parseRuntimeSelection(window.location.search);
@@ -85,6 +88,7 @@ export class App {
       initial: this.runtime.quality,
       locked: this.runtime.qualityForced,
     });
+    this.activeQuality = this.runtime.quality;
     this.settings = loadSettings();
     this.game = {
       ...createGame(19),
@@ -96,6 +100,11 @@ export class App {
 
     const canvas = $('scene') as HTMLCanvasElement;
     this.appRoot = $('app');
+    this.recoveryBanner = document.createElement('div');
+    this.recoveryBanner.className = 'pause-banner';
+    this.recoveryBanner.setAttribute('role', 'status');
+    this.recoveryBanner.hidden = true;
+    this.appRoot.append(this.recoveryBanner);
     this.renderer = new RendererHost(canvas);
     this.renderer.setQuality(QUALITY_PROFILES[this.runtime.quality]);
     this.renderer.setExposure(this.settings.atmosphere.exposure);
@@ -113,6 +122,15 @@ export class App {
     );
     this.cameras = new CameraRig(window.innerWidth / Math.max(1, window.innerHeight));
     this.cameras.setMode(this.sim.viewMode);
+    this.renderer.setContextRecoveryHandlers(
+      (signal) =>
+        this.scene.recoverPresentationResources(
+          this.renderer.renderer,
+          this.cameras.camera,
+          signal,
+        ),
+      (status, reason) => this.setRecoveryStatus(status, reason),
+    );
 
     this.hud = new Hud($('hud'), $('help-strip'), {
       command: (action, value) => this.handleHudCommand(action, value),
@@ -172,6 +190,24 @@ export class App {
 
   getEnvironmentDiagnostics() {
     return this.scene.environment.getDiagnostics();
+  }
+
+  getPerformanceProbe() {
+    return {
+      quality: this.activeQuality,
+      world: this.game.worldVersion,
+      seed: this.game.seed,
+      phase: this.game.phase,
+      fleet: {
+        surfaceShips: this.game.ships.length,
+        weapons:
+          this.game.torpedoes.length +
+          this.game.depthCharges.length +
+          this.game.countermeasures.length,
+      },
+      environment: this.getEnvironmentDiagnostics(),
+      graphics: this.renderer.getPerformanceDiagnostics(),
+    };
   }
 
   private beginPatrol(): void {
@@ -308,20 +344,16 @@ export class App {
     const canvas = $('scene') as HTMLCanvasElement;
     const rect = canvas.getBoundingClientRect();
     const raycaster = this.cameras.setPickRay(clientX, clientY, rect);
-    const picked = this.scene.pickShipId(raycaster);
-    if (picked) {
-      this.select(picked);
-      return;
-    }
-    // Fallback: nearest living contact in combat ring (for tiny distant hits).
-    const sub = this.game.submarine;
-    const candidates = this.game.ships
-      .filter((ship) => ship.sinking === undefined)
-      .map((ship) => ({ ship, distance: Math.hypot(ship.x - sub.x, ship.y - sub.y) }))
-      .filter((entry) => entry.distance < 28)
-      .sort((a, b) => a.distance - b.distance);
-    if (candidates[0] && candidates[0].distance < 10) {
-      this.select(candidates[0].ship.id);
+    const rayHit = this.scene.pickShipId(raycaster);
+    const screenProximate = this.scene.pickShipIdNearScreen(
+      clientX,
+      clientY,
+      rect,
+      this.cameras.camera,
+    );
+    const decision = resolveWorldClick(rayHit, screenProximate);
+    if (decision.action === 'select') {
+      this.select(decision.id);
       return;
     }
     const point = this.pickWaterSimPoint(raycaster);
@@ -362,12 +394,40 @@ export class App {
   private readonly onResize = (): void => {
     this.renderer.resize();
     this.cameras.resize(window.innerWidth / Math.max(1, window.innerHeight));
-    this.scene.resize(
-      window.innerWidth,
-      window.innerHeight,
-      Math.min(window.devicePixelRatio || 1, 1.75),
-    );
+    if (this.renderer.canSubmit) {
+      this.scene.resize(
+        window.innerWidth,
+        window.innerHeight,
+        Math.min(window.devicePixelRatio || 1, QUALITY_PROFILES[this.activeQuality].dpr),
+      );
+    }
   };
+
+  private setRecoveryStatus(
+    status: 'ready' | 'lost' | 'restoring' | 'failed',
+    reason?: string,
+  ): void {
+    if (status === 'ready') {
+      this.recoveryBanner.hidden = true;
+      this.recoveryBanner.replaceChildren();
+      return;
+    }
+    if (status === 'lost') {
+      this.scene.invalidateForContextLoss();
+      this.recoveryBanner.textContent = 'GRAPHICS CONTEXT LOST — WAITING TO RECOVER';
+    } else if (status === 'restoring') {
+      this.recoveryBanner.textContent = 'RESTORING PRESENTATION RESOURCES…';
+    } else {
+      const message = document.createElement('span');
+      message.textContent = `GRAPHICS RECOVERY FAILED${reason ? ` — ${reason}` : ''}`;
+      const reload = document.createElement('button');
+      reload.type = 'button';
+      reload.textContent = 'Reload';
+      reload.addEventListener('click', () => window.location.reload(), { once: true });
+      this.recoveryBanner.replaceChildren(message, reload);
+    }
+    this.recoveryBanner.hidden = false;
+  }
 
   private readonly onUnload = (): void => {
     saveSettings(this.settings);
@@ -397,11 +457,14 @@ export class App {
     this.cameras.update(this.sim, renderDt, {
       lightning: this.scene.weatherLightning,
       reducedMotion: this.reducedMotion,
+      waterHeight: this.scene.sampledWaterHeight,
     });
     this.scene.applyImmersion(this.cameras.camera);
     this.renderer.setExposure(this.settings.atmosphere.exposure);
-    this.scene.preRenderWater(this.renderer.renderer, this.cameras.camera);
-    this.renderer.render(this.scene.scene, this.cameras.camera);
+    if (this.renderer.canSubmit) {
+      this.scene.preRenderWater(this.renderer.renderer, this.cameras.camera);
+      this.renderer.render(this.scene.scene, this.cameras.camera);
+    }
 
     this.hud.render(this.game, this.sim, this.settings);
     this.audio.observe(this.game);
@@ -413,8 +476,11 @@ export class App {
     this.fpsEma = this.fpsEma * 0.9 + fpsInst * 0.1;
     this.frameMsEma = this.frameMsEma * 0.9 + renderDt * 1000 * 0.1;
     const profile = this.quality.update(this.frameMsEma, renderDt);
-    this.renderer.setQuality(QUALITY_PROFILES[profile]);
-    this.scene.setQuality(QUALITY_PROFILES[profile]);
+    if (profile !== this.activeQuality && this.renderer.canSubmit) {
+      this.activeQuality = profile;
+      this.renderer.setQuality(QUALITY_PROFILES[profile]);
+      this.scene.setQuality(QUALITY_PROFILES[profile]);
+    }
     if (this.panel.isVisible()) {
       this.panel.setPerf(this.fpsEma, this.frameMsEma, profile);
     }
@@ -431,6 +497,7 @@ export class App {
     this.input.dispose();
     this.tutorial.dispose();
     this.audio.dispose();
+    this.recoveryBanner.remove();
     this.scene.dispose();
     this.renderer.dispose();
   }

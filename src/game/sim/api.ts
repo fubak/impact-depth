@@ -1,4 +1,7 @@
 import type { GameCommand } from '../commands/types';
+import type { WorldVersion } from '../world/definition';
+import { playerNavProfile, snapWorld } from '../world/littoral';
+import { getWorld } from '../world/queries';
 import { createGame as makeGame, seedPowerups, seedWave } from './create';
 import { stepGame } from './step';
 import type {
@@ -13,15 +16,17 @@ import type {
 } from './types';
 import { snapToNavigable as snap, getTerrain } from './world';
 
-export const createGame = (seed?: number): GameState => makeGame(seed);
+export const createGame = (seed?: number, worldVersion?: WorldVersion): GameState =>
+  makeGame(seed, worldVersion);
 export const startMission = (state: GameState): GameState => ({
   ...state,
   phase: 'playing',
-  ships: seedWave(state.seed, 1, state.ships[0]),
-  powerups: seedPowerups(state.seed),
+  ships: seedWave(state.seed, 1, state.ships[0], state.worldVersion),
+  powerups: seedPowerups(state.seed, 7, state.worldVersion),
   submarine: { ...state.submarine, invuln: 8 },
 });
-export const restartGame = (state: GameState): GameState => makeGame(state.seed);
+export const restartGame = (state: GameState): GameState =>
+  makeGame(state.seed, state.worldVersion);
 export const setPhase = (state: GameState, phase: GamePhase): GameState => ({ ...state, phase });
 export const setWeapon = (state: GameState, weapon: WeaponMode): GameState => ({
   ...state,
@@ -94,11 +99,24 @@ export const pickShipAt = (state: GameState, point: Point, radius = 1) =>
   state.ships.find((ship) => Math.hypot(ship.x - point.x, ship.y - point.y) <= radius) ?? null;
 export const pickShipAtScreen = (): ApiResult => ({ ok: false, reason: 'not_implemented' });
 export const snapToNavigable = (state: GameState, point: Point): Point =>
-  snap(getTerrain(state.terrainSeed), point.x, point.y, state.submarine.z);
-export const applyHostSeed = (state: GameState, seed: number): GameState => ({
-  ...state,
-  seed: seed >>> 0,
-  rngState: seed >>> 0,
-  terrainSeed: seed >>> 0,
-  worldVersion: state.worldVersion ?? 'legacy-v1',
-});
+  state.worldVersion === 'littoral-v2'
+    ? snapWorld(
+        getWorld(state.worldVersion, state.terrainSeed),
+        point.x,
+        point.y,
+        playerNavProfile(state.submarine.z),
+      )
+    : snap(getTerrain(state.terrainSeed), point.x, point.y, state.submarine.z);
+export function applyHostSeed(state: GameState, seed: number): GameState {
+  const worldVersion = state.worldVersion ?? 'legacy-v1';
+  const created = makeGame(seed, worldVersion);
+  // Only active patrols re-seed waves/pickups. Menu and terminal phases keep an empty registry.
+  const populate = state.phase === 'playing' || state.phase === 'paused';
+  const populated = populate ? startMission({ ...created, phase: state.phase }) : created;
+  return {
+    ...populated,
+    phase: state.phase,
+    settings: state.settings,
+    viewMode: state.viewMode,
+  };
+}

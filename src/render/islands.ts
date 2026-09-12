@@ -12,7 +12,6 @@ import {
   VegetationField,
   type VegetationQuality,
 } from './environment/vegetation';
-import type { QualityName } from './quality';
 
 function tintIslandVertex(
   h: number,
@@ -147,12 +146,6 @@ function buildIslandGeometry(spec: IslandSpec, rings = 44, sectors = 64): THREE.
   geo.computeVertexNormals();
   return geo;
 }
-
-export const VEGETATION_QUALITY: Record<QualityName, VegetationQuality> = {
-  high: { vegetationDensity: 1, vegetationLodDistance: 320, vegetationShadows: true },
-  medium: { vegetationDensity: 0.68, vegetationLodDistance: 220, vegetationShadows: true },
-  low: { vegetationDensity: 0.38, vegetationLodDistance: 150, vegetationShadows: false },
-};
 
 export class IslandField {
   readonly group = new THREE.Group();

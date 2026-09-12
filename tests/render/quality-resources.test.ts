@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { EnvironmentController } from '../../src/render/environment/controller';
 import type {
@@ -13,8 +13,11 @@ import {
   disposeMaterial,
   disposeTarget,
   disposeTexture,
+  replaceOwnedResources,
   resizeTarget,
   SimulationPass,
+  validateFloatFramebuffer,
+  withRendererPass,
 } from '../../src/render/ocean/resources';
 import { fftSizeForQuality, spectralFftSizeForQuality } from '../../src/render/ocean/spectrum';
 import { QUALITY_PROFILES, QualityGovernor } from '../../src/render/quality';
@@ -92,6 +95,26 @@ describe('quality profiles vs spectral FFT sizes', () => {
       expect(QUALITY_PROFILES[name].spectralFftSize.wind).toBe(fftSizeForQuality(name, 'wind'));
     }
   });
+
+  it('defines every presentation cost owned by one profile', () => {
+    for (const profile of Object.values(QUALITY_PROFILES)) {
+      expect(profile).toMatchObject({
+        dpr: expect.any(Number),
+        waterSegments: expect.any(Number),
+        shadowCadence: expect.any(Number),
+        particleCap: expect.any(Number),
+        vegetationDensity: expect.any(Number),
+        vegetationLodDistance: expect.any(Number),
+        opticsScale: expect.any(Number),
+        opticsCadence: expect.any(Number),
+        foamScale: expect.any(Number),
+        foamCadence: expect.any(Number),
+        causticsScale: expect.any(Number),
+        causticsCadence: expect.any(Number),
+      });
+      expect(Object.values(profile.spectralCadence).every((value) => value >= 1)).toBe(true);
+    }
+  });
 });
 
 describe('QualityGovernor forced URL quality', () => {
@@ -156,5 +179,122 @@ describe('environment resource lifecycle without WebGL', () => {
     const pass = new SimulationPass();
     pass.dispose();
     pass.dispose();
+  });
+
+  it('atomically replaces and disposes owned resource generations', () => {
+    type Resource = { generation: number; disposed: number };
+    const disposed: Resource[] = [];
+    let active: Resource = { generation: 0, disposed: 0 };
+    for (let generation = 1; generation <= 20; generation++) {
+      active = replaceOwnedResources(
+        active,
+        () => ({ generation, disposed: 0 }),
+        (next) => {
+          active = next;
+        },
+        (old) => {
+          old.disposed += 1;
+          disposed.push(old);
+        },
+      );
+    }
+    expect(active.generation).toBe(20);
+    expect(disposed).toHaveLength(20);
+    expect(disposed.every((resource) => resource.disposed === 1)).toBe(true);
+  });
+
+  it('keeps the prior resources when replacement binding fails', () => {
+    const original = { id: 'original', disposed: 0 };
+    const replacement = { id: 'replacement', disposed: 0 };
+    let active = original;
+    expect(() =>
+      replaceOwnedResources(
+        original,
+        () => replacement,
+        (next) => {
+          active = next;
+          if (next === replacement) throw new Error('bind failed');
+        },
+        (resource) => {
+          resource.disposed += 1;
+        },
+      ),
+    ).toThrow('bind failed');
+    expect(active).toBe(original);
+    expect(original.disposed).toBe(0);
+    expect(replacement.disposed).toBe(1);
+  });
+});
+
+function mockRenderer(framebufferStatus: number): THREE.WebGLRenderer {
+  const gl = {
+    FRAMEBUFFER: 0x8d40,
+    FRAMEBUFFER_COMPLETE: 0x8cd5,
+    NO_ERROR: 0,
+    checkFramebufferStatus: vi.fn(() => framebufferStatus),
+    getError: vi.fn(() => 0),
+  };
+  let target: THREE.WebGLRenderTarget | null = null;
+  return {
+    extensions: { has: vi.fn(() => true) },
+    getContext: vi.fn(() => gl),
+    getRenderTarget: vi.fn(() => target),
+    getActiveCubeFace: vi.fn(() => 0),
+    getActiveMipmapLevel: vi.fn(() => 0),
+    getViewport: vi.fn((value: THREE.Vector4) => value.set(0, 0, 640, 480)),
+    getScissor: vi.fn((value: THREE.Vector4) => value.set(0, 0, 640, 480)),
+    getScissorTest: vi.fn(() => false),
+    getClearColor: vi.fn((value: THREE.Color) => value.set(0x123456)),
+    getClearAlpha: vi.fn(() => 1),
+    setRenderTarget: vi.fn((value: THREE.WebGLRenderTarget | null) => {
+      target = value;
+    }),
+    setViewport: vi.fn(),
+    setScissor: vi.fn(),
+    setScissorTest: vi.fn(),
+    setClearColor: vi.fn(),
+    clear: vi.fn(),
+    readRenderTargetPixels: vi.fn(),
+    autoClear: true,
+    autoClearColor: true,
+    autoClearDepth: true,
+    autoClearStencil: true,
+    toneMapping: THREE.NoToneMapping,
+    toneMappingExposure: 1,
+    localClippingEnabled: false,
+    clippingPlanes: [],
+    shadowMap: { enabled: true, autoUpdate: true, needsUpdate: false },
+    xr: { enabled: false },
+  } as unknown as THREE.WebGLRenderer;
+}
+
+describe('float framebuffer validation and pass restoration', () => {
+  it('checks completeness and readback on the actual bound target', () => {
+    const renderer = mockRenderer(0x8cd5);
+    expect(validateFloatFramebuffer(renderer)).toEqual({ supported: true, reason: null });
+    expect(renderer.readRenderTargetPixels).toHaveBeenCalledOnce();
+  });
+
+  it('returns an explicit reason for an incomplete framebuffer', () => {
+    const renderer = mockRenderer(0x8cd6);
+    expect(validateFloatFramebuffer(renderer)).toMatchObject({
+      supported: false,
+      reason: expect.stringContaining('incomplete'),
+    });
+    expect(renderer.readRenderTargetPixels).not.toHaveBeenCalled();
+  });
+
+  it('restores renderer state when an auxiliary pass throws', () => {
+    const renderer = mockRenderer(0x8cd5);
+    expect(() =>
+      withRendererPass(renderer, () => {
+        renderer.autoClear = false;
+        renderer.shadowMap.autoUpdate = false;
+        throw new Error('pass failed');
+      }),
+    ).toThrow('pass failed');
+    expect(renderer.autoClear).toBe(true);
+    expect(renderer.shadowMap.autoUpdate).toBe(true);
+    expect(renderer.setRenderTarget).toHaveBeenLastCalledWith(null, 0, 0);
   });
 });

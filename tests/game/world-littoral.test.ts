@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ISLAND_SPECS, sampleIslandHeight, sampleSeabedY } from '../../src/core/terrain';
 import { FIXED_DT } from '../../src/core/sim';
-import { createGame, startMission, updateGame } from '../../src/game/sim/api';
+import {
+  applyHostSeed,
+  createGame,
+  restartGame,
+  startMission,
+  updateGame,
+} from '../../src/game/sim/api';
 import { DEPTH_TARGET, SEAMOUNT_CRUSH_DPS, WORLD_SIZE } from '../../src/game/sim/constants';
 import { simToWorldMeters, worldMetersToSim } from '../../src/game/sim/coords';
 import { findWorldPath, shipClearRadius } from '../../src/game/sim/pathfinding';
@@ -9,6 +15,7 @@ import {
   applyChannelDeepening,
   CHANNEL_MAX_WATER_M,
   createLittoralWorld,
+  enemySubNavProfile,
   isNavigable,
   KEEL_CLEARANCE_M,
   littoralIsLand,
@@ -58,6 +65,86 @@ describe('littoral-v2 CPU world', () => {
     expect(createGame(19).worldVersion).toBe('legacy-v1');
     expect(LITTORAL_SPACING_M).toBe(1);
     expect(RENDERER_HULL_CLAMP_REMAINS).toBe(true);
+  });
+
+  it('propagates an explicit v2 world through construction, start, restart, and host seed changes', () => {
+    const created = createGame(19, 'littoral-v2');
+    expect(created.worldVersion).toBe('littoral-v2');
+    expect(startMission(created).worldVersion).toBe('littoral-v2');
+    expect(restartGame(created).worldVersion).toBe('littoral-v2');
+    const reseeded = applyHostSeed(created, 77);
+    expect(reseeded.worldVersion).toBe('littoral-v2');
+    expect(reseeded.seed).toBe(77);
+    expect(reseeded.terrainSeed).toBe(77);
+    const world = getWorld('littoral-v2', 77);
+    expect(
+      isNavigable(
+        world,
+        reseeded.submarine.x,
+        reseeded.submarine.y,
+        playerNavProfile(reseeded.submarine.z),
+      ),
+    ).toBe(true);
+    expect(
+      isNavigable(world, reseeded.base.x, reseeded.base.y, playerNavProfile(DEPTH_TARGET.attack)),
+    ).toBe(true);
+
+    const active = applyHostSeed(startMission(created), 42);
+    const activeWorld = getWorld('littoral-v2', 42);
+    expect(active.phase).toBe('playing');
+    expect(active.worldVersion).toBe('littoral-v2');
+    expect(
+      active.ships.every((ship) =>
+        isNavigable(
+          activeWorld,
+          ship.x,
+          ship.y,
+          ship.kind === 'sub'
+            ? enemySubNavProfile()
+            : surfaceShipNavProfile(shipClearRadius(ship.kind)),
+        ),
+      ),
+    ).toBe(true);
+
+    const ended = applyHostSeed({ ...created, phase: 'gameover' }, 42);
+    expect(ended.phase).toBe('gameover');
+    expect(ended.ships.some((ship) => ship.id.startsWith('wave-'))).toBe(false);
+  });
+
+  it('places representative v2 waves and pickups using their navigation profiles', () => {
+    for (const seed of [0, 1, 7, 19, 42, 77, 99]) {
+      const state = startMission(createGame(seed, 'littoral-v2'));
+      const world = getWorld('littoral-v2', seed);
+      expect(
+        isNavigable(
+          world,
+          state.submarine.x,
+          state.submarine.y,
+          playerNavProfile(state.submarine.z),
+        ),
+      ).toBe(true);
+      expect(
+        isNavigable(world, state.base.x, state.base.y, playerNavProfile(DEPTH_TARGET.attack)),
+      ).toBe(true);
+      for (const pickup of state.powerups) {
+        expect(
+          isNavigable(world, pickup.x, pickup.y, playerNavProfile(DEPTH_TARGET.periscope)),
+        ).toBe(true);
+      }
+      for (const ship of state.ships) {
+        const profile =
+          ship.kind === 'sub'
+            ? enemySubNavProfile()
+            : surfaceShipNavProfile(shipClearRadius(ship.kind));
+        expect(isNavigable(world, ship.x, ship.y, profile), `${seed}:${ship.id}`).toBe(true);
+        for (const waypoint of ship.path) {
+          expect(
+            isNavigable(world, waypoint.x, waypoint.y, profile),
+            `${seed}:${ship.id}:path`,
+          ).toBe(true);
+        }
+      }
+    }
   });
 
   it('defines land as signed bed at or above mean sea level and preserves dry island footprints', () => {

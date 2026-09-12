@@ -1,9 +1,18 @@
 import * as THREE from 'three';
 import { createFloatTarget, disposeMaterial, disposeTarget, SimulationPass, simulationMaterial } from './resources';
 import { PASS_VERTEX_GLSL } from './spectrum';
+import {
+  FOOTPRINT_SITES,
+  footprintPoints,
+  type FootprintSite,
+} from '../presentation/vessel-attitude';
+
+export type SurfaceProbeSite = FootprintSite | 'camera';
 
 export interface SurfaceProbeRequest {
   readonly id: string;
+  readonly entityId: string;
+  readonly site: SurfaceProbeSite;
   readonly x: number;
   readonly z: number;
 }
@@ -13,7 +22,10 @@ export interface SurfaceProbeResult extends SurfaceProbeRequest {
   readonly slopeX: number;
   readonly slopeZ: number;
   readonly time: number;
+  readonly queryX: number;
+  readonly queryZ: number;
   readonly missionGeneration: number;
+  readonly backendGeneration: number;
 }
 
 export interface SurfaceProbeMaps {
@@ -21,6 +33,23 @@ export interface SurfaceProbeMaps {
   readonly slopes: readonly THREE.Texture[];
   readonly lengths: readonly number[];
 }
+
+export interface SurfaceProbeQuery {
+  readonly missionGeneration: number;
+  readonly backendGeneration: number;
+  readonly now?: number;
+  readonly maxAge?: number;
+  readonly livingIds?: ReadonlySet<string>;
+}
+
+export interface SurfaceProbeRequestContext {
+  readonly time: number;
+  readonly missionGeneration: number;
+  readonly backendGeneration: number;
+}
+
+/** Drop a result that is older than this (seconds) even if generations match. */
+export const PROBE_MAX_AGE = 0.75;
 
 const PROBE_FRAGMENT = /* glsl */ `
 uniform sampler2D uPoints;
@@ -52,6 +81,66 @@ void main() {
   gl_FragColor = vec4(d.y, s, 1.0);
 }`;
 
+export function probeSampleId(entityId: string, site: SurfaceProbeSite): string {
+  return `${entityId}:${site}`;
+}
+
+export function buildFootprintRequests(
+  entityId: string,
+  x: number,
+  z: number,
+  heading: number,
+  span: number,
+): SurfaceProbeRequest[] {
+  const points = footprintPoints(x, z, heading, span);
+  return FOOTPRINT_SITES.map((site) => ({
+    id: probeSampleId(entityId, site),
+    entityId,
+    site,
+    x: points[site].x,
+    z: points[site].z,
+  }));
+}
+
+export function isFreshProbe(sample: SurfaceProbeResult, query: SurfaceProbeQuery): boolean {
+  if (sample.missionGeneration !== query.missionGeneration) return false;
+  if (sample.backendGeneration !== query.backendGeneration) return false;
+  if (query.livingIds && !query.livingIds.has(sample.entityId) && sample.entityId !== 'camera') {
+    return false;
+  }
+  if (query.now !== undefined) {
+    const age = query.now - sample.time;
+    const maxAge = query.maxAge ?? PROBE_MAX_AGE;
+    if (age > maxAge) return false;
+  }
+  return true;
+}
+
+export function filterProbeResults(
+  samples: readonly SurfaceProbeResult[],
+  query: SurfaceProbeQuery,
+): SurfaceProbeResult[] {
+  return samples.filter((sample) => isFreshProbe(sample, query));
+}
+
+export function decodeProbeOutput(
+  batch: readonly SurfaceProbeRequest[],
+  output: ArrayLike<number>,
+  context: SurfaceProbeRequestContext,
+): SurfaceProbeResult[] {
+  return batch.map((request, i) => ({
+    ...request,
+    height: output[i * 4] ?? 0,
+    slopeX: output[i * 4 + 1] ?? 0,
+    slopeZ: output[i * 4 + 2] ?? 0,
+    time: context.time,
+    queryX: request.x,
+    queryZ: request.z,
+    missionGeneration: context.missionGeneration,
+    backendGeneration: context.backendGeneration,
+  }));
+}
+
 /** One bounded asynchronous GPU readback shared by all visible surface vessels. */
 export class SurfaceProbeQueue {
   readonly capacity: number;
@@ -64,6 +153,7 @@ export class SurfaceProbeQueue {
   private token = 0;
   private latest: SurfaceProbeResult[] = [];
   private disposed = false;
+  private gpuReleased = false;
 
   constructor(capacity = 32) {
     this.capacity = Math.max(1, Math.floor(capacity));
@@ -81,11 +171,24 @@ export class SurfaceProbeQueue {
     }, PROBE_FRAGMENT, PASS_VERTEX_GLSL);
   }
 
-  request(renderer: THREE.WebGLRenderer, maps: SurfaceProbeMaps, requests: readonly SurfaceProbeRequest[], time: number, missionGeneration: number): void {
+  get hasPendingReadback(): boolean {
+    return this.pending;
+  }
+
+  request(
+    renderer: THREE.WebGLRenderer,
+    maps: SurfaceProbeMaps,
+    requests: readonly SurfaceProbeRequest[],
+    context: SurfaceProbeRequestContext,
+  ): void {
     if (this.disposed || this.pending || requests.length === 0) return;
+    if (maps.displacements.length < 3 || maps.slopes.length < 3) return;
     const batch = requests.slice(0, this.capacity);
     this.pointsData.fill(0);
-    batch.forEach((request, i) => { this.pointsData[i * 4] = request.x; this.pointsData[i * 4 + 1] = request.z; });
+    batch.forEach((request, i) => {
+      this.pointsData[i * 4] = request.x;
+      this.pointsData[i * 4 + 1] = request.z;
+    });
     this.points.needsUpdate = true;
     const u = this.material.uniforms;
     u.uCount!.value = batch.length;
@@ -100,20 +203,46 @@ export class SurfaceProbeQueue {
     this.pending = true;
     void renderer.readRenderTargetPixelsAsync(this.target, 0, 0, this.capacity, 1, output).then(() => {
       if (this.disposed || token !== this.token) return;
-      this.latest = batch.map((request, i) => ({ ...request, height: output[i * 4]!, slopeX: output[i * 4 + 1]!, slopeZ: output[i * 4 + 2]!, time, missionGeneration }));
-    }).catch(() => { /* Late/unsupported readback leaves the bounded previous presentation result. */ }).finally(() => {
+      this.latest = decodeProbeOutput(batch, output, context);
+    }).catch(() => {
+      /* Late/unsupported readback leaves the bounded previous presentation result. */
+    }).finally(() => {
       if (token === this.token) this.pending = false;
+      if (this.disposed) this.releaseGpu();
     });
   }
 
-  consume(missionGeneration: number): readonly SurfaceProbeResult[] {
-    return this.latest.filter((sample) => sample.missionGeneration === missionGeneration);
+  consume(query: SurfaceProbeQuery): readonly SurfaceProbeResult[] {
+    return filterProbeResults(this.latest, query);
   }
 
-  reset(): void { this.token += 1; this.pending = false; this.latest = []; }
+  /**
+   * Invalidate results and any in-flight token. Does not dispose GPU targets
+   * (a pending readback may still hold them). A new `request` waits until that
+   * readback's `finally` clears `pending`.
+   */
+  reset(): void {
+    this.token += 1;
+    this.latest = [];
+    // Leave `pending` true while a readback is in flight so a second request
+    // cannot overlap. The superseded `finally` clears the flag.
+  }
 
   dispose(): void {
     if (this.disposed) return;
-    this.disposed = true; this.reset(); this.points.dispose(); disposeTarget(this.target); disposeMaterial(this.material); this.pass.dispose();
+    this.disposed = true;
+    this.token += 1;
+    this.latest = [];
+    if (!this.pending) this.releaseGpu();
+  }
+
+  private releaseGpu(): void {
+    if (this.gpuReleased) return;
+    this.gpuReleased = true;
+    this.pending = false;
+    this.points.dispose();
+    disposeTarget(this.target);
+    disposeMaterial(this.material);
+    this.pass.dispose();
   }
 }

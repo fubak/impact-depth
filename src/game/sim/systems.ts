@@ -1081,7 +1081,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       pickupRespawn <= 0 && remaining.length < PICKUP_MAX
         ? [
             ...remaining,
-            ...seedPowerups(state.seed + state.tick, 1).map((pickup) => ({
+            ...seedPowerups(state.seed + state.tick, 1, state.worldVersion).map((pickup) => ({
               ...pickup,
               id: `pickup-${state.tick}`,
               life: PICKUP_LIFE,
@@ -1095,7 +1095,10 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       powerupsTaken: stats.powerupsTaken + collected.length,
     };
     const nextPowerups = waveCleared
-      ? [...powerups, ...seedPowerups(state.seed + stats.wave * 101, 3)].slice(0, PICKUP_MAX)
+      ? [...powerups, ...seedPowerups(state.seed + stats.wave * 101, 3, state.worldVersion)].slice(
+          0,
+          PICKUP_MAX,
+        )
       : powerups;
     return {
       ...state,
@@ -1104,7 +1107,9 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       powerups: nextPowerups,
       dockHold,
       pickupRespawn: pickupRespawn <= 0 ? PICKUP_RESPAWN : pickupRespawn,
-      ships: waveCleared ? seedWave(state.seed, stats.wave + 1) : state.ships,
+      ships: waveCleared
+        ? seedWave(state.seed, stats.wave + 1, undefined, state.worldVersion)
+        : state.ships,
     };
   },
   cleanupEvents: (state, _commands, dt) => ({

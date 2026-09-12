@@ -4,13 +4,14 @@ import { ISLAND_SPECS } from '../../src/core/terrain';
 import { palmCrownGeometry, VegetationField } from '../../src/render/environment/vegetation';
 
 function compileWindMaterial(material: THREE.MeshStandardMaterial): void {
+  // Three's onBeforeCompile second arg is WebGLRenderer; tests only need the shader params.
   material.onBeforeCompile?.(
     {
       uniforms: {},
       vertexShader: '#include <common>\n#include <begin_vertex>',
       fragmentShader: '#include <common>',
     } as THREE.WebGLProgramParametersWithUniforms,
-    material,
+    null as unknown as THREE.WebGLRenderer,
   );
 }
 
