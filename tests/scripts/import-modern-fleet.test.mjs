@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { validateFleetSourceManifest } from '../../scripts/lib/fleet-source-manifest.mjs';
@@ -93,7 +94,7 @@ describe('import-modern-fleet manifest contract', () => {
         },
       },
     };
-    const tmp = resolve(root, 'artifacts/tmp-unsafe-kind-manifest.json');
+    const tmp = join(mkdtempSync(join(tmpdir(), 'fleet-manifest-')), 'unsafe-kind.json');
     writeFileSync(tmp, JSON.stringify(bad));
     const validation = validateFleetSourceManifest(tmp, root);
     expect(validation.ok).toBe(false);
@@ -115,7 +116,7 @@ describe('import-modern-fleet manifest contract', () => {
         },
       },
     };
-    const tmp = resolve(root, 'artifacts/tmp-traverse-manifest.json');
+    const tmp = join(mkdtempSync(join(tmpdir(), 'fleet-manifest-')), 'traverse.json');
     writeFileSync(tmp, JSON.stringify(bad));
     const validation = validateFleetSourceManifest(tmp, root);
     expect(validation.ok).toBe(false);
