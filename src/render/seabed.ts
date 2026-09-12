@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { classifySeabedTone, sampleSeabedY } from '../core/terrain';
 import type { EnvironmentSettings } from '../core/types';
 
+export type SeabedHeightSampler = (worldX: number, worldZ: number) => number;
+
 /**
  * Procedural sandy bathymetry mesh that follows the player.
  * Built in XZ (Y-up) without Geometry.rotateX so height writes stick.
@@ -15,6 +17,7 @@ export class Seabed {
   private readonly segments: number;
   private originX = 0;
   private originZ = 0;
+  private heightSampler: SeabedHeightSampler = sampleSeabedY;
 
   constructor(size = 440, segments = 100) {
     this.size = size;
@@ -71,6 +74,15 @@ export class Seabed {
     this.rebuild(0, 0, '#c8b57a');
   }
 
+  /** Prefer the canonical world bed when littoral-v2 is active. */
+  setHeightSampler(sampler: SeabedHeightSampler | null): void {
+    const next = sampler ?? sampleSeabedY;
+    if (next === this.heightSampler) return;
+    this.heightSampler = next;
+    this.originX = Number.NaN;
+    this.originZ = Number.NaN;
+  }
+
   private rebuild(ox: number, oz: number, sandHex: string): void {
     this.originX = ox;
     this.originZ = oz;
@@ -86,7 +98,7 @@ export class Seabed {
       const lz = pos.getZ(i);
       const wx = ox + lx;
       const wz = oz + lz;
-      const y = sampleSeabedY(wx, wz);
+      const y = this.heightSampler(wx, wz);
       pos.setY(i, y);
 
       const tone = classifySeabedTone(wx, wz);
@@ -110,6 +122,8 @@ export class Seabed {
     const snapX = Math.round(x / cell) * cell;
     const snapZ = Math.round(z / cell) * cell;
     if (
+      !Number.isFinite(this.originX) ||
+      !Number.isFinite(this.originZ) ||
       Math.hypot(snapX - this.originX, snapZ - this.originZ) > cell * 2.5 ||
       this.material.userData.sand !== env.sandColor
     ) {

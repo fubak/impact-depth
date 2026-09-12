@@ -460,7 +460,7 @@ void main() {
   float crestBand = smoothstep(0.55, 0.9, crest) * (1.0 - smoothstep(0.9, 1.2, crest));
   float breakNoise = sin(vWorldPos.x * 1.4 + uTime * 1.8) * sin(vWorldPos.z * 1.1 - uTime * 1.3);
   float cascadeFoam = uSpectral > 0.5 ? oceanFoam(flatXZ) : 0.0;
-  vFoam = max(crestBand * (0.25 + 0.75 * step(0.2, breakNoise)), cascadeFoam * 0.22);
+  vFoam = max(crestBand * (0.18 + 0.45 * step(0.35, breakNoise)), cascadeFoam * 0.08);
   vCrest = clamp(crest * 0.5 + 0.5, 0.0, 1.0);
 
   gl_Position = projectionMatrix * viewMatrix * world;
@@ -543,6 +543,7 @@ void main() {
   // CheapWater-style multi-layer scrolling normals (3 layers @ 120°).
   vec3 detail = vec3(0.0);
   float overlays = float(max(uOverlays, 1));
+  float overlayGain = uSpectral > 0.5 ? 0.28 : 1.0;
   for (int i = 0; i < 6; i++) {
     if (i >= uOverlays) break;
     float dir = float(i) / overlays * 6.2831853;
@@ -556,13 +557,13 @@ void main() {
     vec3 snB = texture2D(uNormalMap, uvB).rgb * 2.0 - 1.0;
     snA.xy = rot * snA.xy;
     snB.xy = rot * snB.xy;
-    detail += snA * 0.7 + snB * 0.45;
+    detail += (snA * 0.7 + snB * 0.45) * overlayGain;
   }
 
   // Screen-space interactive ripples (same camera as main pass).
   vec2 screenUv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
   vec3 ripple = texture2D(uNormalDisturbance, screenUv).rgb * 2.0 - 1.0;
-  detail += ripple * uRippleStrength;
+  detail += ripple * uRippleStrength * (uSpectral > 0.5 ? 0.35 : 1.0);
 
   vec3 up = normalize(N);
   vec3 tangent = normalize(cross(up, abs(up.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)));
@@ -588,11 +589,14 @@ void main() {
   // Sand bleed-through in clear shallows.
   float clarity = clamp(uClarity, 0.0, 1.0);
   float seeFloor = exp(-depth * mix(0.55, 0.22, clarity));
-  water = mix(water, mix(water, uSandColor * 0.92, 0.55), seeFloor * 0.85);
+  if (uSpectral > 0.5) {
+    seeFloor *= smoothstep(0.6, 2.8, depth) * 0.45;
+  }
+  water = mix(water, mix(water, uSandColor * 0.92, 0.55), seeFloor * (uSpectral > 0.5 ? 0.35 : 0.85));
 
   // Shallow caustic veins.
   float caus = caustic(vFlat, uTime) * seeFloor * uCaustics;
-  water += vec3(0.9, 1.0, 0.95) * caus * 0.75;
+  water += vec3(0.9, 1.0, 0.95) * caus * (uSpectral > 0.5 ? 0.12 : 0.35);
 
   // Reflective sky / metalness-like film (CheapWater look).
   vec3 skyReflect = mix(uSkyColor * 0.85, vec3(0.78, 0.92, 1.0), fresnel);
@@ -653,11 +657,12 @@ void main() {
   caps *= smoothstep(0.45, 0.85, fField) * smoothstep(0.45, 0.75, capMask);
 
   float shoreFoam = clamp((lip * 1.15 + wash * 0.7 + caps * 0.85) * uShoreFoam, 0.0, 1.0);
-  float crestFoam = vFoam * uFoamAmount * (0.45 + 0.55 * sin(vWorldPos.x * 2.2 + uTime * 2.5));
-  crestFoam += length(ripple.xy) * 0.12 * uRippleStrength;
+  float crestFoam = vFoam * uFoamAmount * (0.35 + 0.35 * sin(vWorldPos.x * 2.2 + uTime * 2.5));
+  crestFoam += length(ripple.xy) * 0.08 * uRippleStrength;
   float foamMask = clamp(max(shoreFoam, crestFoam), 0.0, 1.0) * vCoverage;
-  vec3 foamCol = vec3(0.92, 0.96, 0.97) * (0.9 + 0.2 * fField);
-  water = mix(water, foamCol, foamMask * 0.9);
+  vec3 foamCol = vec3(0.92, 0.96, 0.97) * (0.9 + 0.12 * fField);
+  float foamMix = uSpectral > 0.5 ? 0.35 : 0.9;
+  water = mix(water, foamCol, foamMask * foamMix);
 
   float alphaDown = mix(0.34, 0.24, clarity);
   float alphaGraze = mix(0.88, 0.74, clarity * 0.4);
@@ -670,10 +675,10 @@ void main() {
   vec3 volume = mix(uDeepColor * 0.28, vec3(0.01, 0.14, 0.18), 0.65);
   water = mix(water, volume, under * 0.88);
   water *= mix(1.0, 0.42, under);
-  water += vec3(0.05, 0.22, 0.2) * caus * under * 1.4;
+  water += vec3(0.05, 0.22, 0.2) * caus * under * 0.55;
   if (uSpectral > 0.5) {
-    foamMask = clamp(foamMask + abs(vCrest - 0.5) * 0.18 * uFoamAmount, 0.0, 1.0);
-    water = mix(water, foamCol, foamMask * 0.28 * (1.0 - under));
+    foamMask = clamp(foamMask + abs(vCrest - 0.5) * 0.08 * uFoamAmount, 0.0, 1.0);
+    water = mix(water, foamCol, foamMask * 0.14 * (1.0 - under));
   }
   alpha = mix(alpha, mix(0.78, 0.94, absorb), under);
   float lookDown = smoothstep(0.15, 0.85, overhead);
@@ -871,6 +876,9 @@ export class Ocean {
     u.uSunDir.value.copy(sunDir);
     u.uSunColor.value.set(sunColor.r, sunColor.g, sunColor.b);
     u.uSkyColor.value.set(skyColor.r, skyColor.g, skyColor.b);
+    const spectral = (u.uSpectral?.value as number) > 0.5;
+    u.uOverlays.value = spectral ? 1 : 3;
+    u.uRippleStrength.value = spectral ? 1.4 : 3.6;
     this.ripples.update(dt);
     this.wakeTimer += dt;
   }
@@ -938,7 +946,17 @@ export class Ocean {
     };
   }
 
-  bindCoastalField(field: { data: Float32Array; resolution: number; originX: number; originZ: number; extent: number; directionX: number; directionZ: number } | null): void {
+  bindCoastalField(
+    field: {
+      data: Float32Array;
+      resolution: number;
+      originX: number;
+      originZ: number;
+      extent: number;
+      directionX: number;
+      directionZ: number;
+    } | null,
+  ): void {
     if (field) {
       const texture = new THREE.DataTexture(
         field.data,

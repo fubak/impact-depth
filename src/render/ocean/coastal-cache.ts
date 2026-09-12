@@ -1,7 +1,14 @@
 /** Cached coastal field management with world version tracking. */
 
 import type { WorldVersion } from '../environment/types';
-import { buildCoastalField, type BedSampler, type CoastalField, type CoastalFieldConfig } from './coastal';
+import {
+  buildCoastalField,
+  buildCoastalFieldAsync,
+  type BedSampler,
+  type CoastalField,
+  type CoastalFieldConfig,
+  type CoastalPhysics,
+} from './coastal';
 
 export interface CoastalCacheKey {
   readonly worldVersion: WorldVersion;
@@ -42,20 +49,20 @@ export class CoastalFieldCache {
   private cleanup(): void {
     const now = performance.now();
     const entries = Array.from(this.cache.entries());
-    
+
     // Remove expired entries
     for (const [keyStr, entry] of entries) {
       if (now - entry.timestamp > this.maxAge) {
         this.cache.delete(keyStr);
       }
     }
-    
+
     // Remove oldest entries if over limit
     if (this.cache.size > this.maxEntries) {
       const sorted = entries
         .filter(([keyStr]) => this.cache.has(keyStr))
         .sort((a, b) => a[1].timestamp - b[1].timestamp);
-      
+
       while (this.cache.size > this.maxEntries) {
         const [keyStr] = sorted.shift()!;
         this.cache.delete(keyStr);
@@ -73,6 +80,7 @@ export class CoastalFieldCache {
     terrainSeed: number,
     bedSampler: BedSampler,
     signal?: AbortSignal,
+    physicsOverride?: Partial<CoastalPhysics>,
   ): Promise<CoastalField | null> {
     // Check if current field is still valid
     if (this.currentSpec && this.currentField && this.specsEqual(this.currentSpec, spec)) {
@@ -108,7 +116,7 @@ export class CoastalFieldCache {
 
     // Start new build
     this.pendingBuild = new AbortController();
-    const buildSignal = signal 
+    const buildSignal = signal
       ? AbortSignal.any([signal, this.pendingBuild.signal])
       : this.pendingBuild.signal;
 
@@ -118,12 +126,25 @@ export class CoastalFieldCache {
         originZ: spec.originZ,
         extent: spec.extent,
         resolution: spec.resolution,
-        physics: { swellDirection: spec.swellDirection },
+        physics: { swellDirection: spec.swellDirection, ...physicsOverride },
         signal: buildSignal,
       };
 
-      const field = buildCoastalField(bedSampler, config);
-      
+      // Yield so the calling prepare()/rAF can finish painting before the CPU solver runs.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      if (buildSignal.aborted) {
+        return null;
+      }
+
+      // Vitest: keep sync so short timeouts stay meaningful. Browser: yield.
+      const vitestEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+        .process?.env?.VITEST;
+      const field = vitestEnv
+        ? buildCoastalField(bedSampler, config)
+        : await buildCoastalFieldAsync(bedSampler, config);
+
       if (buildSignal.aborted) {
         return null;
       }
@@ -138,7 +159,7 @@ export class CoastalFieldCache {
       this.currentSpec = spec;
       this.currentField = field;
       this.cleanup();
-      
+
       return field;
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {

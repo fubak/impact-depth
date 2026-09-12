@@ -6,10 +6,7 @@ import { worldMetersToSim } from '../game/sim/coords';
 import { getWorld, worldHeight } from '../game/world/queries';
 import { sampleLittoralBedMetres } from '../game/world/littoral';
 import { worldCacheKey } from '../game/world/definition';
-import {
-  normalizedBedToMetres,
-  packWorldHeightTexture,
-} from './environment/terrain-texture';
+import { normalizedBedToMetres, packWorldHeightTexture } from './environment/terrain-texture';
 import {
   entityDepthY,
   metersToEntityY,
@@ -507,6 +504,12 @@ export class GameScene {
     this.currentWorldVersion = version;
     this.currentTerrainSeed = terrainSeed;
     this.environment.setWorldVersion(version);
+    if (version === 'littoral-v2') {
+      const world = getWorld(version, terrainSeed);
+      this.seabed.setHeightSampler((wx, wz) => sampleLittoralBedMetres(world, wx, wz));
+    } else {
+      this.seabed.setHeightSampler(null);
+    }
   }
 
   get weatherLightning(): number {
@@ -580,13 +583,7 @@ export class GameScene {
       coastalExtent: coastal ? coastalOrigin.extent : undefined,
       swellDirection: this.ocean.swellDirection(),
     });
-    this.optics.render(
-      renderer,
-      this.scene,
-      camera,
-      this.ocean.mesh,
-      this.lastWaterHeight ?? 0,
-    );
+    this.optics.render(renderer, this.scene, camera, this.ocean.mesh, this.lastWaterHeight ?? 0);
     this.ocean.bindOptics(this.optics);
     this.surfaceEffects.update({
       time: this.presentationTime,
@@ -609,7 +606,7 @@ export class GameScene {
 
   private bindWorldHeight(game: GameState): void {
     const world = getWorld(game.worldVersion, game.terrainSeed);
-    const key = worldCacheKey(world.version, world.seed, world.size);
+    const key = `${worldCacheKey(world.version, world.seed, world.size)}:bed=${world.bedGridSize ?? world.size}`;
     if (key === this.heightFieldKey) return;
     this.heightFieldKey = key;
     this.currentTerrainSeed = game.terrainSeed;
@@ -665,7 +662,14 @@ export class GameScene {
       add(`charge:${charge.id}`, 'torpedo', p.x, entityDepthY(charge.z), p.z);
       if (charge.fuse < 0.35) {
         this.vfx.emit('plume', new THREE.Vector3(p.x, entityDepthY(charge.z), p.z), game.time);
-        this.emitCombatSplash(`charge:${charge.id}`, p.x, entityDepthY(charge.z), p.z, 1.4, 'burst');
+        this.emitCombatSplash(
+          `charge:${charge.id}`,
+          p.x,
+          entityDepthY(charge.z),
+          p.z,
+          1.4,
+          'burst',
+        );
       }
     }
     for (const aircraft of game.aircraft.filter((a) => a.active)) {
@@ -1173,10 +1177,7 @@ export class GameScene {
     this.lastWaterHeight = null;
   }
 
-  private consumeVesselAttitudes(
-    sim: SimState,
-    dt: number,
-  ): Map<string, VesselAttitudeResult> {
+  private consumeVesselAttitudes(sim: SimState, dt: number): Map<string, VesselAttitudeResult> {
     const living = new Set<string>(['player', 'camera', ...sim.ships.map((ship) => ship.id)]);
     this.attitudes.retain(living);
     const samples = this.probes.consume({

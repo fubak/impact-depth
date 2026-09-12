@@ -2,13 +2,15 @@
 
 ## Current integration direction (2026-09-12)
 
-**Current execution update:** [Complete realism upgrade](018-realism-upgrade-execution.md).
+**Current execution update:** [Complete realism upgrade](018-realism-upgrade-execution.md).  
+**Finish remaining gaps:** [018 finish gaps](018-finish-gaps.md) — machine close, full browser
+matrix, visual PNG inspection, operator STOP before defaults.
+
 The September 12 review found that the spectral foundation exists but optics,
 coastal coupling, projected lighting, animated foliage, vessel probes and runtime
-resource scaling remain incomplete. The new execution document records the
-verified baseline, interrupted unverified drafts, full implementation sequence,
-test matrix and fresh-analysis handoff. The latest user request is to save the
-plan; implementation is paused, not completed.
+resource scaling remain incomplete. Machine candidate work is largely wired;
+`018-finish-gaps.md` closes foam/optics/matrix/cycles/foliage proof and forbids
+self-approved operator gates.
 
 The operator requested a complete, executable plan to integrate
 [`iamtechartist/ocean-simulation`](https://github.com/iamtechartist/ocean-simulation)
@@ -73,7 +75,7 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 | 014  | Make authored audio load, transition, and mix correctly             | P1       | 3–5 days + content review              | 011                                                                  | TODO                                                                                                                                                          |
 | 015  | Ship distinct, licensed, versioned fleet assets                     | P1       | 1–3 weeks                              | 011; shoreline acceptance via 018                                    | **IN PROGRESS (partial 2026-08-04)** — `models/v2` + validate/import pipeline + runtime LOD/preload; operator visual accept + delayed-load test open          |
 | 016  | Make water effects scale to the GPU budget                          | P1       | 4–8 days + GPU run                     | 013, 015 (historical)                                                | SUPERSEDED BY 018 — GPU thresholds and operator proof retained                                                                                                |
-| 018  | Integrate the spectral ocean and a shared world into Silent Depths  | P1       | Multiple weeks + GPU/visual acceptance | 011 + existing 015 pipeline; no fleet sign-off prerequisite to start | IN PROGRESS — machine candidate (spectral e2e/smoke green after RT+GLSL fixes); operator GPU/visual + defaults still open; see `docs/release/realism-upgrade-review.md` |
+| 018  | Integrate the spectral ocean and a shared world into Silent Depths  | P1       | Multiple weeks + GPU/visual acceptance | 011 + existing 015 pipeline; no fleet sign-off prerequisite to start | IN PROGRESS — execute [018-finish-gaps.md](018-finish-gaps.md) next; machine candidate playable; operator GPU/visual + defaults still open; see `docs/release/realism-upgrade-review.md` |
 | 017  | Polish and release the solo production build                        | P1       | 4–10 days                              | 011, 012, 014, 015, accepted 018                                     | TODO                                                                                                                                                          |
 | 009  | Add optional host-authoritative co-op for up to 10 players          | P2       | 3–6 weeks                              | 017                                                                  | TODO                                                                                                                                                          |
 

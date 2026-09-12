@@ -22,7 +22,9 @@ Playable solo patrol sim on Three.js/Vite (not look-dev only). Deterministic gam
   until operator acceptance (`docs/release/realism-upgrade-review.md`).
 - **Critical 018 fixes (2026-09-12):** shared `SURFACE_FUNCTIONS_GLSL` (no double GLSL
   include); surface probes wrap `SimulationPass` in `withRendererPass` so the canvas
-  RT is not stolen; boot uses `createGame(19, runtime.world)`.
+  RT is not stolen; boot uses `createGame(19, runtime.world)`. Coastal rebuilds snap
+  to 128 m and run async (no 1–2 s cruise hitch). Littoral bed uploads at 1 m.
+  Residual spectral foam/cellular look still open for operator eye-pass.
 - **UI:** `src/ui/hud.ts` (throttled ~8 Hz), tutorial, look-dev panel, sonar/periscope overlays.
 - **Input:** canvas world interact gated so HUD clicks do not plot waypoints (`shouldDispatchWorldInteract`).
 

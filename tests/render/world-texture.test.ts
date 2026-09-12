@@ -3,6 +3,11 @@ import * as THREE from 'three';
 import { WORLD_SIZE } from '../../src/game/sim/constants';
 import { simToWorldMeters } from '../../src/game/sim/coords';
 import { createLegacyWorld, legacyHeight } from '../../src/game/world/legacy';
+import {
+  createLittoralWorld,
+  LITTORAL_GRID,
+  sampleLittoralBedMetres,
+} from '../../src/game/world/littoral';
 import { createPackedBedDataTexture } from '../../src/render/environment/bed-data-texture';
 import {
   normalizedBedToMetres,
@@ -78,5 +83,18 @@ describe('world height texture packing', () => {
     expect(texture.minFilter).toBe(THREE.LinearFilter);
     expect(texture.wrapS).toBe(THREE.ClampToEdgeWrapping);
     texture.dispose();
+  });
+
+  it('uploads littoral-v2 canonical 1 m bed without downsampling to 128', () => {
+    const world = createLittoralWorld(19);
+    const packed = packWorldHeightTexture(world);
+    expect(packed.spec.size).toBe(LITTORAL_GRID);
+    expect(packed.spec.size).toBeGreaterThan(128);
+    expect(packed.bedMetres).toBe(world.bedMetres);
+    const wx = packed.spec.originX + packed.spec.extent * 0.5;
+    const wz = packed.spec.originZ + packed.spec.extent * 0.5;
+    expect(
+      Math.abs(samplePackedBed(packed, wx, wz) - sampleLittoralBedMetres(world, wx, wz)),
+    ).toBeLessThanOrEqual(0.1);
   });
 });

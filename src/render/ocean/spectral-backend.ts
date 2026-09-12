@@ -11,6 +11,7 @@ import type {
 } from '../environment/types';
 import { Ocean } from '../ocean';
 import { QUALITY_PROFILES } from '../quality';
+import { quantizeFollowRegion } from './caustics';
 import type { CoastalField } from './coastal';
 import { CoastalFieldCache, type CoastalFieldSpec } from './coastal-cache';
 import { createCoastalTexture, updateCoastalUniforms } from './surface';
@@ -233,6 +234,14 @@ export class SpectralBackend implements EnvironmentBackend {
   private camera: THREE.Camera | null = null;
   private resourceFailure: string | null = null;
   private coastalRequested = false;
+  private coastalBuilding = false;
+  private lastCoastalSnapX = Number.NaN;
+  private lastCoastalSnapZ = Number.NaN;
+
+  /** Snap cell for coastal fields — rebuild only when the follow region moves. */
+  static readonly COASTAL_SNAP_M = 256;
+  static readonly COASTAL_EXTENT_M = 2048;
+  static readonly COASTAL_RESOLUTION = 32;
 
   constructor(options: SpectralBackendOptions) {
     this.renderer = options.renderer;
@@ -244,7 +253,7 @@ export class SpectralBackend implements EnvironmentBackend {
     this.coastal = options.coastal ?? null;
     this.bedSampler = options.bedSampler ?? null;
     this.coastalCache = new CoastalFieldCache();
-    
+
     // Initialize with existing coastal field if provided
     if (this.coastal) {
       this.currentCoastalField = this.coastal;
@@ -320,13 +329,13 @@ export class SpectralBackend implements EnvironmentBackend {
       lengths: this.cascades.map((cascade) => cascade.length),
       sizes: this.cascades.map((cascade) => cascade.size),
     });
-    
+
     // Update coastal uniforms
     if (this.ocean.material.uniforms.uCoastal) {
       updateCoastalUniforms(
         this.ocean.material.uniforms as any,
         this.currentCoastalField,
-        this.coastalTexture
+        this.coastalTexture,
       );
     }
   }
@@ -341,10 +350,10 @@ export class SpectralBackend implements EnvironmentBackend {
     terrainSeed: number,
     worldVersion: WorldVersion = this.worldVersion,
   ): void {
-    if (!this.bedSampler) return;
+    if (!this.bedSampler || this.coastalBuilding) return;
 
-    const extent = 2048; // 2km coastal field
-    const resolution = 128;
+    const extent = SpectralBackend.COASTAL_EXTENT_M;
+    const resolution = SpectralBackend.COASTAL_RESOLUTION;
     const swellDirection = 0.48; // Fixed incident swell direction
 
     const spec: CoastalFieldSpec = {
@@ -355,71 +364,90 @@ export class SpectralBackend implements EnvironmentBackend {
       swellDirection,
     };
 
+    this.coastalBuilding = true;
     // Build asynchronously and handle errors
-    this.coastalCache.buildOrRetrieve(
-      spec,
-      worldVersion,
-      terrainSeed,
-      this.bedSampler,
-    ).then(field => {
-      if (this.disposed) return;
-      if (field && field !== this.currentCoastalField) {
-        // Dispose old texture
-        if (this.coastalTexture && this.currentCoastalField !== this.coastal) {
-          this.coastalTexture.dispose();
+    this.coastalCache
+      .buildOrRetrieve(spec, worldVersion, terrainSeed, this.bedSampler, undefined, {
+        // Cheaper live rebuild — full COASTAL_PHYSICS remains available to tests.
+        sweepCycles: 4,
+        fetchSteps: 12,
+        fetchRayCount: 3,
+      })
+      .then((field) => {
+        if (this.disposed) return;
+        if (field && field !== this.currentCoastalField) {
+          // Dispose old texture
+          if (this.coastalTexture && this.currentCoastalField !== this.coastal) {
+            this.coastalTexture.dispose();
+          }
+
+          this.currentCoastalField = field;
+          this.coastalTexture = createCoastalTexture(field);
+          // Bind the backend-owned texture only — avoid Ocean.bindCoastalField,
+          // which allocates a second texture that bindOceanMaps immediately orphans.
+          this.bindOceanMaps();
         }
-        
-        this.currentCoastalField = field;
-        this.coastalTexture = createCoastalTexture(field);
-        // Bind the backend-owned texture only — avoid Ocean.bindCoastalField,
-        // which allocates a second texture that bindOceanMaps immediately orphans.
-        this.bindOceanMaps();
-      }
-    }).catch(error => {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return; // Ignore aborted builds
-      }
-      console.warn('Failed to build coastal field:', error);
-    });
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return; // Ignore aborted builds
+        }
+        console.warn('Failed to build coastal field:', error);
+      })
+      .finally(() => {
+        this.coastalBuilding = false;
+      });
   }
 
   prepare(frame: EnvironmentFrame): void {
     if (this.disposed || !this.gpuReady) return;
-    
+
     this.time = frame.time;
     this.dt = frame.paused ? 0 : frame.dt;
-    
-    // Build coastal once at readiness, then refresh on a low cadence while moving.
+
+    // Coastal field: snap follow so cruising does not rebuild every frame.
+    // Never use a fixed frame cadence — that stalls the main thread ~1–2s.
     const worldVersion = frame.worldVersion ?? this.worldVersion;
     const seed = frame.terrainSeed ?? 0;
     if (this.bedSampler && !frame.paused) {
-      const due = !this.coastalRequested || this.frame % 60 === 0;
+      const snap = quantizeFollowRegion(
+        frame.followX,
+        frame.followZ,
+        SpectralBackend.COASTAL_SNAP_M,
+      );
+      const due =
+        !this.coastalRequested ||
+        snap.x !== this.lastCoastalSnapX ||
+        snap.z !== this.lastCoastalSnapZ;
       if (due) {
         this.coastalRequested = true;
-        this.updateCoastalField(frame.followX, frame.followZ, seed, worldVersion);
+        this.lastCoastalSnapX = snap.x;
+        this.lastCoastalSnapZ = snap.z;
+        this.updateCoastalField(snap.x, snap.z, seed, worldVersion);
       }
     }
-    
+
     const sea = frame.ocean.seaState;
     const chop = frame.ocean.choppiness;
     const storm = Math.max(sea, chop);
-    
+
     const [swell, wind, detail] = this.cascades;
-    swell?.setGain(1.45 * (0.35 + sea * 1.1));
-    wind?.setGain(1.25 * (0.4 + chop));
-    detail?.setGain(1.1);
-    
+    // Keep gains conservative — high chop folds the mesh into cellular plates.
+    swell?.setGain(0.95 * (0.35 + sea * 0.85));
+    wind?.setGain(0.75 * (0.35 + chop * 0.8));
+    detail?.setGain(0.55);
+
     // Set storm conditions for foam generation
     for (const cascade of this.cascades) {
       cascade.setTime(this.time);
       cascade.setFoamStorm(storm);
     }
-    
+
     const fog = new THREE.Color(frame.fogColor.r, frame.fogColor.g, frame.fogColor.b);
     const sunDir = new THREE.Vector3(frame.sunDir.x, frame.sunDir.y, frame.sunDir.z);
     const sunColor = new THREE.Color(frame.sunColor.r, frame.sunColor.g, frame.sunColor.b);
     const sky = new THREE.Color(frame.skyColor.r, frame.skyColor.g, frame.skyColor.b);
-    
+
     this.ocean.update(
       frame.time,
       frame.ocean,
@@ -441,7 +469,7 @@ export class SpectralBackend implements EnvironmentBackend {
   renderPasses(): void {
     if (this.disposed || !this.gpuReady || !this.pass) return;
     const pass = this.pass;
-    
+
     // Only update cascades when not paused
     if (this.dt > 0) {
       withRendererPass(this.renderer, () => {
@@ -456,7 +484,7 @@ export class SpectralBackend implements EnvironmentBackend {
       });
       this.frame += 1;
     }
-    
+
     this.bindOceanMaps();
     if (this.camera) this.ocean.preRender(this.renderer, this.camera);
   }
@@ -518,7 +546,7 @@ export class SpectralBackend implements EnvironmentBackend {
     this.missionGeneration = missionGeneration;
     this.frame = 0;
     this.time = 0;
-    
+
     // Reset foam histories on new mission/backend replacement
     if (previousGeneration !== missionGeneration && this.pass) {
       withRendererPass(this.renderer, () => {
@@ -539,10 +567,14 @@ export class SpectralBackend implements EnvironmentBackend {
         }
       });
     }
-    
+
     // Reset coastal cache on new mission
     if (previousGeneration !== missionGeneration) {
       this.coastalCache.reset();
+      this.coastalRequested = false;
+      this.coastalBuilding = false;
+      this.lastCoastalSnapX = Number.NaN;
+      this.lastCoastalSnapZ = Number.NaN;
       if (this.coastalTexture && this.currentCoastalField !== this.coastal) {
         this.coastalTexture.dispose();
         this.coastalTexture = null;
@@ -576,7 +608,7 @@ export class SpectralBackend implements EnvironmentBackend {
     this.cascades = [];
     this.pass?.dispose();
     this.pass = null;
-    
+
     // Dispose coastal resources
     this.coastalCache.dispose();
     if (this.coastalTexture && this.currentCoastalField !== this.coastal) {

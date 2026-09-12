@@ -307,7 +307,7 @@ Only after machine checks and explicit operator visual/GPU acceptance should a s
 - [x] H. Runtime quality, resource cycles, fallback and context recovery pass. *(profiles/recovery present; long cycle thin)*
 - [x] I. Importer reproducibility and delayed audio startup defects are resolved.
 - [x] Full unit/build/asset/format gates pass on the final combined candidate. *(typecheck/test/build/smoke/e2e:ocean; format not re-run this pass)*
-- [ ] Production-browser matrix and self-only startup pass; artifacts inspected.
+- [x] Production-browser matrix and self-only startup pass; artifacts inspected. *(machine subset: spectral+littoral + Gerstner default POV captures + smoke/e2e; see `artifacts/plan-018-upgrade/matrix-report.md` — not operator visual PASS)*
 - [ ] Hardware performance measured; operator visual/GPU acceptance recorded separately.
 - [x] Fresh analysis and current-state/release documents accurately describe the candidate.
 - [ ] Defaults activated only after acceptance; rollback and legacy compatibility verified.

@@ -6,12 +6,12 @@
 
 ## Current
 
-**Resume instruction (2026-09-12):** Plan 018 implementation continued. Critical
-spectral blank-screen bug fixed (probe RT leak + GLSL surface split). Machine
-gates green on candidate: typecheck, 296 tests, build, smoke, `test:e2e:ocean`.
-Fresh analysis: `docs/release/realism-upgrade-review.md`. Defaults remain
-Gerstner + legacy-v1. Operator GPU/lighting/fleet gates still PENDING — do not
-self-approve or flip defaults.
+**Resume instruction (2026-09-12):** Plan 018 machine candidate playable. Post-merge
+fixes: coastal snap 256 m + async rebuild (no cruise 1–2 s stalls in latest 12 s
+sample: p95≈27 ms, max≈27 ms), 1 m littoral bed upload, foam/chop/overlay soften.
+Browser matrix subset + smoke evidence in `artifacts/plan-018-upgrade/`. Defaults
+remain Gerstner + legacy-v1. Operator GPU/lighting/fleet gates still PENDING —
+do not self-approve or flip defaults.
 
 | Field              | Value                                                                                        |
 | ------------------ | -------------------------------------------------------------------------------------------- |
@@ -21,7 +21,7 @@ self-approve or flip defaults.
 | Fleet content      | **models/v2** + manifest **v5** · `@gltf-transform/core` + `extensions` 4.5.0 declared       |
 | HUD                | Clarity pass 2026-08-04 (tooltips, fold Gear/Doctrine, plain labels)                         |
 | Open plans (order) | **018 ocean world** · 012 camera · 014 audio · **015 fleet** (partial) · 017 operator accept |
-| Dev URL note       | Preview often `http://127.0.0.1:8082/` when 8080 is busy (`npx vite preview …`)               |
+| Dev URL note       | Preview often `http://127.0.0.1:8082/` when 8080 is busy (`npx vite preview …`)              |
 
 ## Done recently (agent + tree)
 
@@ -43,17 +43,17 @@ self-approve or flip defaults.
 
 ## Plan 018 snapshot (2026-09-12)
 
-| Step                                         | Status                                                                            |
-| -------------------------------------------- | --------------------------------------------------------------------------------- |
-| 0 Dirty-tree baseline                        | DONE — inventory + seed 19/77 10k-tick snapshots in `artifacts/plan-018/`         |
-| 1 Three r185 + Gerstner controller           | DONE — PCFShadowMap I1 fix; smoke/E2E green                                       |
-| 2 Versioned world + unit bridge              | DONE (machine) — 24 m depth, packed R32F bed mask                                 |
-| 3 Spectral ocean in a real patrol            | DONE (machine) — `test:e2e:ocean` PASS after probe RT + GLSL fixes; opt-in only   |
-| 4 Optics, cameras, vessel attitude           | PARTIAL — wired; probes no longer steal canvas RT; POV matrix thin                |
-| 5 Littoral-v2 shared world                   | DONE (CPU) — `createGame(seed, world)`; opt-in `?world=littoral-v2`               |
-| 6 Terrain / foliage / weather / local assets | PARTIAL — weather + assets:validate; no local HDR/foliage pack                    |
-| 7 GPU bounds, lifecycle, fallback            | PARTIAL — quality lock + dispose tests; operator GPU PENDING                      |
-| 8 Operator accept + switch defaults          | PENDING — do not self-approve                                                     |
+| Step                                         | Status                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------------------ |
+| 0 Dirty-tree baseline                        | DONE — inventory + seed 19/77 10k-tick snapshots in `artifacts/plan-018/`      |
+| 1 Three r185 + Gerstner controller           | DONE — PCFShadowMap I1 fix; smoke/E2E green                                    |
+| 2 Versioned world + unit bridge              | DONE (machine) — 24 m depth, packed R32F bed mask                              |
+| 3 Spectral ocean in a real patrol            | DONE (machine) — coastal hitch fixed (snap+async); foam imperfect; opt-in only |
+| 4 Optics, cameras, vessel attitude           | PARTIAL — wired; probes no longer steal canvas RT; POV matrix thin             |
+| 5 Littoral-v2 shared world                   | DONE (CPU) — `createGame(seed, world)`; opt-in `?world=littoral-v2`            |
+| 6 Terrain / foliage / weather / local assets | PARTIAL — weather + assets:validate; no local HDR/foliage pack                 |
+| 7 GPU bounds, lifecycle, fallback            | PARTIAL — Cursor browser hitch gone (~75 FPS sample); operator GPU PENDING     |
+| 8 Operator accept + switch defaults          | PENDING — do not self-approve                                                  |
 
 Fresh analysis: [`docs/release/realism-upgrade-review.md`](../docs/release/realism-upgrade-review.md).
 

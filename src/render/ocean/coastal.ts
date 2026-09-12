@@ -223,6 +223,159 @@ export function buildCoastalField(sampleBed: BedSampler, config: CoastalFieldCon
   };
 }
 
+/**
+ * Same solver as `buildCoastalField`, yielding to the event loop so spectral
+ * patrol frames keep painting while a field rebuilds.
+ */
+export async function buildCoastalFieldAsync(
+  sampleBed: BedSampler,
+  config: CoastalFieldConfig,
+): Promise<CoastalField> {
+  const n = config.resolution;
+  if (n < 8) throw new Error('coastal resolution must be at least 8');
+  if (!(config.extent > 0)) throw new Error('coastal extent must be positive');
+  const physics: CoastalPhysics = { ...COASTAL_PHYSICS, ...config.physics };
+  const { originX, originZ, extent } = config;
+  const dx = extent / n;
+  const dirX = Math.cos(physics.swellDirection);
+  const dirZ = Math.sin(physics.swellDirection);
+  const k0 = TAU / physics.peakWavelength;
+  const omega2 = physics.gravity * k0;
+  const c0 = Math.sqrt(physics.gravity / k0);
+  const farX = originX - extent / 2;
+  const farZ = originZ - extent / 2;
+
+  const bed = new Float32Array(n * n);
+  const slow = new Float32Array(n * n);
+  const travel = new Float64Array(n * n).fill(INF);
+  const fixed = new Uint8Array(n * n);
+  let ops = 0;
+  let lastYield = performance.now();
+  const checkpoint = async (): Promise<void> => {
+    throwIfAborted(config.signal);
+    ops += 1;
+    const now = performance.now();
+    // Yield at most every ~2ms of CPU so frames keep painting without
+    // flooding the event loop (unit tests use the same async path).
+    if (ops % 256 === 0 && now - lastYield >= 2) {
+      lastYield = now;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      throwIfAborted(config.signal);
+    }
+  };
+
+  const readBed = (wx: number, wz: number): number =>
+    sampleBed(clampWorld(wx, originX, extent), clampWorld(wz, originZ, extent));
+
+  for (let z = 0; z < n; z++) {
+    for (let x = 0; x < n; x++) {
+      await checkpoint();
+      const i = z * n + x;
+      const wx = originX + (x + 0.5) * dx;
+      const wz = originZ + (z + 0.5) * dx;
+      const height = readBed(wx, wz);
+      bed[i] = height;
+      const h = Math.max(physics.minDepth, -height);
+      const k = solveFiniteDepthK(h, k0, omega2, physics.gravity);
+      slow[i] = k / Math.sqrt(omega2);
+      if (height > physics.landCutoff) continue;
+      if (x === 0 || z === 0) {
+        travel[i] = ((wx - farX) * dirX + (wz - farZ) * dirZ) / c0;
+        fixed[i] = 1;
+      }
+    }
+  }
+
+  const sweeps: ReadonlyArray<readonly [number, number]> = [
+    [1, 1],
+    [-1, 1],
+    [1, -1],
+    [-1, -1],
+  ];
+  for (let cycle = 0; cycle < physics.sweepCycles; cycle++) {
+    for (const [sx, sz] of sweeps) {
+      for (let zz = 0; zz < n; zz++) {
+        for (let xx = 0; xx < n; xx++) {
+          await checkpoint();
+          const x = sx > 0 ? xx : n - xx - 1;
+          const z = sz > 0 ? zz : n - zz - 1;
+          const i = z * n + x;
+          if (fixed[i] || bed[i]! > physics.landCutoff) continue;
+          const a = Math.min(x ? travel[i - 1]! : INF, x + 1 < n ? travel[i + 1]! : INF);
+          const b = Math.min(z ? travel[i - n]! : INF, z + 1 < n ? travel[i + n]! : INF);
+          const step = slow[i]! * dx;
+          const diff = Math.abs(a - b);
+          const value =
+            diff >= step
+              ? Math.min(a, b) + step
+              : (a + b + Math.sqrt(Math.max(0, 2 * step * step - diff * diff))) * 0.5;
+          travel[i] = Math.min(travel[i]!, value);
+        }
+      }
+    }
+  }
+
+  const halfRays = (physics.fetchRayCount - 1) / 2;
+  const data = new Float32Array(n * n * 4);
+  for (let z = 0; z < n; z++) {
+    for (let x = 0; x < n; x++) {
+      await checkpoint();
+      const i = z * n + x;
+      const wx = originX + (x + 0.5) * dx;
+      const wz = originZ + (z + 0.5) * dx;
+      const reference = (wx - farX) * dirX + (wz - farZ) * dirZ;
+      const base = i * 4;
+      if (travel[i]! > 1e7) {
+        data[base] = 0;
+        data[base + 1] = dirX;
+        data[base + 2] = dirZ;
+        data[base + 3] = 0.04;
+        continue;
+      }
+      const validTime = (j: number): number => (travel[j]! > 1e7 ? travel[i]! : travel[j]!);
+      const gx = validTime(z * n + Math.min(n - 1, x + 1)) - validTime(z * n + Math.max(0, x - 1));
+      const gz = validTime(Math.min(n - 1, z + 1) * n + x) - validTime(Math.max(0, z - 1) * n + x);
+      const length = Math.hypot(gx, gz) || 1;
+      let exposure = 0;
+      for (let ray = -halfRays; ray <= halfRays; ray++) {
+        const angle = physics.swellDirection + ray * physics.fetchRaySpread;
+        const rx = Math.cos(angle);
+        const rz = Math.sin(angle);
+        let energy = 1;
+        for (let step = 1; step <= physics.fetchSteps; step++) {
+          const distance = step * physics.fetchStepMetres;
+          const h = readBed(wx - rx * distance, wz - rz * distance);
+          if (h > physics.fetchBlockHeight) {
+            energy = 0.025;
+            break;
+          }
+          if (h > physics.fetchDampHeight) energy *= physics.fetchDamp;
+        }
+        exposure += energy / physics.fetchRayCount;
+      }
+      exposure = 0.09 + 0.91 * exposure;
+      data[base] = Math.max(-10, Math.min(800, travel[i]! * c0 - reference));
+      data[base + 1] = gx / length;
+      data[base + 2] = gz / length;
+      data[base + 3] = exposure;
+    }
+  }
+
+  return {
+    data,
+    resolution: n,
+    originX,
+    originZ,
+    extent,
+    directionX: dirX,
+    directionZ: dirZ,
+    phaseSpeed: c0,
+    swellDirection: physics.swellDirection,
+  };
+}
+
 /** Coastal sampling GLSL. World origin/extent are uniforms (not 1100 from the demo). */
 export const COASTAL_GLSL = /* glsl */ `
 uniform sampler2D uCoastMap;

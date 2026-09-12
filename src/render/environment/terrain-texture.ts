@@ -29,6 +29,33 @@ export function normalizedBedToMetres(normalized: number): number {
 }
 
 export function packWorldHeightTexture(world: WorldDefinition): PackedHeightField {
+  // Littoral-v2: upload the canonical 1 m bed grid directly (Plan 018 Phase B).
+  if (
+    world.version === 'littoral-v2' &&
+    world.bedMetres &&
+    world.bedGridSize != null &&
+    world.bedOriginMetres != null
+  ) {
+    const size = world.bedGridSize;
+    const spacing = world.bedSpacingMetres ?? 1;
+    const origin = world.bedOriginMetres;
+    return {
+      spec: {
+        size,
+        originX: origin,
+        originZ: origin,
+        extent: size * spacing,
+        sampleMode: 'texel-center',
+        clamp: 'edge',
+        interpolation: 'bilinear',
+        seaLevelNormalized: world.seaLevelNormalized,
+        metresPerUnit: world.metresPerUnit,
+      },
+      // Share the world field — immutable after construction.
+      bedMetres: world.bedMetres,
+    };
+  }
+
   const size = world.size;
   const half = (WORLD_SIZE * METERS_PER_UNIT) / 2;
   const spec: HeightTextureSpec = {

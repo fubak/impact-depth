@@ -312,7 +312,7 @@ uniform sampler2D uInput;
 uniform float uGain;
 void main() {
   vec4 field = texelFetch(uInput, ivec2(gl_FragCoord.xy), 0);
-  float chop = min(2.0, pow(uGain, .75)) * 1.05;
+  float chop = min(1.15, pow(uGain, .75)) * 0.72;
   gl_FragColor = vec4(field.b * chop, field.r * uGain, field.a * chop, 1.0);
 }
 `;
@@ -329,8 +329,8 @@ void main() {
   vec2 slope = clamp(-n.xz / max(.25, n.y), vec2(-4.0), vec2(4.0));
   float jacobian = (1.0 + dx.x) * (1.0 + dz.z) - dx.z * dz.x;
   float previous = texture2D(uPrevious, uv - vec2(1.9, .8) * uDelta / uLength).b;
-  float breaking = smoothstep(.22, .48, 1.0 - jacobian);
-  float foam = max(previous * exp(-uDelta * mix(.62,.35,uFoamStorm)), breaking);
+  float breaking = smoothstep(.42, .72, 1.0 - jacobian);
+  float foam = max(previous * exp(-uDelta * mix(.72,.45,uFoamStorm)), breaking * 0.55);
   gl_FragColor = vec4(slope, foam, dot(slope, slope));
 }
 `;
