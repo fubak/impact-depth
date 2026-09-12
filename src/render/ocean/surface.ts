@@ -2,6 +2,7 @@
 
 import * as THREE from 'three';
 import type { CoastalField } from './coastal';
+import { SPECTRUM_SAMPLE_GLSL } from './spectrum';
 
 /** Cascade UV when SPECTRUM_SAMPLE_GLSL is not already in the program. */
 export const CASCADE_UV_GLSL = /* glsl */ `
@@ -66,6 +67,10 @@ vec2 oceanInverseDisplacement(vec2 p) {
 `;
 
 /** Standalone program chunk (uniforms + cascadeUv + bodies). */
+/**
+ * Standalone program chunk (coastal/bed uniforms + spectrum sample + bodies).
+ * Never concatenate after another SPECTRUM_SAMPLE_GLSL include — use SURFACE_FUNCTIONS_GLSL.
+ */
 export const SURFACE_GLSL = /* glsl */ `
 uniform sampler2D uCoastal;
 uniform float uCoastalEnabled;
@@ -78,10 +83,7 @@ uniform float uBedExtent;
 uniform float uWetBand;
 uniform float uWaveHeight;
 uniform float uSpectral;
-uniform sampler2D uDisplacement0, uDisplacement1, uDisplacement2;
-uniform sampler2D uSlope0, uSlope1, uSlope2;
-uniform vec3 uCascadeLength, uCascadeSize;
-${CASCADE_UV_GLSL}
+${SPECTRUM_SAMPLE_GLSL}
 ${SURFACE_FUNCTIONS_GLSL}
 `;
 export const SURFACE_UNIFORM_NAMES = [

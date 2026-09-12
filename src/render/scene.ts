@@ -4,6 +4,7 @@ import { sampleSeabedY } from '../core/terrain';
 import type { GameState } from '../game/sim/types';
 import { worldMetersToSim } from '../game/sim/coords';
 import { getWorld, worldHeight } from '../game/world/queries';
+import { sampleLittoralBedMetres } from '../game/world/littoral';
 import { worldCacheKey } from '../game/world/definition';
 import {
   normalizedBedToMetres,
@@ -193,6 +194,9 @@ export class GameScene {
           }
           const bedSampler = (worldX: number, worldZ: number): number => {
             const world = getWorld(this.currentWorldVersion, this.currentTerrainSeed);
+            if (world.version === 'littoral-v2') {
+              return sampleLittoralBedMetres(world, worldX, worldZ);
+            }
             const sim = worldMetersToSim(worldX, worldZ);
             return normalizedBedToMetres(worldHeight(world, sim.x, sim.y));
           };
