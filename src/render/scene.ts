@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { LookDevSettings, SimState } from '../core/types';
 import { sampleSeabedY } from '../core/terrain';
 import type { GameState } from '../game/sim/types';
@@ -20,7 +19,8 @@ import {
   type AssetEntity,
   type AssetMeshSource,
 } from './assets';
-import { IslandField } from './islands';
+import { IslandField, VEGETATION_QUALITY } from './islands';
+import { OutdoorLighting } from './environment/outdoor-lighting';
 import { updateEntityLods, wrapWithLod } from './lod';
 import { EnvironmentController } from './environment/controller';
 import { WeatherController, presentationOcean } from './environment/weather';
@@ -65,7 +65,7 @@ export class GameScene {
   readonly labelsRoot = new THREE.Group();
   readonly tacticalGrid: THREE.GridHelper;
   private readonly labelSprites = new Map<string, THREE.Sprite>();
-  private envMap: THREE.Texture | null = null;
+  private readonly outdoorLighting = new OutdoorLighting();
   private readonly subHit: THREE.Mesh;
   private readonly subBeacon: THREE.Mesh;
   private heightFieldKey = '';
@@ -73,6 +73,9 @@ export class GameScene {
   private envQuality: QualityProfile['name'] = 'high';
   private reducedMotion = false;
   private readonly weather = new WeatherController();
+  private presentationTime = 0;
+  private presentationPaused = false;
+  private presentationWindDetail = 0.5;
 
   constructor() {
     this.scene.background = new THREE.Color(0xd5efff);
@@ -85,6 +88,7 @@ export class GameScene {
     this.scene.add(this.seabed.mesh);
 
     this.islands = new IslandField();
+    this.islands.setQuality(VEGETATION_QUALITY.high);
     this.scene.add(this.islands.group);
 
     // Stable transform shell; mesh children appear only after asset preload settles
@@ -289,6 +293,35 @@ export class GameScene {
     return null;
   }
 
+  /**
+   * Screen-space proximity pick for tiny distant hulls. Does not use world
+   * distance — empty water next to a nearby ship must still plot a waypoint.
+   */
+  pickShipIdNearScreen(
+    clientX: number,
+    clientY: number,
+    canvas: DOMRect,
+    camera: THREE.Camera,
+    maxPixels = 28,
+  ): string | null {
+    let bestId: string | null = null;
+    let bestDist = maxPixels;
+    const ndc = new THREE.Vector3();
+    for (const [id, entity] of this.shipEntities) {
+      ndc.setFromMatrixPosition(entity.mesh.matrixWorld);
+      ndc.project(camera);
+      if (ndc.z < -1 || ndc.z > 1) continue;
+      const sx = (ndc.x * 0.5 + 0.5) * canvas.width + canvas.left;
+      const sy = (-ndc.y * 0.5 + 0.5) * canvas.height + canvas.top;
+      const dist = Math.hypot(sx - clientX, sy - clientY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestId = id;
+      }
+    }
+    return bestId;
+  }
+
   private tagPickId(root: THREE.Object3D, pickId: string): void {
     root.userData.pickId = pickId;
     root.traverse((object) => {
@@ -325,21 +358,21 @@ export class GameScene {
     this.atmosphere.ambient.intensity *= 1 - t * 0.35;
   }
 
-  /** Soft studio IBL so MeshStandard hulls/land respond without going black. */
+  /** Procedural outdoor PMREM aligned with sun/sky/weather (replaces studio RoomEnvironment). */
   bindEnvironment(renderer: THREE.WebGLRenderer): void {
     this.glRenderer = renderer;
-    if (this.envMap) return;
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    this.envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environment = this.envMap;
-    this.scene.environmentIntensity = 0.95;
-    pmrem.dispose();
+    this.outdoorLighting.bind(renderer, this.scene);
   }
 
   setQuality(profile: QualityProfile): void {
     this.envQuality = profile.name;
     this.environment.setQuality(profile.name);
+    this.islands.setQuality(VEGETATION_QUALITY[profile.name]);
     this.vfx.setCap(profile.particleCap);
+  }
+
+  getOutdoorLightingDiagnostics() {
+    return this.outdoorLighting.getDiagnostics();
   }
 
   setReducedMotion(value: boolean): void {
@@ -353,6 +386,7 @@ export class GameScene {
   resetEnvironment(missionGeneration: number): void {
     this.weather.reset();
     this.atmosphere.reset();
+    this.outdoorLighting.reset();
     this.environment.reset(missionGeneration);
   }
 
@@ -374,6 +408,13 @@ export class GameScene {
     for (const entity of this.entities.values()) {
       updateEntityLods(entity, camera);
     }
+    this.islands.updatePresentation(
+      this.presentationTime,
+      this.presentationWindDetail,
+      camera.position,
+      this.presentationPaused,
+      this.reducedMotion,
+    );
   }
 
   private bindWorldHeight(game: GameState): void {
@@ -602,6 +643,15 @@ export class GameScene {
         fogDensity: weather.gains.fogDensity,
       },
     );
+    this.outdoorLighting.update({
+      atmosphere: atmo,
+      cloudCoverage: weather.gains.cloudCoverage,
+      lightning: weather.lightning,
+      nowSeconds: sim.time,
+    });
+    this.presentationTime = sim.time;
+    this.presentationPaused = sim.paused;
+    this.presentationWindDetail = weather.gains.windDetail;
     // Soften world fog while deep so surface contacts stay readable from below.
     if (this.scene.fog instanceof THREE.FogExp2 && sim.vessel.depth > 2.5) {
       const punch = Math.min(0.78, (sim.vessel.depth - 2.5) / 14);
@@ -856,8 +906,7 @@ export class GameScene {
     this.seabed.dispose();
     this.islands.dispose();
     this.atmosphere.dispose();
-    this.envMap?.dispose();
-    this.envMap = null;
+    this.outdoorLighting.dispose();
     this.scene.environment = null;
     this.disposeGroup(this.sub);
     for (const entity of this.shipEntities.values()) {
