@@ -9,6 +9,8 @@ export interface CoastalCacheKey {
   readonly swellDirection: number;
   readonly extent: number;
   readonly resolution: number;
+  readonly originX: number;
+  readonly originZ: number;
 }
 
 export interface CoastalFieldSpec {
@@ -34,7 +36,7 @@ export class CoastalFieldCache {
   private pendingBuild: AbortController | null = null;
 
   private keyString(key: CoastalCacheKey): string {
-    return `${key.worldVersion}:${key.terrainSeed}:${key.swellDirection.toFixed(3)}:${key.extent}:${key.resolution}`;
+    return `${key.worldVersion}:${key.terrainSeed}:${key.swellDirection.toFixed(3)}:${key.extent}:${key.resolution}:${key.originX.toFixed(1)}:${key.originZ.toFixed(1)}`;
   }
 
   private cleanup(): void {
@@ -83,6 +85,8 @@ export class CoastalFieldCache {
       swellDirection: spec.swellDirection,
       extent: spec.extent,
       resolution: spec.resolution,
+      originX: spec.originX,
+      originZ: spec.originZ,
     };
 
     const keyStr = this.keyString(key);

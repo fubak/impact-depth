@@ -371,7 +371,8 @@ export class SpectralBackend implements EnvironmentBackend {
         
         this.currentCoastalField = field;
         this.coastalTexture = createCoastalTexture(field);
-        this.ocean.bindCoastalField(field);
+        // Bind the backend-owned texture only — avoid Ocean.bindCoastalField,
+        // which allocates a second texture that bindOceanMaps immediately orphans.
         this.bindOceanMaps();
       }
     }).catch(error => {
@@ -609,6 +610,7 @@ export async function createSpectralBackend(
     requestedBackend: options.requestedBackend,
     seed: options.seed,
     coastal: options.coastal,
+    bedSampler: options.bedSampler,
   });
   try {
     backend.initializeGpu(signal);

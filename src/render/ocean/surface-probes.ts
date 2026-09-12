@@ -217,7 +217,10 @@ export class SurfaceProbeQueue {
     }).catch(() => {
       /* Late/unsupported readback leaves the bounded previous presentation result. */
     }).finally(() => {
-      if (token === this.token) this.pending = false;
+      // Clear unconditionally: reset()/dispose() bump `token` so this batch is
+      // stale, but request() refuses work while `pending` is true. There cannot
+      // be a newer overlapping readback under that gate.
+      this.pending = false;
       if (this.disposed) this.releaseGpu();
     });
   }
@@ -235,7 +238,7 @@ export class SurfaceProbeQueue {
     this.token += 1;
     this.latest = [];
     // Leave `pending` true while a readback is in flight so a second request
-    // cannot overlap. The superseded `finally` clears the flag.
+    // cannot overlap. The in-flight `finally` always clears the flag.
   }
 
   dispose(): void {

@@ -105,6 +105,40 @@ describe('CoastalFieldCache', () => {
     expect(field2!.swellDirection).toBeCloseTo(0.7);
   });
 
+  it('should miss cache when coastal window origin moves', async () => {
+    const base = {
+      extent: 512,
+      resolution: 32,
+      swellDirection: 0.3,
+    };
+    const field1 = await cache.buildOrRetrieve(
+      { ...base, originX: -256, originZ: -256 },
+      'legacy-v1',
+      42,
+      mockBedSampler,
+    );
+    // Drop currentSpec so the Map key path is exercised (not the hot currentSpec short-circuit).
+    cache.reset();
+    await cache.buildOrRetrieve(
+      { ...base, originX: -256, originZ: -256 },
+      'legacy-v1',
+      42,
+      mockBedSampler,
+    );
+    const fieldMoved = await cache.buildOrRetrieve(
+      { ...base, originX: 0, originZ: 128 },
+      'legacy-v1',
+      42,
+      mockBedSampler,
+    );
+
+    expect(field1).toBeDefined();
+    expect(fieldMoved).toBeDefined();
+    expect(fieldMoved).not.toBe(field1);
+    expect(fieldMoved!.originX).toBe(0);
+    expect(fieldMoved!.originZ).toBe(128);
+  });
+
   it('should handle aborted builds gracefully', async () => {
     const controller = new AbortController();
     const spec = {

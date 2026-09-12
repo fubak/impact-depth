@@ -2,9 +2,13 @@ import * as THREE from 'three';
 import type { LookDevSettings, SimState } from '../core/types';
 import { sampleSeabedY } from '../core/terrain';
 import type { GameState } from '../game/sim/types';
+import { worldMetersToSim } from '../game/sim/coords';
 import { getWorld, worldHeight } from '../game/world/queries';
 import { worldCacheKey } from '../game/world/definition';
-import { packWorldHeightTexture } from './environment/terrain-texture';
+import {
+  normalizedBedToMetres,
+  packWorldHeightTexture,
+} from './environment/terrain-texture';
 import {
   entityDepthY,
   metersToEntityY,
@@ -189,9 +193,8 @@ export class GameScene {
           }
           const bedSampler = (worldX: number, worldZ: number): number => {
             const world = getWorld(this.currentWorldVersion, this.currentTerrainSeed);
-            const simX = worldX / 5; // Convert meters to simulation units (5 m/unit)
-            const simZ = worldZ / 5;
-            return worldHeight(world, simX, simZ);
+            const sim = worldMetersToSim(worldX, worldZ);
+            return normalizedBedToMetres(worldHeight(world, sim.x, sim.y));
           };
           return createSpectralBackend(
             {
