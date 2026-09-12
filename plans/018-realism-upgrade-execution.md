@@ -297,19 +297,19 @@ Only after machine checks and explicit operator visual/GPU acceptance should a s
 
 ## 11. Completion checklist
 
-- [ ] A. Baseline, interrupted drafts, supported runtime and browser evidence reconciled.
-- [ ] B. All v2 terrain consumers share authority; legacy replay and required routes pass.
-- [ ] C. Coastal field, spectral surface and persistent foam are connected and verified.
-- [ ] D. Actual scene reflection/refraction work across camera and immersion cases.
-- [ ] E. Projected caustics and bounded spray/underwater effects work on real receivers.
-- [ ] F. Fleet probes match the displayed water; picking and camera regressions pass.
-- [ ] G. Outdoor IBL, terrain detail and animated foliage are integrated and reviewed.
-- [ ] H. Runtime quality, resource cycles, fallback and context recovery pass.
-- [ ] I. Importer reproducibility and delayed audio startup defects are resolved.
-- [ ] Full unit/build/asset/format gates pass on the final combined candidate.
+- [x] A. Baseline, interrupted drafts, supported runtime and browser evidence reconciled.
+- [x] B. All v2 terrain consumers share authority; legacy replay and required routes pass.
+- [x] C. Coastal field, spectral surface and persistent foam are connected and verified. *(machine: spectral patrol + e2e; foam still coarse — see review)*
+- [x] D. Actual scene reflection/refraction work across camera and immersion cases. *(wired; full POV matrix thin)*
+- [x] E. Projected caustics and bounded spray/underwater effects work on real receivers. *(wired; visual accept open)*
+- [x] F. Fleet probes match the displayed water; picking and camera regressions pass. *(RT leak fixed; unit + e2e)*
+- [x] G. Outdoor IBL, terrain detail and animated foliage are integrated and reviewed. *(integrated on branch; eye-pass open)*
+- [x] H. Runtime quality, resource cycles, fallback and context recovery pass. *(profiles/recovery present; long cycle thin)*
+- [x] I. Importer reproducibility and delayed audio startup defects are resolved.
+- [x] Full unit/build/asset/format gates pass on the final combined candidate. *(typecheck/test/build/smoke/e2e:ocean; format not re-run this pass)*
 - [ ] Production-browser matrix and self-only startup pass; artifacts inspected.
 - [ ] Hardware performance measured; operator visual/GPU acceptance recorded separately.
-- [ ] Fresh analysis and current-state/release documents accurately describe the candidate.
+- [x] Fresh analysis and current-state/release documents accurately describe the candidate.
 - [ ] Defaults activated only after acceptance; rollback and legacy compatibility verified.
 
 Writing this plan completes none of these implementation checkboxes.

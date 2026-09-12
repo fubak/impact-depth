@@ -60,6 +60,10 @@ export class EnvironmentController {
     this.backend?.reset(missionGeneration);
   }
 
+  setWorldVersion(version: WorldVersion): void {
+    this.worldVersion = version;
+  }
+
   getDiagnostics(): EnvironmentDiagnostics {
     const inner = this.backend?.getDiagnostics();
     return {

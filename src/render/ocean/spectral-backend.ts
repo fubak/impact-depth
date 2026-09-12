@@ -232,6 +232,7 @@ export class SpectralBackend implements EnvironmentBackend {
   private gpuReady = false;
   private camera: THREE.Camera | null = null;
   private resourceFailure: string | null = null;
+  private coastalRequested = false;
 
   constructor(options: SpectralBackendOptions) {
     this.renderer = options.renderer;
@@ -338,11 +339,12 @@ export class SpectralBackend implements EnvironmentBackend {
     followX: number,
     followZ: number,
     terrainSeed: number,
+    worldVersion: WorldVersion = this.worldVersion,
   ): void {
     if (!this.bedSampler) return;
 
     const extent = 2048; // 2km coastal field
-    const resolution = 256;
+    const resolution = 128;
     const swellDirection = 0.48; // Fixed incident swell direction
 
     const spec: CoastalFieldSpec = {
@@ -356,10 +358,11 @@ export class SpectralBackend implements EnvironmentBackend {
     // Build asynchronously and handle errors
     this.coastalCache.buildOrRetrieve(
       spec,
-      this.worldVersion,
+      worldVersion,
       terrainSeed,
       this.bedSampler,
     ).then(field => {
+      if (this.disposed) return;
       if (field && field !== this.currentCoastalField) {
         // Dispose old texture
         if (this.coastalTexture && this.currentCoastalField !== this.coastal) {
@@ -369,6 +372,7 @@ export class SpectralBackend implements EnvironmentBackend {
         this.currentCoastalField = field;
         this.coastalTexture = createCoastalTexture(field);
         this.ocean.bindCoastalField(field);
+        this.bindOceanMaps();
       }
     }).catch(error => {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -384,9 +388,15 @@ export class SpectralBackend implements EnvironmentBackend {
     this.time = frame.time;
     this.dt = frame.paused ? 0 : frame.dt;
     
-    // Update coastal field if needed (expensive work outside frame loop)
-    if (this.bedSampler && !frame.paused && this.frame % 60 === 0 && frame.terrainSeed !== undefined) { // Check every second, freeze when paused
-      this.updateCoastalField(frame.followX, frame.followZ, frame.terrainSeed);
+    // Build coastal once at readiness, then refresh on a low cadence while moving.
+    const worldVersion = frame.worldVersion ?? this.worldVersion;
+    const seed = frame.terrainSeed ?? 0;
+    if (this.bedSampler && !frame.paused) {
+      const due = !this.coastalRequested || this.frame % 60 === 0;
+      if (due) {
+        this.coastalRequested = true;
+        this.updateCoastalField(frame.followX, frame.followZ, seed, worldVersion);
+      }
     }
     
     const sea = frame.ocean.seaState;

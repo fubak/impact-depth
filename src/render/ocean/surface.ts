@@ -3,17 +3,70 @@
 import * as THREE from 'three';
 import type { CoastalField } from './coastal';
 
-/** GLSL cascade UV mapping function */
+/** Cascade UV when SPECTRUM_SAMPLE_GLSL is not already in the program. */
 export const CASCADE_UV_GLSL = /* glsl */ `
 vec2 cascadeUv(vec2 worldXZ, float tileLength) {
-  return fract(worldXZ / tileLength);
+  return worldXZ / max(tileLength, 1.0);
 }
 `;
 
-/** Shared surface displacement and normal calculation */
-export const SURFACE_GLSL = /* glsl */ `
-${CASCADE_UV_GLSL}
+/**
+ * Shared surface bodies. Callers must already declare cascade uniforms and
+ * `cascadeUv` (via SPECTRUM_SAMPLE_GLSL or CASCADE_UV_GLSL) plus coastal/bed/wave uniforms.
+ * Do not concatenate full SURFACE_GLSL after SPECTRUM_SAMPLE_GLSL — that redefines symbols.
+ */
+export const SURFACE_FUNCTIONS_GLSL = /* glsl */ `
+vec4 coastAt(vec2 p) {
+  return uCoastalEnabled > 0.5
+    ? texture2D(uCoastal, clamp((p - uCoastalOrigin) / max(uCoastalExtent, 1.0), 0.0, 1.0))
+    : vec4(0.0, uSwellDirection, 1.0);
+}
 
+vec3 oceanDisplacement(vec2 p) {
+  float bed = texture2D(uBedTex, clamp((p - uBedOrigin) / max(uBedExtent, 1.0), 0.0, 1.0)).r;
+  float depth = max(0.0, -bed);
+  vec4 coast = coastAt(p);
+  vec2 delayed = p - uSwellDirection * coast.x;
+  vec3 swell = texture2D(uDisplacement0, cascadeUv(delayed, uCascadeLength.x)).xyz;
+  vec3 wind = texture2D(uDisplacement1, cascadeUv(p, uCascadeLength.y)).xyz;
+  vec3 chop = texture2D(uDisplacement2, cascadeUv(p, uCascadeLength.z)).xyz;
+  float shallow = smoothstep(0.15, 2.0, depth);
+  float coverage = 1.0 - smoothstep(-uWetBand, uWetBand * 0.2, bed);
+  return (swell * 1.25 + (wind * 1.15 + chop * 1.35) * shallow) *
+    (0.62 + uWaveHeight * 0.85) * mix(0.22, 1.0, coast.w) * coverage;
+}
+
+vec3 oceanNormal(vec2 p) {
+  float e = 0.45;
+  vec3 dx = vec3(2.0 * e, 0.0, 0.0) + oceanDisplacement(p + vec2(e, 0.0)) - oceanDisplacement(p - vec2(e, 0.0));
+  vec3 dz = vec3(0.0, 0.0, 2.0 * e) + oceanDisplacement(p + vec2(0.0, e)) - oceanDisplacement(p - vec2(0.0, e));
+  return normalize(cross(dz, dx));
+}
+
+float oceanFoam(vec2 p) {
+  vec4 coast = coastAt(p);
+  vec2 delayed = p - uSwellDirection * coast.x;
+  return clamp(
+    texture2D(uSlope0, cascadeUv(delayed, uCascadeLength.x)).b +
+      texture2D(uSlope1, cascadeUv(p, uCascadeLength.y)).b +
+      texture2D(uSlope2, cascadeUv(p, uCascadeLength.z)).b,
+    0.0,
+    1.0
+  );
+}
+
+vec2 oceanInverseDisplacement(vec2 p) {
+  vec2 original = p;
+  for (int i = 0; i < 3; i++) {
+    vec3 disp = oceanDisplacement(original);
+    original = p - disp.xz;
+  }
+  return original;
+}
+`;
+
+/** Standalone program chunk (uniforms + cascadeUv + bodies). */
+export const SURFACE_GLSL = /* glsl */ `
 uniform sampler2D uCoastal;
 uniform float uCoastalEnabled;
 uniform vec2 uCoastalOrigin;
@@ -28,60 +81,9 @@ uniform float uSpectral;
 uniform sampler2D uDisplacement0, uDisplacement1, uDisplacement2;
 uniform sampler2D uSlope0, uSlope1, uSlope2;
 uniform vec3 uCascadeLength, uCascadeSize;
-
-vec4 coastAt(vec2 p) {
-  return uCoastalEnabled > .5 ? texture2D(uCoastal, clamp((p-uCoastalOrigin)/uCoastalExtent, 0.0, 1.0)) : vec4(0.0,uSwellDirection,1.0);
-}
-
-vec3 oceanDisplacement(vec2 p) {
-  float bed = texture2D(uBedTex, clamp((p-uBedOrigin)/uBedExtent, 0.0, 1.0)).r;
-  float depth = max(0.0, -bed);
-  vec4 coast = coastAt(p);
-  
-  // Apply coastal travel delay to swell
-  vec2 delayed = p - uSwellDirection * coast.x;
-  vec3 swell = texture2D(uDisplacement0, cascadeUv(delayed, uCascadeLength.x)).xyz;
-  vec3 wind = texture2D(uDisplacement1, cascadeUv(p, uCascadeLength.y)).xyz;
-  vec3 chop = texture2D(uDisplacement2, cascadeUv(p, uCascadeLength.z)).xyz;
-  
-  // Shore attenuation
-  float shallow = smoothstep(0.15, 2.0, depth);
-  float coverage = 1.0 - smoothstep(-uWetBand, uWetBand, bed);
-  
-  // Consistent scaling factors
-  return (swell * 1.25 + (wind * 1.15 + chop * 1.35) * shallow) *
-    (0.62 + uWaveHeight * 0.85) * mix(0.22, 1.0, coast.w) * coverage;
-}
-
-vec3 oceanNormal(vec2 p) {
-  float e = 0.45;
-  vec3 dx = vec3(2.0 * e, 0, 0) + oceanDisplacement(p + vec2(e, 0)) - oceanDisplacement(p - vec2(e, 0));
-  vec3 dz = vec3(0, 0, 2.0 * e) + oceanDisplacement(p + vec2(0, e)) - oceanDisplacement(p - vec2(0, e));
-  return normalize(cross(dz, dx));
-}
-
-float oceanFoam(vec2 p) {
-  vec4 coast = coastAt(p);
-  vec2 delayed = p - uSwellDirection * coast.x;
-  return clamp(
-    texture2D(uSlope0, cascadeUv(delayed, uCascadeLength.x)).b +
-    texture2D(uSlope1, cascadeUv(p, uCascadeLength.y)).b +
-    texture2D(uSlope2, cascadeUv(p, uCascadeLength.z)).b,
-    0.0, 1.0
-  );
-}
-
-vec2 oceanInverseDisplacement(vec2 p) {
-  // Iterative inversion to find original world position
-  vec2 original = p;
-  for(int i = 0; i < 3; i++) {
-    vec3 disp = oceanDisplacement(original);
-    original = p - disp.xz;
-  }
-  return original;
-}
+${CASCADE_UV_GLSL}
+${SURFACE_FUNCTIONS_GLSL}
 `;
-
 export const SURFACE_UNIFORM_NAMES = [
   'uDisplacement0', 'uDisplacement1', 'uDisplacement2',
   'uSlope0', 'uSlope1', 'uSlope2', 

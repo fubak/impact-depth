@@ -1,5 +1,12 @@
 import * as THREE from 'three';
-import { createFloatTarget, disposeMaterial, disposeTarget, SimulationPass, simulationMaterial } from './resources';
+import {
+  createFloatTarget,
+  disposeMaterial,
+  disposeTarget,
+  SimulationPass,
+  simulationMaterial,
+  withRendererPass,
+} from './resources';
 import { PASS_VERTEX_GLSL } from './spectrum';
 import {
   FOOTPRINT_SITES,
@@ -197,7 +204,10 @@ export class SurfaceProbeQueue {
       u[`uSlope${i}`]!.value = maps.slopes[i];
     }
     (u.uLength!.value as THREE.Vector3).set(maps.lengths[0] ?? 1, maps.lengths[1] ?? 1, maps.lengths[2] ?? 1);
-    this.pass.run(renderer, this.material, this.target);
+    // SimulationPass leaves the bound target; restore so the main canvas pass is not stolen.
+    withRendererPass(renderer, () => {
+      this.pass.run(renderer, this.material, this.target);
+    });
     const output = new Float32Array(this.capacity * 4);
     const token = ++this.token;
     this.pending = true;

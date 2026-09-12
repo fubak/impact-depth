@@ -1,26 +1,28 @@
 # Silent Depths — agent memory
 
 **Project:** impact-depth / Silent Depths  
-**Last sync:** 2026-09-11  
+**Last sync:** 2026-09-12  
 **SSOT for rolling status:** `tasks/state.md`  
 **Long plans:** `plans/README.md`  
 **Release claims:** `docs/release/solo-production-status.md`
 
 ## Product fact
 
-Playable solo patrol sim on Three.js/Vite (not look-dev only). Deterministic game domain in `src/game/sim/**`; look-dev sim in `src/core/` still feeds render cameras. Default local URL often `:8800` when 8080 is busy.
+Playable solo patrol sim on Three.js/Vite (not look-dev only). Deterministic game domain in `src/game/sim/**`; look-dev sim in `src/core/` still feeds render cameras. Preview often `:8082` when 8080 is busy.
 
 ## Architecture
 
 - **Authoritative sim:** `src/game/sim/**` + `src/game/commands/**` — pure TS, fixed step, no Three.
 - **Render:** `src/render/**` — glTF registry, LOD, ocean, vessels fallbacks. Plan 018
-  introduced `EnvironmentController` + Gerstner backend (`three@0.185.0`). Spectral is not
-  live; it fails closed onto Gerstner. Do not add a second canvas or rAF. Presentation
-  weather (calm/breeze/storm) is look-dev only; `?quality=` locks the governor. HDR pack
-  is not staged (self-only CSP).
-- **World versions:** default gameplay is `legacy-v1`. `getWorld('littoral-v2')` is a CPU
-  1 m signed-metre field (islands + seabed + corridor deepen ≤28 m). Do not switch
-  `createGame` defaults until Plan 018 operator acceptance.
+  `EnvironmentController` + Gerstner default; spectral via `?ocean=spectral` (FFT + coastal).
+  Do not add a second canvas or rAF. Presentation weather is look-dev only; `?quality=`
+  locks the governor. HDR pack is not staged (self-only CSP).
+- **World versions:** default gameplay is `legacy-v1`. `?world=littoral-v2` +
+  `createGame(seed, worldVersion)` for CPU signed-metre field. Do not flip defaults
+  until operator acceptance (`docs/release/realism-upgrade-review.md`).
+- **Critical 018 fixes (2026-09-12):** shared `SURFACE_FUNCTIONS_GLSL` (no double GLSL
+  include); surface probes wrap `SimulationPass` in `withRendererPass` so the canvas
+  RT is not stolen; boot uses `createGame(19, runtime.world)`.
 - **UI:** `src/ui/hud.ts` (throttled ~8 Hz), tutorial, look-dev panel, sonar/periscope overlays.
 - **Input:** canvas world interact gated so HUD clicks do not plot waypoints (`shouldDispatchWorldInteract`).
 

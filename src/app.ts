@@ -91,9 +91,8 @@ export class App {
     this.activeQuality = this.runtime.quality;
     this.settings = loadSettings();
     this.game = {
-      ...createGame(19),
+      ...createGame(19, this.runtime.world),
       settings: this.settings,
-      worldVersion: this.runtime.world,
     };
     this.sim = adaptToLookDevSim(this.game);
     this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -109,6 +108,7 @@ export class App {
     this.renderer.setQuality(QUALITY_PROFILES[this.runtime.quality]);
     this.renderer.setExposure(this.settings.atmosphere.exposure);
     this.scene = new GameScene();
+    this.scene.setPresentationWorld(this.runtime.world, this.game.terrainSeed);
     if (typeof this.scene.bindEnvironment === 'function') {
       this.scene.bindEnvironment(this.renderer.renderer);
     }

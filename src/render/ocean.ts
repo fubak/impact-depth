@@ -9,7 +9,7 @@ import {
 } from './environment/bed-data-texture';
 import { SHORE_WET_BAND_METRES, type PackedHeightField } from './environment/terrain-texture';
 import { SPECTRUM_SAMPLE_GLSL } from './ocean/spectrum';
-import { SURFACE_GLSL } from './ocean/surface';
+import { SURFACE_FUNCTIONS_GLSL } from './ocean/surface';
 import type { WaterOptics } from './ocean/optics';
 import type { QualityProfile } from './quality';
 import { WaterRipplePass } from './water-ripples';
@@ -361,7 +361,7 @@ varying vec2 vUv;
 
 ${commonGlsl}
 ${SPECTRUM_SAMPLE_GLSL}
-${SURFACE_GLSL}
+${SURFACE_FUNCTIONS_GLSL}
 
 vec3 gerstner(
   vec3 pos,
@@ -460,7 +460,7 @@ void main() {
   float crestBand = smoothstep(0.55, 0.9, crest) * (1.0 - smoothstep(0.9, 1.2, crest));
   float breakNoise = sin(vWorldPos.x * 1.4 + uTime * 1.8) * sin(vWorldPos.z * 1.1 - uTime * 1.3);
   float cascadeFoam = uSpectral > 0.5 ? oceanFoam(flatXZ) : 0.0;
-  vFoam = max(crestBand * (0.25 + 0.75 * step(0.2, breakNoise)), cascadeFoam * 0.6);
+  vFoam = max(crestBand * (0.25 + 0.75 * step(0.2, breakNoise)), cascadeFoam * 0.22);
   vCrest = clamp(crest * 0.5 + 0.5, 0.0, 1.0);
 
   gl_Position = projectionMatrix * viewMatrix * world;
@@ -672,8 +672,8 @@ void main() {
   water *= mix(1.0, 0.42, under);
   water += vec3(0.05, 0.22, 0.2) * caus * under * 1.4;
   if (uSpectral > 0.5) {
-    foamMask = clamp(foamMask + abs(vCrest - 0.5) * 0.35 * uFoamAmount, 0.0, 1.0);
-    water = mix(water, foamCol, foamMask * 0.55 * (1.0 - under));
+    foamMask = clamp(foamMask + abs(vCrest - 0.5) * 0.18 * uFoamAmount, 0.0, 1.0);
+    water = mix(water, foamCol, foamMask * 0.28 * (1.0 - under));
   }
   alpha = mix(alpha, mix(0.78, 0.94, absorb), under);
   float lookDown = smoothstep(0.15, 0.85, overhead);

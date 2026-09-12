@@ -198,7 +198,7 @@ export class GameScene {
               renderer: this.glRenderer,
               ocean: this.ocean,
               quality: this.envQuality,
-              worldVersion: this.environment.getDiagnostics().worldVersion as 'legacy-v1' | 'littoral-v2',
+              worldVersion: this.currentWorldVersion,
               requestedBackend: 'spectral',
               seed: 19,
               bedSampler,
@@ -495,6 +495,13 @@ export class GameScene {
     this.surfaceEffects.setReducedMotion(value);
   }
 
+  /** Apply URL/runtime world before spectral backend activation. */
+  setPresentationWorld(version: WorldVersion, terrainSeed = 0): void {
+    this.currentWorldVersion = version;
+    this.currentTerrainSeed = terrainSeed;
+    this.environment.setWorldVersion(version);
+  }
+
   get weatherLightning(): number {
     return this.weather.lastLightning;
   }
@@ -587,6 +594,10 @@ export class GameScene {
       wakes: this.lastEffectWakes,
       submerged: this.lastEffectSubmerged,
     });
+    // Aux FFT/optics/probe passes must not leave a bound target for the canvas frame.
+    if (renderer.getRenderTarget() !== null) {
+      renderer.setRenderTarget(null);
+    }
   }
 
   private bindWorldHeight(game: GameState): void {

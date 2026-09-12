@@ -18,7 +18,7 @@ import {
   withRendererPass,
 } from './resources';
 import { PASS_VERTEX_GLSL, SPECTRUM_SAMPLE_GLSL } from './spectrum';
-import { SURFACE_GLSL } from './surface';
+import { SURFACE_FUNCTIONS_GLSL } from './surface';
 
 export const WATER_IOR = 1.333;
 export const CAUSTIC_HOOK_CACHE_KEY = 'silent-depths-caustics-v1';
@@ -266,7 +266,7 @@ uniform float uCoastalExtent;
 uniform vec2 uSwellDirection;
 uniform sampler2D uCoastal;
 ${SPECTRUM_SAMPLE_GLSL}
-${SURFACE_GLSL}
+${SURFACE_FUNCTIONS_GLSL}
 vec2 projectRay(vec2 p) {
   vec3 disp = oceanDisplacement(p);
   vec3 P = vec3(p.x + disp.x, disp.y, p.y + disp.z);
