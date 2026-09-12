@@ -60,14 +60,14 @@ export interface IslandSpec {
  * blends into seabed without a wide visible disc. */
 export const ISLAND_MESH_RADIUS_FACTOR = 1.35;
 
-/** Island specs — one cay in tactical frame, one distant, one peri cue. */
+/** Island specs — spaced for the enlarged 128×128 / ~640 m sector. */
 export const ISLAND_SPECS: readonly IslandSpec[] = [
-  // South of convoy lane: beach/foliage/mountain readable in default tactical
-  { id: 'cay-near', cx: 38, cz: -55, radius: 38, peak: 15, seed: 17 },
+  // South of convoy lane: beach/foliage readable in default tactical
+  { id: 'cay-near', cx: 55, cz: -95, radius: 42, peak: 16, seed: 17 },
   // Distant windward massing
-  { id: 'cay-far', cx: 145, cz: 85, radius: 32, peak: 17, seed: 41 },
+  { id: 'cay-far', cx: 210, cz: 120, radius: 38, peak: 18, seed: 41 },
   // Port background / peri glance
-  { id: 'cay-port', cx: -75, cz: 70, radius: 28, peak: 14, seed: 89 },
+  { id: 'cay-port', cx: -120, cz: 110, radius: 34, peak: 15, seed: 89 },
 ] as const;
 
 /**

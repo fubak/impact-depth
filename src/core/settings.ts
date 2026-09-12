@@ -1,15 +1,15 @@
 import type { LookDevSettings, PresetId } from './types';
 
-export const STORAGE_KEY = 'silent-depths-lookdev-v4';
+export const STORAGE_KEY = 'silent-depths-lookdev-v5';
 
 export const DEFAULT_SETTINGS: LookDevSettings = {
   atmosphere: {
     timeOfDay: 0.42,
     fogDensity: 0.0007,
-    exposure: 0.95,
+    exposure: 1.15,
     sunElevation: 58,
     sunAzimuth: 145,
-    sunIntensity: 1.18,
+    sunIntensity: 1.35,
   },
   ocean: {
     seaState: 0.34,

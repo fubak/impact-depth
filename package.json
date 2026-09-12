@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Silent Depths look-development lab — ocean, atmosphere, and presentation tuning",
+  "description": "Silent Depths — solo submarine patrol sim (Three.js + deterministic game domain)",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 8080",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
@@ -19,15 +19,23 @@
     "test:perf": "node scripts/fps-bench.mjs",
     "test:visual": "node scripts/visual-golden.mjs",
     "test:soak": "vitest run tests/game/soak.test.ts",
-    "test:e2e": "npm run test:smoke",
+    "audio:banks": "node scripts/generate-audio-banks.mjs",
+    "assets:export": "node scripts/export-procedural-fleet.mjs",
+    "assets:import-modern": "node scripts/import-modern-fleet.mjs",
+    "assets:validate": "node scripts/validate-assets.mjs",
+    "assets:validate:ocean": "node scripts/validate-ocean-assets.mjs",
+    "test:e2e": "node scripts/e2e-patrol.mjs",
+    "test:e2e:ocean": "node scripts/e2e-ocean.mjs",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {
-    "three": "^0.172.0"
+    "three": "0.185.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/three": "^0.172.0",
+    "@gltf-transform/core": "4.5.0",
+    "@gltf-transform/extensions": "4.5.0",
+    "@types/three": "0.185.0",
     "@vitest/coverage-v8": "^3.2.7",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",

@@ -21,6 +21,8 @@ function mat(
     metalness: opts.metalness ?? 0.42,
     roughness: opts.roughness ?? 0.55,
     flatShading: opts.flat ?? false,
+    side: THREE.FrontSide,
+    shadowSide: THREE.FrontSide,
   });
   if (opts.metalness && opts.metalness > 0.3) material.map = hullAlbedo;
   return material;
@@ -94,77 +96,145 @@ export function createSubmarine(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'submarine';
 
+  // Pressure hull — longer, slightly flattened fleet-boat silhouette
   const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.95, 10.2, 6, 14),
-    mat(0x121c20, { roughness: 0.5, metalness: 0.45 }),
+    new THREE.CapsuleGeometry(0.92, 12.4, 8, 18),
+    mat(0x1a262c, { roughness: 0.48, metalness: 0.52 }),
   );
   body.rotation.z = Math.PI / 2;
+  body.scale.set(1, 0.86, 1);
   body.castShadow = true;
   body.receiveShadow = true;
   g.add(body);
 
-  // Slight underlight so the hull reads through clear water
+  // Soft belly underlight for underwater readability
   const fill = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.72, 8.6, 4, 10),
+    new THREE.CapsuleGeometry(0.7, 10.2, 4, 12),
     new THREE.MeshStandardMaterial({
       color: 0x2a4550,
       roughness: 0.72,
-      metalness: 0.15,
-      emissive: 0x1a3848,
-      emissiveIntensity: 0.55,
+      metalness: 0.12,
+      emissive: 0x163848,
+      emissiveIntensity: 0.42,
     }),
   );
   fill.rotation.z = Math.PI / 2;
+  fill.position.y = -0.12;
   g.add(fill);
 
+  // Bulbous bow / sonar dome
   const bow = new THREE.Mesh(
-    new THREE.ConeGeometry(0.95, 2.6, 12),
-    mat(HULL_LIGHT, { roughness: 0.48 }),
+    new THREE.SphereGeometry(0.95, 14, 10),
+    mat(HULL_LIGHT, { roughness: 0.42, metalness: 0.48 }),
   );
-  bow.rotation.z = -Math.PI / 2;
-  bow.position.x = 6.5;
+  bow.scale.set(1.35, 0.78, 0.9);
+  bow.position.set(7.1, -0.05, 0);
   bow.castShadow = true;
   g.add(bow);
 
-  const sail = new THREE.Mesh(
-    new THREE.BoxGeometry(2.4, 2.6, 1.15),
-    mat(SUPER, { metalness: 0.55, roughness: 0.45 }),
+  // Deck casing strip
+  const casing = new THREE.Mesh(
+    new THREE.BoxGeometry(11.5, 0.35, 1.55),
+    mat(DECK, { metalness: 0.45, roughness: 0.5 }),
   );
-  sail.position.set(-0.4, 1.75, 0);
+  casing.position.set(0.2, 0.78, 0);
+  casing.castShadow = true;
+  g.add(casing);
+
+  // Fairwater / sail with slight taper
+  const sail = new THREE.Mesh(
+    new THREE.BoxGeometry(2.8, 2.85, 1.05),
+    mat(SUPER, { metalness: 0.55, roughness: 0.42 }),
+  );
+  sail.position.set(-0.55, 2.0, 0);
   sail.castShadow = true;
   g.add(sail);
-
-  const sailFair = new THREE.Mesh(
-    new THREE.BoxGeometry(1.5, 0.35, 0.95),
+  const sailCap = new THREE.Mesh(
+    new THREE.BoxGeometry(2.1, 0.32, 0.9),
     mat(DECK, { metalness: 0.5 }),
   );
-  sailFair.position.set(-0.35, 3.15, 0);
-  g.add(sailFair);
-
-  const peri = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.07, 0.07, 2.6, 6),
-    mat(BRASS, { metalness: 0.75, roughness: 0.32 }),
+  sailCap.position.set(-0.45, 3.5, 0);
+  g.add(sailCap);
+  const sailBridge = new THREE.Mesh(
+    new THREE.BoxGeometry(1.1, 0.55, 0.95),
+    mat(0x3a484c, { metalness: 0.4, roughness: 0.45 }),
   );
-  peri.position.set(0.35, 4.35, 0.12);
-  g.add(peri);
+  sailBridge.position.set(0.35, 2.55, 0);
+  g.add(sailBridge);
 
-  const divePlane = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 2.4), mat(HULL_LIGHT));
-  divePlane.position.set(3.8, 0.15, 0);
+  // Twin periscopes + snorkel mast
+  for (const [x, h, color] of [
+    [0.55, 3.1, BRASS],
+    [0.15, 2.7, 0x4a5254],
+    [-0.35, 2.4, 0x3a4446],
+  ] as const) {
+    const mast = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.055, 0.065, h, 6),
+      mat(color, { metalness: 0.7, roughness: 0.35 }),
+    );
+    mast.position.set(x, 3.55 + h * 0.25, 0.08);
+    g.add(mast);
+  }
+
+  // Bow planes
+  const divePlane = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 2.8), mat(HULL_LIGHT));
+  divePlane.position.set(4.2, 0.2, 0);
   g.add(divePlane);
 
-  const sternPlane = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.7, 0.1), mat(HULL_LIGHT));
-  sternPlane.position.set(-5.9, 0.35, 0);
+  // Stern planes + rudder
+  const sternPlane = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 2.4), mat(HULL_LIGHT));
+  sternPlane.position.set(-6.2, 0.15, 0);
   g.add(sternPlane);
+  const rudder = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.9, 0.08), mat(HULL_LIGHT));
+  rudder.position.set(-6.65, 0.55, 0);
+  g.add(rudder);
 
-  const prop = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.12, 0.35, 8),
-    mat(BRASS, { metalness: 0.85, roughness: 0.3 }),
+  // Screws
+  for (const z of [-0.35, 0.35]) {
+    const prop = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.1, 0.32, 8),
+      mat(BRASS, { metalness: 0.85, roughness: 0.28 }),
+    );
+    prop.rotation.z = Math.PI / 2;
+    prop.position.set(-7.05, -0.05, z);
+    g.add(prop);
+    const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.55, 0.12),
+      mat(BRASS, { metalness: 0.8 }),
+    );
+    blade.position.set(-7.05, -0.05, z);
+    g.add(blade);
+  }
+
+  // Deck gun for silhouette interest
+  const gunMount = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.28, 0.34, 0.35, 8),
+    mat(0x2a3032, { metalness: 0.55 }),
   );
-  prop.rotation.z = Math.PI / 2;
-  prop.position.set(-6.55, 0, 0);
-  g.add(prop);
+  gunMount.position.set(2.6, 1.15, 0);
+  g.add(gunMount);
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.07, 0.09, 1.8, 8),
+    mat(0x2a3032, { metalness: 0.6 }),
+  );
+  barrel.rotation.z = Math.PI / 2;
+  barrel.position.set(3.45, 1.35, 0);
+  g.add(barrel);
 
-  g.scale.setScalar(0.9);
+  // Running light
+  const nav = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 8, 6),
+    new THREE.MeshStandardMaterial({
+      color: 0xe8dcc0,
+      emissive: 0xffe8a8,
+      emissiveIntensity: 0.85,
+      roughness: 0.35,
+    }),
+  );
+  nav.position.set(-0.4, 3.75, 0);
+  g.add(nav);
+
+  g.scale.setScalar(0.92);
   return g;
 }
 
@@ -217,6 +287,29 @@ export function createDestroyer(): THREE.Group {
   mast.position.set(1.2, 7.2, 0);
   g.add(mast);
 
+  const yard = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 3.2), mat(0x3a4242));
+  yard.position.set(1.2, 9.4, 0);
+  g.add(yard);
+
+  const radar = new THREE.Mesh(
+    new THREE.BoxGeometry(1.1, 0.9, 0.12),
+    mat(0x8a8e86, { metalness: 0.35, roughness: 0.45 }),
+  );
+  radar.position.set(1.05, 10.6, 0);
+  g.add(radar);
+
+  // Port/starboard railings for silhouette depth
+  for (const side of [-1, 1]) {
+    const rail = new THREE.Mesh(
+      new THREE.BoxGeometry(18, 0.12, 0.06),
+      mat(DECK, { metalness: 0.4 }),
+    );
+    rail.position.set(-1, 2.95, side * 1.85);
+    g.add(rail);
+  }
+
+  addDeckHouse(g, -7.2, 3.55, 0, 2.8, 1.4, 2.4, DECK);
+
   const gun = new THREE.Mesh(
     new THREE.CylinderGeometry(0.16, 0.2, 3.4, 8),
     mat(0x2a3030, { metalness: 0.65, roughness: 0.4 }),
@@ -228,6 +321,19 @@ export function createDestroyer(): THREE.Group {
   const aftGun = gun.clone();
   aftGun.position.set(-9.5, 3.1, 0);
   g.add(aftGun);
+
+  const searchlight = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 8, 6),
+    new THREE.MeshStandardMaterial({
+      color: 0xe8e0c8,
+      emissive: 0xfff2c8,
+      emissiveIntensity: 0.65,
+      roughness: 0.35,
+      metalness: 0.2,
+    }),
+  );
+  searchlight.position.set(2.6, 6.35, 0);
+  g.add(searchlight);
 
   g.scale.setScalar(0.58);
   return g;
@@ -282,6 +388,21 @@ export function createMerchant(): THREE.Group {
   mast.position.set(4, 8.2, 0);
   g.add(mast);
 
+  const boom = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.12, 0.12), mat(0x3a4040));
+  boom.position.set(5.8, 10.4, 0.35);
+  boom.rotation.z = -0.35;
+  g.add(boom);
+
+  for (const side of [-1, 1]) {
+    const raft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.45, 0.45, 0.35, 8),
+      mat(0xc45a3a, { roughness: 0.7, metalness: 0.1 }),
+    );
+    raft.rotation.z = Math.PI / 2;
+    raft.position.set(-11.5, 4.1, side * 2.7);
+    g.add(raft);
+  }
+
   g.scale.setScalar(0.52);
   return g;
 }
@@ -291,7 +412,10 @@ export function createPatrolBoat(): THREE.Group {
   g.name = 'patrol';
   g.add(createTaperedHull(18, 3.1, 1.7, 0x385255));
   addDeckHouse(g, -1, 2.9, 0, 4.8, 1.8, 2.2, 0xe0ded0);
-  const radar = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 8), mat(0xe8ece6, { metalness: 0.2 }));
+  const radar = new THREE.Mesh(
+    new THREE.SphereGeometry(0.45, 10, 8),
+    mat(0xe8ece6, { metalness: 0.2 }),
+  );
   radar.position.set(-1, 4.15, 0);
   g.add(radar);
   const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 2.1, 8), mat(DECK));
@@ -303,32 +427,73 @@ export function createPatrolBoat(): THREE.Group {
 }
 
 export function createCruiser(): THREE.Group {
-  const g = createDestroyer();
+  const g = new THREE.Group();
   g.name = 'cruiser';
-  g.scale.multiplyScalar(1.6);
-  for (const x of [5.6, -6.5, -11]) {
-    const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.0, 0.6, 10), mat(HULL_LIGHT));
-    turret.position.set(x, 3.9, 0);
-    g.add(turret);
+  g.add(createTaperedHull(34, 5.2, 2.8, 0x2c3a3e));
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(24, 0.28, 4.2), mat(DECK, { metalness: 0.45 }));
+  deck.position.set(-0.5, 2.95, 0);
+  g.add(deck);
+  addDeckHouse(g, 3.5, 4.6, 0, 6.5, 3.2, 3.6);
+  addDeckHouse(g, 3.2, 6.6, 0, 3.6, 1.1, 2.6, DECK);
+  for (const x of [8.5, -6.5, -12]) {
+    const barbette = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.95, 1.1, 0.7, 12),
+      mat(HULL_LIGHT),
+    );
+    barbette.position.set(x, 3.5, 0);
+    g.add(barbette);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 4.2, 8), mat(DECK));
+    barrel.rotation.z = Math.PI / 2;
+    barrel.position.set(x + 1.8, 3.65, 0);
+    g.add(barrel);
   }
+  for (const x of [-1.5, -4.2]) {
+    const funnel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.55, 0.75, 3.6, 10),
+      mat(FUNNEL, { metalness: 0.3 }),
+    );
+    funnel.position.set(x, 5.6, 0);
+    g.add(funnel);
+  }
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 9, 6), mat(0x3a4040));
+  mast.position.set(2.2, 8.2, 0);
+  g.add(mast);
+  g.scale.setScalar(0.55);
   return g;
 }
 
 export function createBattleship(): THREE.Group {
-  const g = createCruiser();
+  const g = new THREE.Group();
   g.name = 'battleship';
-  g.scale.multiplyScalar(1.45);
-  for (const x of [8, 1, -8]) {
-    const barbette = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.35, 0.75, 12), mat(0x465052));
-    barbette.position.set(x, 4.2, 0);
+  g.add(createTaperedHull(42, 6.4, 3.4, 0x243034));
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(30, 0.35, 5.2), mat(DECK, { metalness: 0.48 }));
+  deck.position.set(-1, 3.55, 0);
+  g.add(deck);
+  addDeckHouse(g, 2.0, 5.6, 0, 8.5, 4.0, 4.4);
+  addDeckHouse(g, 1.5, 8.0, 0, 4.5, 1.4, 3.2, DECK);
+  for (const x of [11, 4, -8, -14]) {
+    const barbette = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.45, 0.9, 14), mat(0x465052));
+    barbette.position.set(x, 4.1, 0);
     g.add(barbette);
-    for (const z of [-0.42, 0.42]) {
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 4.5, 8), mat(DECK));
+    for (const z of [-0.55, 0.55]) {
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 5.8, 8), mat(DECK));
       barrel.rotation.z = Math.PI / 2;
-      barrel.position.set(x + 1.9, 4.45, z);
+      barrel.position.set(x + 2.4, 4.4, z);
       g.add(barrel);
     }
   }
+  for (const x of [-2, -5.5]) {
+    const funnel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.7, 0.95, 4.4, 10),
+      mat(0x3a2e28, { metalness: 0.28 }),
+    );
+    funnel.position.set(x, 6.8, 0);
+    g.add(funnel);
+  }
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 11, 6), mat(0x3a4040));
+  mast.position.set(0.5, 10.5, 0);
+  g.add(mast);
+  g.scale.setScalar(0.48);
   return g;
 }
 
@@ -345,29 +510,106 @@ export function createUboat(): THREE.Group {
 export function createAircraft(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'aircraft';
-  const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 4.2, 4, 10), mat(0x40544b));
-  fuselage.rotation.z = Math.PI / 2;
-  g.add(fuselage);
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 7.2), mat(0x53685c));
-  wing.position.y = 0.05;
+  const fuse = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.42, 5.4, 6, 12),
+    mat(0x4a6458, { roughness: 0.48, metalness: 0.28 }),
+  );
+  fuse.rotation.z = Math.PI / 2;
+  fuse.castShadow = true;
+  g.add(fuse);
+  const nose = new THREE.Mesh(
+    new THREE.ConeGeometry(0.4, 1.1, 10),
+    mat(0x2a3430, { metalness: 0.35 }),
+  );
+  nose.rotation.z = -Math.PI / 2;
+  nose.position.x = 3.4;
+  g.add(nose);
+  const cockpit = new THREE.Mesh(
+    new THREE.SphereGeometry(0.38, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
+    new THREE.MeshStandardMaterial({
+      color: 0x9fd0dc,
+      roughness: 0.22,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.75,
+    }),
+  );
+  cockpit.position.set(1.1, 0.42, 0);
+  g.add(cockpit);
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.14, 9.2), mat(0x5a7264));
+  wing.position.set(0.2, 0.05, 0);
+  wing.castShadow = true;
   g.add(wing);
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 0.12), mat(0x53685c));
-  tail.position.set(-2.1, 0.62, 0);
+  for (const side of [-1, 1]) {
+    const eng = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.28, 1.4, 4, 8),
+      mat(0x323a38, { metalness: 0.45 }),
+    );
+    eng.rotation.z = Math.PI / 2;
+    eng.position.set(0.15, -0.2, side * 2.4);
+    g.add(eng);
+  }
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 3.1), mat(0x5a7264));
+  tail.position.set(-2.5, 0.35, 0);
   g.add(tail);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.35, 0.12), mat(0x5a7264));
+  fin.position.set(-2.55, 0.85, 0);
+  g.add(fin);
   return g;
 }
 
 export function createFob(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'fob';
-  const platform = new THREE.Mesh(new THREE.CylinderGeometry(7, 8, 1.1, 24), mat(0x7f7455, { roughness: 0.9 }));
-  platform.position.y = 0.45;
-  g.add(platform);
-  const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 3.2, 7, 12), mat(0xd5d1bd));
-  tower.position.y = 4.2;
+  const deck = new THREE.Mesh(
+    new THREE.CylinderGeometry(9.2, 10.5, 1.35, 28),
+    mat(0x8a8060, { roughness: 0.88, metalness: 0.08 }),
+  );
+  deck.position.y = 0.55;
+  deck.receiveShadow = true;
+  g.add(deck);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const leg = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.45, 0.55, 3.2, 8),
+      mat(0x3a4040, { metalness: 0.4 }),
+    );
+    leg.position.set(Math.cos(a) * 6.8, -0.9, Math.sin(a) * 6.8);
+    g.add(leg);
+  }
+  const tower = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.5, 3.6, 8.2, 14),
+    mat(0xd8d4c4, { roughness: 0.62, metalness: 0.12 }),
+  );
+  tower.position.y = 5.0;
+  tower.castShadow = true;
   g.add(tower);
-  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 8), new THREE.MeshStandardMaterial({ color: 0xff4939, emissive: 0xff2200, emissiveIntensity: 1.8 }));
-  beacon.position.y = 8.1;
+  addDeckHouse(g, 0, 9.4, 0, 4.2, 1.4, 4.2, DECK);
+  const mast = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.14, 5.5, 6),
+    mat(0x3a4040, { metalness: 0.55 }),
+  );
+  mast.position.set(0.4, 12.2, 0);
+  g.add(mast);
+  const radar = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.1, 0.2), mat(0xc8c4b0));
+  radar.position.set(0.5, 13.4, 0);
+  g.add(radar);
+  const cranePost = new THREE.Mesh(new THREE.BoxGeometry(0.55, 4.2, 0.55), mat(0x4a5048));
+  cranePost.position.set(5.2, 2.8, 4.8);
+  g.add(cranePost);
+  const boom = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.28, 0.28), mat(0x5a6058));
+  boom.position.set(7.6, 4.8, 4.8);
+  boom.rotation.z = -0.28;
+  g.add(boom);
+  const beacon = new THREE.Mesh(
+    new THREE.SphereGeometry(0.5, 12, 10),
+    new THREE.MeshStandardMaterial({
+      color: 0xff4939,
+      emissive: 0xff2200,
+      emissiveIntensity: 1.6,
+    }),
+  );
+  beacon.position.y = 15.0;
   g.add(beacon);
   return g;
 }
@@ -375,7 +617,10 @@ export function createFob(): THREE.Group {
 export function createTorpedo(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'torpedo';
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 1.25, 4, 8), mat(0x263236, { metalness: 0.72 }));
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.16, 1.25, 4, 8),
+    mat(0x263236, { metalness: 0.72 }),
+  );
   body.rotation.z = Math.PI / 2;
   g.add(body);
   const prop = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.58, 0.58), mat(BRASS));
@@ -387,7 +632,10 @@ export function createTorpedo(): THREE.Group {
 export function createCrate(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'crate';
-  const box = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.0, 1.1), mat(0x8b5a30, { roughness: 0.85, metalness: 0.04 }));
+  const box = new THREE.Mesh(
+    new THREE.BoxGeometry(1.4, 1.0, 1.1),
+    mat(0x8b5a30, { roughness: 0.85, metalness: 0.04 }),
+  );
   g.add(box);
   const strap = new THREE.Mesh(new THREE.BoxGeometry(1.46, 1.05, 0.12), mat(0x33302b));
   g.add(strap);

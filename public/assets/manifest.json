@@ -1,29 +1,59 @@
 {
-  "version": 1,
-  "note": "Production asset manifest. glTF entries are optional, typed, and normalized at load; coherent project-owned procedural fallback fleet remains the shipped baseline until reviewed glTF replacements land.",
+  "version": 5,
+  "note": "Production asset manifest (models/v2). Hero LA/Akula/Visby destroyer are CC-BY Sketchfab; surface merchant/patrol/cruiser/battleship/FOB/crate from Kenney Watercraft Kit (CC0); aircraft is OGA Lowpoly Light Plane (CC0); torpedo remains project-owned procedural. Runtime LOD distances applied. Procedural mesh fallbacks remain for offline/dev.",
   "licenseLedger": [
     {
       "id": "procedural-fallback",
       "source": "in-house procedural meshes (src/render/vessels.ts)",
       "license": "project-owned",
-      "usage": "fallback until glTF replacements exist"
+      "usage": "offline/dev runtime fallback when glTF is missing"
     },
     {
-      "id": "generated-textures-v1",
-      "source": "AI-generated concept albedo maps in public/assets/textures/",
-      "license": "project-owned generated",
-      "usage": "look-dev / material prototyping; replace with authored PBR before final ship"
-    },
-    {
-      "id": "procedural-fleet-v1",
-      "source": "in-house authored geometry in src/render/vessels.ts",
+      "id": "procedural-fleet-class-hulls-v3",
+      "source": "glTF export of in-house procedural geometry via scripts/export-procedural-fleet.mjs",
       "license": "project-owned",
-      "usage": "production fallback silhouettes for vessels, aircraft, FOB, weapons, and pickups"
+      "usage": "torpedo prop and offline procedural fallbacks for other entities"
+    },
+    {
+      "id": "kenney-watercraft-cc0",
+      "source": "Kenney Watercraft Kit — https://kenney.nl/assets/watercraft-kit (credit “Kenney.nl” optional; staged under artifacts/fleet-sources/kenney-watercraft/)",
+      "license": "CC0 1.0",
+      "usage": "patrol, cruiser, battleship, freighter, fob_argus, crate models in models/v2"
+    },
+    {
+      "id": "oga-lowpoly-light-plane-cc0",
+      "source": "Lowpoly Light Plane by iPoly3D — https://opengameart.org/content/lowpoly-light-plane (exported to GLB via Blender 4)",
+      "license": "CC0 1.0",
+      "usage": "aircraft visual (models/v2/aircraft.glb)"
+    },
+    {
+      "id": "cheapwater-textures",
+      "source": "mqnc/cheapwater (water_normal.png, ripple.png) — MIT",
+      "license": "MIT",
+      "usage": "ocean multi-layer normals + screen-space interactive ripples"
+    },
+    {
+      "id": "sketchfab-uss-los-angeles-ccby",
+      "source": "https://sketchfab.com/3d-models/uss-los-angeles-ssn-688-submarine-c297103b4e054be98c9a9c6803c5a196 (Muhamad Mirza Arrafi)",
+      "license": "CC BY 4.0",
+      "usage": "player submarine visual (models/v2/sub_nautilus.glb); attribution required"
+    },
+    {
+      "id": "sketchfab-akula-lowpoly-ccby",
+      "source": "https://sketchfab.com/3d-models/low-poly-akula-class-submarine-f63019488c94474dbf60d59a7251dce8 (SIpriv)",
+      "license": "CC BY 4.0",
+      "usage": "enemy submarine visual (models/v2/uboat.glb); attribution required"
+    },
+    {
+      "id": "sketchfab-visby-corvette-ccby",
+      "source": "https://sketchfab.com/3d-models/visby-corvette-06d445dc90304c598286d63f52f2ff85 (Vavtrudner)",
+      "license": "CC BY 4.0",
+      "usage": "destroyer visual only (models/v2/destroyer.glb); attribution required"
     }
   ],
   "budgets": {
     "heroVesselTris": 12000,
-    "escortTris": 8000,
+    "escortTris": 12000,
     "merchantTris": 6000,
     "propTris": 2000,
     "textureMaxPx": 2048,
@@ -31,20 +61,60 @@
   },
   "entities": {
     "sub_nautilus": {
-      "gltf": null,
+      "gltf": "models/v2/sub_nautilus.glb",
       "fallback": "procedural-submarine",
-      "silhouetteRef": "textures/submarine-silhouette-ref.png"
+      "licenseId": "sketchfab-uss-los-angeles-ccby"
     },
-    "destroyer": { "gltf": null, "fallback": "procedural-destroyer" },
-    "freighter": { "gltf": null, "fallback": "procedural-merchant" },
-    "patrol": { "gltf": null, "fallback": "procedural-destroyer-scaled" },
-    "cruiser": { "gltf": null, "fallback": "procedural-destroyer-scaled" },
-    "battleship": { "gltf": null, "fallback": "procedural-destroyer-scaled" },
-    "uboat": { "gltf": null, "fallback": "procedural-submarine-large" },
-    "aircraft": { "gltf": null, "fallback": "procedural-placeholder" },
-    "fob_argus": { "gltf": null, "fallback": "procedural-placeholder" },
-    "torpedo": { "gltf": null, "fallback": "procedural-placeholder" },
-    "crate": { "gltf": null, "fallback": "procedural-placeholder" }
+    "destroyer": {
+      "gltf": "models/v2/destroyer.glb",
+      "fallback": "procedural-destroyer",
+      "licenseId": "sketchfab-visby-corvette-ccby"
+    },
+    "freighter": {
+      "gltf": "models/v2/freighter.glb",
+      "fallback": "procedural-merchant",
+      "licenseId": "kenney-watercraft-cc0"
+    },
+    "patrol": {
+      "gltf": "models/v2/patrol.glb",
+      "fallback": "procedural-patrol",
+      "licenseId": "kenney-watercraft-cc0"
+    },
+    "cruiser": {
+      "gltf": "models/v2/cruiser.glb",
+      "fallback": "procedural-cruiser",
+      "licenseId": "kenney-watercraft-cc0"
+    },
+    "battleship": {
+      "gltf": "models/v2/battleship.glb",
+      "fallback": "procedural-battleship",
+      "licenseId": "kenney-watercraft-cc0"
+    },
+    "uboat": {
+      "gltf": "models/v2/uboat.glb",
+      "fallback": "procedural-submarine-large",
+      "licenseId": "sketchfab-akula-lowpoly-ccby"
+    },
+    "aircraft": {
+      "gltf": "models/v2/aircraft.glb",
+      "fallback": "procedural-aircraft",
+      "licenseId": "oga-lowpoly-light-plane-cc0"
+    },
+    "fob_argus": {
+      "gltf": "models/v2/fob_argus.glb",
+      "fallback": "procedural-fob",
+      "licenseId": "kenney-watercraft-cc0"
+    },
+    "torpedo": {
+      "gltf": "models/v2/torpedo.glb",
+      "fallback": "procedural-torpedo",
+      "licenseId": "procedural-fleet-class-hulls-v3"
+    },
+    "crate": {
+      "gltf": "models/v2/crate.glb",
+      "fallback": "procedural-crate",
+      "licenseId": "kenney-watercraft-cc0"
+    }
   },
   "textures": {
     "hullMetal": "textures/hull-metal-albedo.png",

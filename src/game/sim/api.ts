@@ -19,6 +19,7 @@ export const startMission = (state: GameState): GameState => ({
   phase: 'playing',
   ships: seedWave(state.seed, 1, state.ships[0]),
   powerups: seedPowerups(state.seed),
+  submarine: { ...state.submarine, invuln: 8 },
 });
 export const restartGame = (state: GameState): GameState => makeGame(state.seed);
 export const setPhase = (state: GameState, phase: GamePhase): GameState => ({ ...state, phase });
@@ -48,9 +49,17 @@ export const toggleTorpedoSpread = (state: GameState): GameState => ({
   ...state,
   torpedoSpread: !state.torpedoSpread,
 });
-export function setAutopilot(state: GameState, tactic: AutopilotTactic, targetId?: string | null): GameState;
+export function setAutopilot(
+  state: GameState,
+  tactic: AutopilotTactic,
+  targetId?: string | null,
+): GameState;
 export function setAutopilot(state: GameState, waypoint: Point): GameState;
-export function setAutopilot(state: GameState, tacticOrWaypoint: AutopilotTactic | Point, targetId?: string | null): GameState {
+export function setAutopilot(
+  state: GameState,
+  tacticOrWaypoint: AutopilotTactic | Point,
+  targetId?: string | null,
+): GameState {
   if (typeof tacticOrWaypoint === 'string') {
     return stepGame(state, [{ type: 'setAutopilot', tactic: tacticOrWaypoint, targetId }], 0);
   }
@@ -91,4 +100,5 @@ export const applyHostSeed = (state: GameState, seed: number): GameState => ({
   seed: seed >>> 0,
   rngState: seed >>> 0,
   terrainSeed: seed >>> 0,
+  worldVersion: state.worldVersion ?? 'legacy-v1',
 });

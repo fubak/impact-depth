@@ -90,6 +90,8 @@ export interface SurfaceShipState {
   name: string;
   x: number;
   z: number;
+  /** Depth in meters; enemy subs sit below the sheet. */
+  depth: number;
   heading: number;
   speed: number;
   heave: number;

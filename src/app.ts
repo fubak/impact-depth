@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { loadSettings, saveSettings } from './core/settings';
 import { advanceAccumulator, FIXED_DT } from './core/sim';
 import type { LookDevSettings, SimState, ViewMode } from './core/types';
@@ -25,11 +26,13 @@ import {
   toggleTorpedoSpread,
   updateGame,
 } from './game/sim/api';
+import { worldMetersToSim } from './game/sim/coords';
 import { GameAudio } from './game/audio/audio';
-import type { GameState } from './game/sim/types';
+import type { GameState, Point } from './game/sim/types';
 import { InputController } from './input/controls';
 import { CameraRig } from './render/cameras';
 import { RendererHost } from './render/renderer';
+import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-selection';
 import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
 import { GameScene } from './render/scene';
 import { Hud } from './ui/hud';
@@ -69,21 +72,45 @@ export class App {
   private readonly reducedMotion: boolean;
   private fpsEma = 60;
   private frameMsEma = 16.7;
-  private readonly quality = new QualityGovernor();
+  private readonly quality: QualityGovernor;
+  private readonly runtime: RuntimeSelection;
+  private missionGeneration = 0;
 
   constructor() {
+    this.runtime = parseRuntimeSelection(window.location.search);
+    if (this.runtime.diagnostics.length > 0) {
+      console.warn('[silent-depths]', this.runtime.diagnostics.join('; '));
+    }
+    this.quality = new QualityGovernor({
+      initial: this.runtime.quality,
+      locked: this.runtime.qualityForced,
+    });
     this.settings = loadSettings();
-    this.game = { ...createGame(19), settings: this.settings };
+    this.game = {
+      ...createGame(19),
+      settings: this.settings,
+      worldVersion: this.runtime.world,
+    };
     this.sim = adaptToLookDevSim(this.game);
     this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
     const canvas = $('scene') as HTMLCanvasElement;
     this.appRoot = $('app');
     this.renderer = new RendererHost(canvas);
-    this.renderer.setQuality(QUALITY_PROFILES.high);
+    this.renderer.setQuality(QUALITY_PROFILES[this.runtime.quality]);
     this.renderer.setExposure(this.settings.atmosphere.exposure);
     this.scene = new GameScene();
-    this.scene.setQuality(QUALITY_PROFILES.high);
+    if (typeof this.scene.bindEnvironment === 'function') {
+      this.scene.bindEnvironment(this.renderer.renderer);
+    }
+    this.scene.setQuality(QUALITY_PROFILES[this.runtime.quality]);
+    this.scene.setReducedMotion(this.reducedMotion);
+    void this.scene.environment.activate(this.runtime.ocean, new AbortController().signal);
+    this.scene.resize(
+      window.innerWidth,
+      window.innerHeight,
+      Math.min(window.devicePixelRatio || 1, 1.75),
+    );
     this.cameras = new CameraRig(window.innerWidth / Math.max(1, window.innerHeight));
     this.cameras.setMode(this.sim.viewMode);
 
@@ -117,6 +144,9 @@ export class App {
       onClose: () => this.panel.setVisible(false),
     });
     this.panel.setVisible(false);
+    void this.scene.whenAssetsReady().then(() => {
+      this.panel.setAssetCredits([...this.scene.getAssetLicenses()]);
+    });
 
     this.input = new InputController(canvas, {
       setViewMode: (mode) => this.changeView(mode),
@@ -140,7 +170,13 @@ export class App {
     this.raf = requestAnimationFrame(this.frame);
   }
 
+  getEnvironmentDiagnostics() {
+    return this.scene.environment.getDiagnostics();
+  }
+
   private beginPatrol(): void {
+    this.missionGeneration += 1;
+    this.scene.resetEnvironment(this.missionGeneration);
     this.game = { ...startMission(this.game), settings: this.settings };
     const freighter = this.game.ships[0];
     if (freighter) this.game = selectTarget(this.game, freighter.id);
@@ -151,7 +187,13 @@ export class App {
   }
 
   private restartPatrol(): void {
-    this.game = { ...createGame(this.game.seed), settings: this.settings };
+    this.missionGeneration += 1;
+    this.scene.resetEnvironment(this.missionGeneration);
+    this.game = {
+      ...createGame(this.game.seed),
+      settings: this.settings,
+      worldVersion: this.runtime.world,
+    };
     this.sim = adaptToLookDevSim(this.game);
     this.patrol.render(this.game);
   }
@@ -170,12 +212,22 @@ export class App {
       this.game = deployCountermeasure(this.game);
       this.sim = adaptToLookDevSim(this.game);
     }
-    if (e.code === 'KeyT' && this.game.phase === 'playing' && this.game.ships[0]) {
-      this.game = selectTarget(this.game, this.game.ships[0]!.id);
-      this.sim = adaptToLookDevSim(this.game);
+    if (e.code === 'KeyT' && this.game.phase === 'playing' && this.game.ships.length > 0) {
+      const alive = this.game.ships.filter((ship) => ship.sinking === undefined);
+      if (alive.length > 0) {
+        const current = this.game.selectedTargetId;
+        const index = Math.max(
+          0,
+          alive.findIndex((ship) => ship.id === current),
+        );
+        const next = alive[(index + 1) % alive.length]!;
+        this.game = selectTarget(this.game, next.id);
+        this.sim = adaptToLookDevSim(this.game);
+      }
     }
     if (this.game.phase === 'playing') {
-      const depth = ({ KeyZ: 'surface', KeyX: 'periscope', KeyC: 'attack', KeyV: 'deep' } as const)[
+      // KeyC is screen/countermeasure — attack depth uses KeyB to avoid conflict.
+      const depth = ({ KeyZ: 'surface', KeyX: 'periscope', KeyB: 'attack', KeyV: 'deep' } as const)[
         e.code
       ];
       const speed = (
@@ -188,11 +240,21 @@ export class App {
   };
 
   private handleHudCommand(action: string, value?: string): void {
-    if (action === 'help') { this.tutorial.show(true); return; }
-    if (action === 'mute') { this.audio.setMuted(!this.audio.isMuted); return; }
-    if (action === 'pause') { this.inputPause(); return; }
+    if (action === 'help') {
+      this.tutorial.show(true);
+      return;
+    }
+    if (action === 'mute') {
+      this.audio.setMuted(!this.audio.isMuted);
+      return;
+    }
+    if (action === 'pause') {
+      this.inputPause();
+      return;
+    }
     if (this.game.phase !== 'playing') return;
-    if (action === 'weapon' && value) this.game = setWeapon(this.game, value as 'torpedo' | 'seeker' | 'decoy');
+    if (action === 'weapon' && value)
+      this.game = setWeapon(this.game, value as 'torpedo' | 'seeker' | 'decoy');
     if (action === 'screen') this.game = deployCountermeasure(this.game);
     if (action === 'spread') this.game = toggleTorpedoSpread(this.game);
     if (action === 'sonar') this.game = sonarPulse(this.game);
@@ -200,11 +262,18 @@ export class App {
     if (action === 'silent') this.game = toggleSilentRunning(this.game);
     if (action === 'scope') this.game = toggleScope(this.game);
     if (action === 'snorkel') this.game = toggleSnorkel(this.game);
-    if (action === 'tactic' && value) this.game = setAutopilot(this.game, value as 'ambush' | 'stalk' | 'intercept' | 'evade' | 'exfil', this.game.selectedTargetId);
+    if (action === 'tactic' && value)
+      this.game = setAutopilot(
+        this.game,
+        value as 'ambush' | 'stalk' | 'intercept' | 'evade' | 'exfil',
+        this.game.selectedTargetId,
+      );
     if (action === 'stop-ai') this.game = cancelAutopilot(this.game);
     if (action === 'clear') this.game = clearEngagement(this.game);
-    if (action === 'depth' && value) this.game = setDepthOrder(this.game, value as 'surface' | 'periscope' | 'attack' | 'deep');
-    if (action === 'speed' && value) this.game = setSpeedOrder(this.game, value as 'stop' | 'oneThird' | 'twoThirds' | 'flank');
+    if (action === 'depth' && value)
+      this.game = setDepthOrder(this.game, value as 'surface' | 'periscope' | 'attack' | 'deep');
+    if (action === 'speed' && value)
+      this.game = setSpeedOrder(this.game, value as 'stop' | 'oneThird' | 'twoThirds' | 'flank');
     this.audio.unlock();
     this.audio.sfxClick();
     this.sim = adaptToLookDevSim(this.game);
@@ -218,7 +287,8 @@ export class App {
   }
 
   private select(id: string): void {
-    this.game = this.game.selectedTargetId === id ? clearEngagement(this.game) : selectTarget(this.game, id);
+    this.game =
+      this.game.selectedTargetId === id ? clearEngagement(this.game) : selectTarget(this.game, id);
     this.sim = adaptToLookDevSim(this.game);
   }
 
@@ -230,13 +300,42 @@ export class App {
 
   private handleWorldInteraction(button: 0 | 2, clientX: number, clientY: number): void {
     if (this.game.phase !== 'playing') return;
-    const canvas = $('scene').getBoundingClientRect();
-    const point = snapToNavigable(this.game, { x: ((clientX - canvas.left) / canvas.width) * 96, y: ((clientY - canvas.top) / canvas.height) * 96 });
-    const ship = this.game.ships.find((candidate) => Math.hypot(candidate.x - point.x, candidate.y - point.y) < 3);
-    if (button === 2) this.game = fireWeapon(this.game);
-    else if (ship) this.select(ship.id);
-    else this.plot(point.x, point.y);
-    this.sim = adaptToLookDevSim(this.game);
+    if (button === 2) {
+      this.game = fireWeapon(this.game);
+      this.sim = adaptToLookDevSim(this.game);
+      return;
+    }
+    const canvas = $('scene') as HTMLCanvasElement;
+    const rect = canvas.getBoundingClientRect();
+    const raycaster = this.cameras.setPickRay(clientX, clientY, rect);
+    const picked = this.scene.pickShipId(raycaster);
+    if (picked) {
+      this.select(picked);
+      return;
+    }
+    // Fallback: nearest living contact in combat ring (for tiny distant hits).
+    const sub = this.game.submarine;
+    const candidates = this.game.ships
+      .filter((ship) => ship.sinking === undefined)
+      .map((ship) => ({ ship, distance: Math.hypot(ship.x - sub.x, ship.y - sub.y) }))
+      .filter((entry) => entry.distance < 28)
+      .sort((a, b) => a.distance - b.distance);
+    if (candidates[0] && candidates[0].distance < 10) {
+      this.select(candidates[0].ship.id);
+      return;
+    }
+    const point = this.pickWaterSimPoint(raycaster);
+    if (!point) return;
+    this.plot(point.x, point.y);
+  }
+
+  /** Intersect the active camera ray with the y=0 sea plane, then convert to sim coords. */
+  private pickWaterSimPoint(raycaster: THREE.Raycaster): Point | null {
+    const hit = new THREE.Vector3();
+    const sea = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    if (!raycaster.ray.intersectPlane(sea, hit)) return null;
+    const sim = worldMetersToSim(hit.x, hit.z);
+    return snapToNavigable(this.game, sim);
   }
 
   private changeView(mode: ViewMode): void {
@@ -263,6 +362,11 @@ export class App {
   private readonly onResize = (): void => {
     this.renderer.resize();
     this.cameras.resize(window.innerWidth / Math.max(1, window.innerHeight));
+    this.scene.resize(
+      window.innerWidth,
+      window.innerHeight,
+      Math.min(window.devicePixelRatio || 1, 1.75),
+    );
   };
 
   private readonly onUnload = (): void => {
@@ -289,9 +393,14 @@ export class App {
       this.sim = adaptToLookDevSim(this.game);
     }
 
-    this.scene.syncGame(this.game, this.sim, this.settings);
-    this.cameras.update(this.sim, renderDt);
+    this.scene.syncGame(this.game, this.sim, this.settings, renderDt);
+    this.cameras.update(this.sim, renderDt, {
+      lightning: this.scene.weatherLightning,
+      reducedMotion: this.reducedMotion,
+    });
+    this.scene.applyImmersion(this.cameras.camera);
     this.renderer.setExposure(this.settings.atmosphere.exposure);
+    this.scene.preRenderWater(this.renderer.renderer, this.cameras.camera);
     this.renderer.render(this.scene.scene, this.cameras.camera);
 
     this.hud.render(this.game, this.sim, this.settings);
@@ -324,5 +433,59 @@ export class App {
     this.audio.dispose();
     this.scene.dispose();
     this.renderer.dispose();
+  }
+
+  /** Agent/browser probe: facing vs motion and tactic range. */
+  getDebugProbe() {
+    const sub = this.scene.sub;
+    sub.updateMatrixWorld(true);
+    const pts: Array<{ x: number; y: number; z: number }> = [];
+    sub.traverse((object) => {
+      if (!(object instanceof THREE.Mesh) || !object.geometry?.attributes?.position) return;
+      const pos = object.geometry.attributes.position;
+      const v = new THREE.Vector3();
+      const step = Math.max(1, Math.floor(pos.count / 1500));
+      for (let i = 0; i < pos.count; i += step) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(object.matrixWorld);
+        pts.push({ x: v.x, y: v.y, z: v.z });
+      }
+    });
+    const ys = pts.map((p) => p.y).sort((a, b) => a - b);
+    const yCut = ys[Math.floor(ys.length * 0.9)] ?? 0;
+    const top = pts.filter((p) => p.y >= yCut);
+    const sail = top.reduce((a, p) => ({ x: a.x + p.x, z: a.z + p.z }), { x: 0, z: 0 });
+    if (top.length) {
+      sail.x /= top.length;
+      sail.z /= top.length;
+    }
+    const v = this.sim.vessel;
+    const forward = { x: Math.cos(v.heading), z: Math.sin(v.heading) };
+    const sailOffset = { x: sail.x - v.x, z: sail.z - v.z };
+    const sailAlongForward = sailOffset.x * forward.x + sailOffset.z * forward.z;
+    const target = this.game.ships.find((s) => s.id === this.game.selectedTargetId);
+    const range = target
+      ? Math.hypot(target.x - this.game.submarine.x, target.y - this.game.submarine.y)
+      : null;
+    return {
+      heading: v.heading,
+      speed: v.speed,
+      sailAlongForward,
+      bowForward: sailAlongForward > 0.2,
+      tactic: this.game.autopilot.tactic,
+      phase: this.game.autopilot.phase,
+      enabled: this.game.autopilot.enabled,
+      range,
+      targetId: this.game.selectedTargetId,
+      assets: this.scene.getAssetProbe(this.game.ships.map((s) => ({ id: s.id, kind: s.kind }))),
+    };
+  }
+
+  /** Test helper: engage a doctrine tactic against the current/first contact. */
+  debugSetTactic(tactic: 'ambush' | 'stalk' | 'intercept' | 'evade' | 'exfil') {
+    const targetId = this.game.selectedTargetId ?? this.game.ships[0]?.id ?? null;
+    if (targetId && !this.game.selectedTargetId) this.game = selectTarget(this.game, targetId);
+    this.game = setAutopilot(this.game, tactic, targetId);
+    this.sim = adaptToLookDevSim(this.game);
+    return this.getDebugProbe();
   }
 }

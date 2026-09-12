@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import type { SimState, ViewMode } from '../core/types';
 
+/** Optional lock id is presentation-only; picking/commands stay on the mean sea plane. */
+export type CameraSimState = SimState & { selectedTargetId?: string | null };
+
 export class CameraRig {
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private readonly perspective: THREE.PerspectiveCamera;
@@ -18,6 +21,8 @@ export class CameraRig {
   private readonly lookAt = new THREE.Vector3();
   private readonly convoyFocus = new THREE.Vector3();
   private activeMode: ViewMode = 'tactical';
+  readonly raycaster = new THREE.Raycaster();
+  private readonly ndc = new THREE.Vector2();
 
   constructor(aspect: number) {
     this.perspective = new THREE.PerspectiveCamera(42, aspect, 0.2, 1200);
@@ -62,9 +67,15 @@ export class CameraRig {
     this.orbitRadius = THREE.MathUtils.clamp(this.orbitRadius + delta * 0.05, 40, 160);
   }
 
-  update(sim: SimState, dt: number): void {
+  update(
+    sim: CameraSimState,
+    dt: number,
+    presentation?: { lightning?: number; reducedMotion?: boolean },
+  ): void {
     const v = sim.vessel;
-    this.target.set(v.x, Math.max(-v.depth + 1, -8), v.z);
+    // Frame the hull itself; surface bias was hiding deep boats under the water sheet.
+    const hullY = -v.depth;
+    this.target.set(v.x, hullY + 1.5, v.z);
 
     // Soft look bias toward convoy centroid for cinematic tactical framing
     let cx = 0;
@@ -77,29 +88,58 @@ export class CameraRig {
     this.convoyFocus.set(cx / n, 1.2, cz / n);
 
     if (this.activeMode === 'tactical' || this.activeMode === 'free') {
-      const x = this.target.x + Math.sin(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
+      const x =
+        this.target.x + Math.sin(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
       const y = this.target.y + Math.cos(this.orbitPhi) * this.orbitRadius + 6;
-      const z = this.target.z + Math.cos(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
-      this.desiredPos.set(x, y, z);
-      this.lookAt.lerpVectors(this.target, this.convoyFocus, 0.32);
-      this.lookAt.y = 1.2;
+      const z =
+        this.target.z + Math.cos(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
+      // Stay above water, but allow the look to drop so the hull is in frame when deep.
+      const floorY = 6 + Math.min(14, Math.max(0, v.depth - 4) * 0.35);
+      this.desiredPos.set(x, Math.max(y, floorY), z);
+      this.lookAt.lerpVectors(this.target, this.convoyFocus, 0.22);
+      this.lookAt.y = THREE.MathUtils.lerp(hullY + 2, 3.5, Math.min(1, 4 / Math.max(4, v.depth)));
     } else if (this.activeMode === 'chase') {
-      const stern = -14;
-      this.desiredPos.set(v.x + Math.cos(v.heading) * stern, this.target.y + 6, v.z + Math.sin(v.heading) * stern);
-      this.lookAt.set(v.x + Math.cos(v.heading) * 16, this.target.y + 1.5, v.z + Math.sin(v.heading) * 16);
+      // Follow the hull underwater at attack depth — do not pin the eye to the surface.
+      const stern = -12;
+      const heightAboveHull = 3.8;
+      this.desiredPos.set(
+        v.x + Math.cos(v.heading) * stern,
+        hullY + heightAboveHull,
+        v.z + Math.sin(v.heading) * stern,
+      );
+      this.lookAt.set(v.x + Math.cos(v.heading) * 6, hullY + 1.2, v.z + Math.sin(v.heading) * 6);
     } else if (this.activeMode === 'bridge') {
-      this.desiredPos.set(v.x + Math.cos(v.heading) * 0.9, Math.max(1.2, -v.depth + 4.2), v.z + Math.sin(v.heading) * 0.9);
-      this.lookAt.set(v.x + Math.cos(v.heading) * 90, this.desiredPos.y + 2, v.z + Math.sin(v.heading) * 90);
+      this.desiredPos.set(
+        v.x + Math.cos(v.heading) * 0.9,
+        Math.max(1.2, -v.depth + 4.2),
+        v.z + Math.sin(v.heading) * 0.9,
+      );
+      this.lookAt.set(
+        v.x + Math.cos(v.heading) * 90,
+        this.desiredPos.y + 2,
+        v.z + Math.sin(v.heading) * 90,
+      );
     } else if (this.activeMode === 'periscope') {
-      const heading = v.heading + this.periYaw;
       // Mast/optic extends to near waterline even when the hull is submerged
       const mastReach = 9.5;
       const eyeY = Math.max(0.35, -v.depth + mastReach) + v.heave * 0.15;
       this.desiredPos.set(v.x, eyeY, v.z);
-      const lookDist = 100;
+      const locked = sim.selectedTargetId
+        ? sim.ships.find((ship) => ship.id === sim.selectedTargetId)
+        : undefined;
+      let heading = v.heading + this.periYaw;
+      let lookDist = 100;
+      let lookY = eyeY + Math.sin(this.periPitch) * 35 + v.pitch * 4;
+      if (locked) {
+        const dx = locked.x - v.x;
+        const dz = locked.z - v.z;
+        heading = Math.atan2(dz, dx) + this.periYaw;
+        lookDist = Math.max(12, Math.hypot(dx, dz));
+        lookY = -locked.depth + 2.2 + Math.sin(this.periPitch) * 12 + v.pitch * 4;
+      }
       this.lookAt.set(
         v.x + Math.cos(heading) * lookDist,
-        eyeY + Math.sin(this.periPitch) * 35 + v.pitch * 4,
+        lookY,
         v.z + Math.sin(heading) * lookDist,
       );
       this.camera.rotation.order = 'YXZ';
@@ -112,8 +152,16 @@ export class CameraRig {
     }
 
     const k = 1 - Math.exp(-5.5 * dt);
-    this.currentPos.lerp(this.desiredPos, this.activeMode === 'periscope' ? Math.min(1, k * 1.8) : k);
+    this.currentPos.lerp(
+      this.desiredPos,
+      this.activeMode === 'periscope' ? Math.min(1, k * 1.8) : k,
+    );
     this.camera.position.copy(this.currentPos);
+    const lightning = presentation?.lightning ?? 0;
+    if (lightning > 0 && !presentation?.reducedMotion) {
+      this.camera.position.x += lightning * 0.18;
+      this.camera.position.y += lightning * 0.1;
+    }
     this.camera.up.set(0, 1, 0);
     if (this.activeMode === 'periscope') {
       this.camera.lookAt(this.lookAt);
@@ -121,6 +169,7 @@ export class CameraRig {
     } else {
       this.camera.lookAt(this.lookAt);
     }
+    this.camera.updateMatrixWorld();
   }
 
   resize(aspect: number): void {
@@ -129,5 +178,15 @@ export class CameraRig {
     this.mapCamera.left = -70 * aspect;
     this.mapCamera.right = 70 * aspect;
     this.mapCamera.updateProjectionMatrix();
+  }
+
+  /** NDC pick ray for world interaction (click-to-select). */
+  setPickRay(clientX: number, clientY: number, canvas: DOMRect): THREE.Raycaster {
+    this.ndc.set(
+      ((clientX - canvas.left) / Math.max(1, canvas.width)) * 2 - 1,
+      -(((clientY - canvas.top) / Math.max(1, canvas.height)) * 2 - 1),
+    );
+    this.raycaster.setFromCamera(this.ndc, this.camera);
+    return this.raycaster;
   }
 }

@@ -66,3 +66,5 @@ The full simulation is unusable without a command surface that preserves player 
 
 Review message cadence, integer reload formatting, focus traps, and overlay stacking. Keep the look-dev panel developer-only in production builds unless explicitly enabled.
 
+**HUD clarity (2026-08-04, post-plan):** plain labels (Quiet/Home/Manual/Clear route/…), tooltips, Gear/Doctrine fold (`localStorage` `silent-depths-hud-panels-v1`), map legend, tutorial sync. Keep stable `data-action` / `data-value` for e2e.
+

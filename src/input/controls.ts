@@ -2,6 +2,15 @@ import type { ControlIntent } from '../core/sim';
 import { createControlIntent } from '../core/sim';
 import type { ViewMode } from '../core/types';
 
+/** Canvas-drag click only — HUD pointerups must not become world picks/plots. */
+export function shouldDispatchWorldInteract(
+  dragging: boolean,
+  pointerMoved: boolean,
+  button: number,
+): boolean {
+  return dragging && !pointerMoved && (button === 0 || button === 2);
+}
+
 export type InputCallbacks = {
   setViewMode: (mode: ViewMode) => void;
   togglePause: () => void;
@@ -54,7 +63,7 @@ export class InputController {
     };
     this.onPointerDown = (e) => {
       if (e.button !== 0 && e.button !== 2) return;
-      const tag = (e.target as HTMLElement)?.closest?.('aside, button, input, select, label, a');
+      const tag = (e.target as HTMLElement)?.closest?.('aside, button, input, select, label, a, #hud, .hud');
       if (tag) return;
       this.dragging = true;
       this.lastX = e.clientX;
@@ -73,8 +82,13 @@ export class InputController {
       else if (this.cb.getViewMode() === 'tactical') this.cb.orbit(dx, dy);
     };
     this.onPointerUp = (e) => {
-      if (!this.pointerMoved && (e.button === 0 || e.button === 2)) this.cb.interact(e.button, e.clientX, e.clientY);
+      // Only canvas drags become world clicks. HUD buttons must not also plot a
+      // waypoint under the cursor (that was overwriting Ambush/Stalk on the same click).
+      if (shouldDispatchWorldInteract(this.dragging, this.pointerMoved, e.button)) {
+        this.cb.interact(e.button as 0 | 2, e.clientX, e.clientY);
+      }
       this.dragging = false;
+      this.pointerMoved = false;
       try {
         this.target.releasePointerCapture?.(e.pointerId);
       } catch {

@@ -90,6 +90,7 @@ export function createInitialSim(): SimState {
         // Screen ahead-port of merchants — faster than default player half (4.5)
         x: 48,
         z: 6,
+        depth: 0,
         heading: 0.05,
         speed: 6.0,
         heave: 0,
@@ -102,6 +103,7 @@ export function createInitialSim(): SimState {
         name: 'MERCHANT A',
         x: 68,
         z: 20,
+        depth: 0,
         heading: 0.02,
         speed: 5.1,
         heave: 0,
@@ -114,6 +116,7 @@ export function createInitialSim(): SimState {
         name: 'MERCHANT B',
         x: 88,
         z: 8,
+        depth: 0,
         heading: -0.03,
         speed: 5.0,
         heave: 0,

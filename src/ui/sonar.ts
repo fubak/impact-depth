@@ -1,6 +1,37 @@
 import { headingDegrees } from '../core/sim';
 import type { SimState } from '../core/types';
 
+export type FirmContact = {
+  id: string;
+  name: string;
+  kind: string;
+  range: number;
+  bearing: number;
+};
+
+/** Nearest gameplay ships — shared by the sonar plot list and the HUD contacts panel. */
+export function listFirmContacts(
+  ownX: number,
+  ownY: number,
+  ships: ReadonlyArray<{ id: string; name: string; kind: string; x: number; y: number }>,
+  limit = Infinity,
+): FirmContact[] {
+  return ships
+    .map((ship) => {
+      const dx = ship.x - ownX;
+      const dy = ship.y - ownY;
+      return {
+        id: ship.id,
+        name: ship.name,
+        kind: ship.kind,
+        range: Math.hypot(dx, dy),
+        bearing: Math.atan2(dy, dx),
+      };
+    })
+    .sort((a, b) => a.range - b.range)
+    .slice(0, limit);
+}
+
 export class SonarScope {
   private readonly overlay: HTMLElement;
   private readonly canvas: HTMLCanvasElement;
@@ -138,16 +169,17 @@ export class SonarScope {
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    const contacts = sim.ships
-      .map((ship) => {
-        const dx = ship.x - own.x;
-        const dz = ship.z - own.z;
-        const range = Math.hypot(dx, dz);
-        const bearingWorld = Math.atan2(dz, dx);
-        const brg = headingDegrees(bearingWorld);
-        return { name: ship.name, range, brg, kind: ship.kind };
-      })
-      .sort((a, b) => a.range - b.range);
+    const contacts = listFirmContacts(
+      own.x,
+      own.z,
+      sim.ships.map((ship) => ({
+        id: ship.id,
+        name: ship.name,
+        kind: ship.kind,
+        x: ship.x,
+        y: ship.z,
+      })),
+    );
 
     this.telemetry.innerHTML = `
       <div class="sonar-title">PASSIVE PLOT</div>
@@ -160,7 +192,7 @@ export class SonarScope {
           (c) => `
         <div class="sonar-contact">
           <div class="sc-name">${c.name}</div>
-          <div class="sc-meta">BRG ${String(c.brg).padStart(3, '0')}° · RNG ${c.range.toFixed(0)}u · ${c.kind.toUpperCase()}</div>
+          <div class="sc-meta">BRG ${String(headingDegrees(c.bearing)).padStart(3, '0')}° · RNG ${c.range.toFixed(0)}u · ${c.kind.toUpperCase()}</div>
         </div>
       `,
         )

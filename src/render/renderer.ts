@@ -1,6 +1,32 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
 
+/**
+ * r185 WebGL presentation. `PCFSoftShadowMap` is no longer in the shader
+ * define table, so programs compile as `SHADOWMAP_TYPE_BASIC` (`sampler2D`)
+ * while the shadow pass allocates compare-mode depth textures for PCF
+ * (`sampler2DShadow`). That mismatch fails program validation (1282).
+ */
+export function isSoftwareWebGlRendererName(name: string): boolean {
+  return /swiftshader|llvmpipe|softpipe|microsoft basic render|gdi generic/i.test(name);
+}
+
+export function configureWebGlRenderer(renderer: THREE.WebGLRenderer): void {
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+}
+
+export function disableShadowsOnSoftwareRenderer(renderer: THREE.WebGLRenderer): void {
+  const gl = renderer.getContext();
+  if (!gl) return;
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+  if (isSoftwareWebGlRendererName(name)) renderer.shadowMap.enabled = false;
+}
+
 export class RendererHost {
   readonly renderer: THREE.WebGLRenderer;
   readonly canvas: HTMLCanvasElement;
@@ -14,11 +40,8 @@ export class RendererHost {
       powerPreference: 'high-performance',
       alpha: false,
     });
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.85;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    configureWebGlRenderer(this.renderer);
+    disableShadowsOnSoftwareRenderer(this.renderer);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxDpr));
     this.resize();
   }
@@ -31,6 +54,7 @@ export class RendererHost {
     if (this.maxDpr === profile.dpr && this.renderer.shadowMap.enabled === profile.shadows) return;
     this.maxDpr = profile.dpr;
     this.renderer.shadowMap.enabled = profile.shadows;
+    disableShadowsOnSoftwareRenderer(this.renderer);
     this.resize();
   }
 

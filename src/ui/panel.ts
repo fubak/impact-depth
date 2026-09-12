@@ -17,12 +17,20 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 }
 
+export type AssetCreditLine = {
+  id: string;
+  source: string;
+  license: string;
+  usage: string;
+};
+
 export class LookDevPanel {
   private readonly root: HTMLElement;
   private settings: LookDevSettings;
   private readonly cb: PanelCallbacks;
   private visible = false;
   private perfEl: HTMLElement | null = null;
+  private assetCredits: AssetCreditLine[] = [];
 
   constructor(root: HTMLElement, settings: LookDevSettings, cb: PanelCallbacks) {
     this.root = root;
@@ -63,6 +71,13 @@ export class LookDevPanel {
   setPerf(fps: number, frameMs: number, quality = 'high'): void {
     if (!this.visible || !this.perfEl) return;
     this.perfEl.textContent = `${fps.toFixed(0)} FPS · ${frameMs.toFixed(1)} ms · ${quality.toUpperCase()} quality`;
+  }
+
+  /** CC-BY / project license ledger for in-game attribution. */
+  setAssetCredits(entries: ReadonlyArray<AssetCreditLine>): void {
+    this.assetCredits = entries.map((entry) => ({ ...entry }));
+    // Rebuild even when closed so the first open is not stuck on the empty placeholder.
+    this.render();
   }
 
   private emit(): void {
@@ -139,11 +154,29 @@ export class LookDevPanel {
         </label>
       </section>
 
+      <section class="lookdev-section">
+        <h2>ASSET CREDITS</h2>
+        ${
+          this.assetCredits.length === 0
+            ? `<p class="lookdev-credit-empty">Loading license ledger…</p>`
+            : `<ul class="lookdev-credits">${this.assetCredits
+                .map(
+                  (entry) => `<li>
+              <strong>${escapeHtml(entry.id)}</strong>
+              <span class="lookdev-credit-license">${escapeHtml(entry.license)}</span>
+              <span class="lookdev-credit-source">${escapeHtml(entry.source)}</span>
+              <span class="lookdev-credit-usage">${escapeHtml(entry.usage)}</span>
+            </li>`,
+                )
+                .join('')}</ul>`
+        }
+      </section>
+
       <section class="lookdev-section actions">
         <button type="button" class="btn" data-action="reset">Reset</button>
         <button type="button" class="btn primary" data-action="copy">Copy settings JSON</button>
       </section>
-      <p class="lookdev-hint">Values persist in localStorage · key silent-depths-lookdev-v4</p>
+      <p class="lookdev-hint">Values persist in localStorage · key silent-depths-lookdev-v5</p>
     `;
 
     this.perfEl = this.root.querySelector('[data-perf]');
@@ -240,4 +273,12 @@ function colorField(field: string, label: string, value: string): string {
       <input type="color" data-field="${field}" value="${value}" aria-label="${label}" />
     </label>
   `;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }

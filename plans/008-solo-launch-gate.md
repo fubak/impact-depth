@@ -12,6 +12,9 @@
 - **Depends on:** Plans 005, 006, 007
 - **Category:** performance, correctness, release, docs
 - **Planned at:** 2026-08-02 planning snapshot
+- **Outcome:** Technical RC tagged `solo-rc` (→ `4480c3f`). Not `solo-production`.
+  Operator GPU FPS, wall-clock soak, human playthroughs, deploy/rollback rehearsal,
+  and visual acceptance remain **unproven** (see Plans 011–017 and `docs/release/`).
 
 ## Why this matters
 
@@ -41,12 +44,15 @@ Feature completeness is not launch readiness. The game must survive long session
 
 ## Done criteria
 
-- [x] 100% of launch-critical PRD matrix is PASS; deferrals are owner-approved and documented.
-- [x] ≥55 FPS desktop high at 1440×900 reference hardware/scene; ≥30 FPS medium fallback.
-- [x] Two-hour soak and multi-seed replay suite pass.
-- [x] No open P0/P1 defects; known P2s have workarounds/rationale.
-- [x] Clean install/build/deploy/rollback is documented and rehearsed.
-- [x] Solo game is shippable without networking, auth, or a backend.
+- [x] Launch-critical PRD matrix covered by automated tests or explicitly documented deferrals (`docs/release/solo-rc.md`).
+- [ ] **Unproven (operator GPU):** ≥55 FPS desktop high at 1440×900; ≥30 FPS medium fallback. Headless/SwiftShader numbers are directional only — not GPU proof.
+- [x] Accelerated deterministic soak + multi-seed replay/fuzz suite pass (`npm run test:soak`, replay/fuzz tests).
+- [ ] **Unproven (operator):** wall-clock two-hour soak.
+- [x] No open P0/P1 defects recorded at `solo-rc` tag time; known P2s documented with workarounds/rationale.
+- [x] Clean install/build path documented; static `dist/` is the shippable artifact.
+- [ ] **Unproven (operator):** production deploy + rollback rehearsal against a live host.
+- [ ] **Unproven (operator):** three human playthroughs (stealth / loud / FOB).
+- [x] Technical solo RC (`solo-rc`) ships offline without networking, auth, or a backend — **not** a `solo-production` claim.
 
 ## STOP conditions
 
@@ -57,5 +63,4 @@ Feature completeness is not launch readiness. The game must survive long session
 
 ## Maintenance notes
 
-Archive benchmark reports with hardware, browser, resolution, quality preset, seed, and scene. Plan 009 starts from this release tag and must not regress solo offline behavior.
-
+Archive benchmark reports with hardware, browser, resolution, quality preset, seed, and scene. Plan 009 starts from the production tag (Plan 017), not from the technical `solo-rc` alone. Plans 011–017 close trustworthy gates, content, and operator acceptance.

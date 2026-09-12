@@ -68,6 +68,7 @@ select:focus-visible {
 
 .hud-block {
   position: absolute;
+  overflow: visible;
   border: 1px solid var(--border);
   background: rgba(11, 17, 18, 0.72);
   padding: 10px 12px;
@@ -154,6 +155,64 @@ select:focus-visible {
   width: 290px;
 }
 
+.hud-orders {
+  top: 188px;
+  left: 16px;
+  width: 290px;
+}
+
+.order-grid {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.order-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font: 10px var(--font-data);
+  color: var(--muted);
+}
+
+.order-row b {
+  color: var(--text);
+  text-align: right;
+  font-weight: 600;
+}
+
+.order-row b.changing { color: #9fd7ff; }
+.order-row b.settled { color: #b8e0c2; }
+.order-row b.engaged { color: var(--brass); }
+.order-row b.ready,
+.panel-label span.ready { color: #8fefb0; }
+.order-row b.locked,
+.panel-label span.locked { color: #ffb4a2; }
+
+.status-grid .status-k {
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+.upgrade-pips {
+  margin-top: 8px;
+  color: var(--brass);
+  font: 10px var(--font-data);
+  letter-spacing: 0.06em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.hud-btn.pending {
+  border-color: #6aa9d8;
+  color: #9fd7ff;
+  background: rgba(74, 140, 180, 0.16);
+}
+
+.ship.sub { fill: #5ec4c8; }
+.plot { fill: none; stroke: #9fd7ff; stroke-width: 0.7; }
+
 .status-grid,
 .hud-score {
   display: grid;
@@ -174,13 +233,6 @@ select:focus-visible {
 .hud-score b,
 .panel-label span {
   color: var(--text);
-}
-
-.upgrade-pips {
-  margin-top: 8px;
-  color: var(--brass);
-  font: 10px var(--font-data);
-  letter-spacing: 0.08em;
 }
 
 .hud-score {
@@ -227,10 +279,28 @@ select:focus-visible {
 
 .hud-magazine { bottom: 58px; left: 16px; width: 342px; }
 .mag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.mag-primary { grid-template-columns: 1fr 1fr 1.15fr; }
+.mag-secondary { margin-top: 6px; grid-template-columns: repeat(2, 1fr); }
+.mag-secondary.is-collapsed,
+.doctrine-row.is-collapsed {
+  display: none;
+}
+.fold-row {
+  margin-top: 6px;
+}
+.fold-row .hud-btn {
+  flex: 0 0 auto;
+  min-width: 72px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
 .hud-tactics { bottom: 58px; left: 368px; width: 308px; }
 .hud-depth { bottom: 58px; left: 686px; width: 198px; }
 .hud-speed { bottom: 58px; left: 894px; width: 198px; }
 .control-row { display: flex; gap: 4px; margin-top: 4px; }
+.doctrine-row {
+  flex-wrap: wrap;
+}
 
 .hud-btn {
   min-height: 30px;
@@ -242,11 +312,63 @@ select:focus-visible {
   font: 10px var(--font-data);
   letter-spacing: 0.04em;
   cursor: pointer;
+  position: relative;
 }
 
 .hud-btn:hover { border-color: var(--brass); }
 .hud-btn.active { border-color: var(--brass); background: rgba(189, 139, 78, 0.18); color: #ffe0a6; }
 .hud-btn:disabled { opacity: 0.48; cursor: not-allowed; }
+
+/* Hover tips sit in empty canvas, not over sibling HUD controls. */
+.hud-btn[data-tip]:hover::after,
+.order-row[data-tip]:hover::after,
+.status-grid > span[data-tip]:hover::after,
+.hud-sub[data-tip]:hover::after,
+.panel-label[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 4;
+  width: max-content;
+  max-width: 180px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  background: rgba(7, 11, 12, 0.96);
+  color: var(--text);
+  font: 10px/1.35 var(--font-data);
+  letter-spacing: 0.03em;
+  text-transform: none;
+  pointer-events: none;
+  white-space: normal;
+}
+
+/* Top strips: drop below so tips do not cover the rest of the panel. */
+.hud-status [data-tip]:hover::after,
+.hud-orders [data-tip]:hover::after,
+.hud-score [data-tip]:hover::after,
+.hud-contacts [data-tip]:hover::after,
+.hud-chrome [data-tip]:hover::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
+/* Depth/speed: clear the panel title row (PERISCOPE/FLANK) into the canvas gap. */
+.hud-depth .hud-btn[data-tip]:hover::after,
+.hud-speed .hud-btn[data-tip]:hover::after,
+.hud-tactics .hud-btn[data-tip]:hover::after {
+  bottom: auto;
+  top: 0;
+  transform: translate(-50%, calc(-100% - 48px));
+}
+
+.order-row,
+.status-grid > span,
+.hud-sub,
+.panel-label {
+  position: relative;
+}
 
 .hud-minimap {
   right: 16px;
@@ -257,11 +379,52 @@ select:focus-visible {
 
 .map { display: block; width: 188px; height: 188px; background: #061417; cursor: crosshair; }
 .land { fill: #75684b; opacity: 0.9; }
+svg.map .land { pointer-events: none; }
 .fob { fill: none; stroke: var(--sonar); stroke-width: 0.8; }
 .player { fill: var(--brass); }
 .ship { fill: #d4653b; }
 .ship.selected { fill: #fff0bc; stroke: var(--brass); stroke-width: 0.6; }
 .crate { fill: #d8ded8; }
+
+.map-legend {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 8px;
+  font: 9px var(--font-data);
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.map-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+}
+
+.map-legend .lg.player { background: var(--brass); border-radius: 50%; }
+.map-legend .lg.ship { background: #d4653b; border-radius: 50%; }
+.map-legend .lg.fob {
+  border: 1px solid var(--sonar);
+  background: transparent;
+  border-radius: 50%;
+}
+.map-legend .lg.crate { background: #d8ded8; }
+.map-legend .lg.land { background: #75684b; }
+.map-legend .lg.plot {
+  border: 1px solid #9fd7ff;
+  background: transparent;
+  border-radius: 50%;
+}
 
 .hud-chrome {
   position: absolute;
@@ -284,7 +447,7 @@ select:focus-visible {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px 16px;
+  gap: 8px 14px;
   padding: 6px 12px;
   border: 1px solid var(--border);
   background: rgba(11, 17, 18, 0.78);
@@ -295,6 +458,10 @@ select:focus-visible {
   z-index: 6;
   pointer-events: none;
   max-width: min(920px, calc(100% - 24px));
+}
+
+.help-strip .help-group {
+  white-space: nowrap;
 }
 
 .help-strip kbd {
@@ -353,12 +520,16 @@ select:focus-visible {
   position: absolute;
   inset: 0;
   z-index: 40;
+  /* Overlay root must not steal HUD/canvas clicks; only the card is interactive. */
+  pointer-events: none;
 }
 
 .tutorial-dim {
   position: absolute;
   inset: 0;
   background: rgba(3, 7, 8, 0.7);
+  /* Let HUD depth/speed/fire clicks through; only the card captures input. */
+  pointer-events: none;
 }
 
 .tutorial-dim::after {
@@ -383,6 +554,7 @@ select:focus-visible {
   background: rgba(11, 17, 18, 0.97);
   padding: 16px;
   box-shadow: 0 14px 48px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
 }
 
 .tutorial-card h2 { margin: 0 0 8px; letter-spacing: 0.06em; }
@@ -551,6 +723,49 @@ select:focus-visible {
   font-size: 10px;
   letter-spacing: 0.04em;
   line-height: 1.4;
+}
+
+.lookdev-credits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.lookdev-credits li {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(190, 205, 197, 0.12);
+  font-family: var(--font-data);
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.lookdev-credits strong {
+  color: var(--text);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.lookdev-credit-license {
+  color: var(--brass);
+  letter-spacing: 0.04em;
+}
+
+.lookdev-credit-source,
+.lookdev-credit-usage {
+  word-break: break-word;
+}
+
+.lookdev-credit-empty {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: 11px;
+  color: var(--muted);
 }
 
 /* Periscope */
@@ -810,7 +1025,9 @@ select:focus-visible {
 
   .hud-contacts { top: 92px; max-height: 190px; }
   .hud-magazine, .hud-tactics, .hud-depth, .hud-speed { bottom: 44px; }
-  .hud-tactics { display: block; top: 176px; bottom: auto; left: 16px; width: 290px; }
+  /* Keep ORDERS readable — do not cover it with TACTICS on short/narrow viewports. */
+  .hud-orders { top: 156px; left: 16px; width: 290px; z-index: 2; }
+  .hud-tactics { display: block; top: 156px; bottom: auto; left: 316px; width: 268px; }
   .hud-depth { left: 316px; }
   .hud-speed { left: 524px; }
   .hud-minimap { bottom: 44px; }

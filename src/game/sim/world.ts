@@ -1,5 +1,6 @@
-import { LAND_LEVEL, WORLD_SIZE } from './constants';
-import { clampDepth, clampSim } from './coords';
+import { ISLAND_MESH_RADIUS_FACTOR, ISLAND_SPECS } from '../../core/terrain';
+import { LAND_LEVEL, METERS_PER_UNIT, WORLD_SIZE } from './constants';
+import { clampDepth, clampSim, worldMetersToSim } from './coords';
 import type { Point } from './types';
 
 export interface Terrain {
@@ -31,7 +32,21 @@ function smooth(seed: number, x: number, y: number, scale: number): number {
   return top + (bottom - top) * fade(ty);
 }
 
-/** Deterministic, allocation-free-at-runtime 96×96 seabed heightfield. */
+/** Peak height contributed by decorative island discs so visuals match collision. */
+function islandHeight(x: number, y: number): number {
+  let peak = 0;
+  for (const island of ISLAND_SPECS) {
+    const center = worldMetersToSim(island.cx, island.cz);
+    const radius = (island.radius * ISLAND_MESH_RADIUS_FACTOR) / METERS_PER_UNIT;
+    const distance = Math.hypot(x - center.x, y - center.y);
+    if (distance >= radius) continue;
+    const t = 1 - distance / radius;
+    peak = Math.max(peak, LAND_LEVEL + 0.05 + t * t * 0.22);
+  }
+  return peak;
+}
+
+/** Deterministic seabed heightfield sized to WORLD_SIZE. */
 const terrainCache = new Map<number, Terrain>();
 
 export function createTerrain(seed: number, size = WORLD_SIZE): Terrain {
@@ -47,7 +62,8 @@ export function createTerrain(seed: number, size = WORLD_SIZE): Terrain {
         smooth(seed, x, y, 28) * 0.48 +
         smooth(seed + 101, x, y, 11) * 0.28 +
         smooth(seed + 202, x, y, 4) * 0.12;
-      heights[y * size + x] = Math.min(1, Math.max(0, 0.08 + fbm + continentalShelf));
+      const base = Math.min(1, Math.max(0, 0.08 + fbm + continentalShelf));
+      heights[y * size + x] = Math.max(base, islandHeight(x + 0.5, y + 0.5));
     }
   }
   const terrain = { seed: seed >>> 0, size, heights };
@@ -92,5 +108,7 @@ export function isCrushedBySeamount(
   y: number,
   depth: number,
 ): boolean {
-  return depth > clampDepth(1 - terrainHeight(terrain, x, y) + 0.08);
+  // Require clear encroachment into the rock — attack-depth transit near
+  // shallow shelves must not be an instant hull shredder.
+  return depth > 0.62 && depth > clampDepth(1 - terrainHeight(terrain, x, y) + 0.2);
 }
