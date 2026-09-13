@@ -54,6 +54,7 @@ export class Seabed {
     this.geometry.setIndex(indices);
 
     this.material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
       vertexColors: true,
       roughness: 0.94,
       metalness: 0.02,

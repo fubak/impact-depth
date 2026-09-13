@@ -1,7 +1,6 @@
 /**
  * Validate versioned environment textures (HDR, local maps) under
- * public/assets/environment/v1/. Missing pack is a pass: production stays
- * self-only until a local CC0 file is staged. Never fetch HDR/CDN.
+ * public/assets/environment/v1/. Missing pack fails closed. Never fetch HDR/CDN.
  *
  * Usage: node scripts/validate-ocean-assets.mjs
  */
@@ -14,14 +13,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
 const packDir = resolve(root, 'public/assets/environment/v1');
 const allowedExt = new Set(['.hdr', '.exr', '.png', '.jpg', '.jpeg', '.webp', '.ktx2', '.json']);
+const REQUIRED_HDR = 'kloofendal_48d_partly_cloudy_puresky_1k.hdr';
 
 function sha256(abs) {
   return createHash('sha256').update(readFileSync(abs)).digest('hex');
 }
 
 function noPack(reason) {
-  console.log(JSON.stringify({ ok: true, pack: 'none', message: reason }, null, 2));
-  process.exit(0);
+  console.log(JSON.stringify({ ok: false, pack: 'none', errors: [reason] }, null, 2));
+  process.exit(1);
 }
 
 if (!existsSync(packDir)) {
@@ -37,11 +37,38 @@ const errors = [];
 const warnings = [];
 const report = [];
 const ledgerPath = resolve(packDir, 'manifest.json');
-const ledger = existsSync(ledgerPath) ? JSON.parse(readFileSync(ledgerPath, 'utf8')) : null;
 const files = names.filter((name) => name !== 'manifest.json');
 
-if (files.length === 0 && !ledger) {
+if (files.length === 0) {
   noPack('no environment pack');
+}
+
+if (!existsSync(ledgerPath)) {
+  console.log(
+    JSON.stringify(
+      { ok: false, pack: 'environment/v1', errors: ['manifest.json missing'], warnings, report },
+      null,
+      2,
+    ),
+  );
+  process.exit(1);
+}
+
+const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'));
+
+if (!ledger.files || Object.keys(ledger.files).length === 0) {
+  console.log(
+    JSON.stringify(
+      { ok: false, pack: 'environment/v1', errors: ['manifest files empty'], warnings, report },
+      null,
+      2,
+    ),
+  );
+  process.exit(1);
+}
+
+if (!existsSync(resolve(packDir, REQUIRED_HDR))) {
+  errors.push(`${REQUIRED_HDR}: required HDR missing`);
 }
 
 for (const name of files) {
@@ -55,25 +82,19 @@ for (const name of files) {
   const bytes = statSync(abs).size;
   const hash = sha256(abs);
   const entry = ledger?.files?.[name] ?? ledger?.assets?.find?.((item) => item.file === name);
-  if (ledger) {
-    if (!entry) errors.push(`${name}: missing license/hash entry in environment/v1/manifest.json`);
-    else {
-      if (entry.sha256 && entry.sha256 !== hash) {
-        errors.push(`${name}: hash mismatch`);
-      }
-      if (!entry.license) errors.push(`${name}: missing license`);
+  if (!entry) errors.push(`${name}: missing license/hash entry in environment/v1/manifest.json`);
+  else {
+    if (entry.sha256 && entry.sha256 !== hash) {
+      errors.push(`${name}: hash mismatch`);
     }
-  } else {
-    warnings.push(`${name}: present without environment/v1/manifest.json (hash recorded only)`);
+    if (!entry.license) errors.push(`${name}: missing license`);
   }
   report.push({ file: name, bytes, sha256: hash, license: entry?.license ?? null });
 }
 
-if (ledger?.files) {
-  for (const named of Object.keys(ledger.files)) {
-    if (!existsSync(resolve(packDir, named))) {
-      errors.push(`${named}: listed in manifest but missing on disk`);
-    }
+for (const named of Object.keys(ledger.files)) {
+  if (!existsSync(resolve(packDir, named))) {
+    errors.push(`${named}: listed in manifest but missing on disk`);
   }
 }
 

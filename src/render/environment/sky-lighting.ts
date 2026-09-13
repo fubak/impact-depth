@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { pickSkyLightingSource, type SkyLightingSource } from './sky-source';
 
 export interface SkyLightingState {
   sunDir: THREE.Vector3;
@@ -11,7 +12,7 @@ export interface SkyLightingState {
 }
 
 export interface SkyLightingDiagnostics {
-  source: 'procedural-sky-pmrem';
+  source: SkyLightingSource;
   ready: boolean;
   generation: number;
   lastRefreshSeconds: number | null;
@@ -38,9 +39,8 @@ export function skyLightingSignature(state: SkyLightingState): string {
 }
 
 /**
- * Owns the scene's outdoor image-based lighting. The source is a tiny local
- * procedural sky scene; generated PMREM textures are swapped atomically and
- * disposed here. No network or asset-loader path is involved.
+ * Owns the scene's outdoor image-based lighting. Procedural sky PMREM is the
+ * fail-closed path; a local HDR equirect may replace it during day.
  */
 export class SkyLighting {
   private readonly pmrem: THREE.PMREMGenerator;
@@ -48,6 +48,10 @@ export class SkyLighting {
   private readonly material: THREE.ShaderMaterial;
   private readonly sky: THREE.Mesh;
   private target: THREE.WebGLRenderTarget | null = null;
+  private hdrTarget: THREE.WebGLRenderTarget | null = null;
+  private hdrReady = false;
+  private hdrFailed = false;
+  private isNight = false;
   private signature: string | null = null;
   private lastRefreshSeconds: number | null = null;
   private generation = 0;
@@ -60,6 +64,7 @@ export class SkyLighting {
   ) {
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.pmrem.compileCubemapShader();
+    this.pmrem.compileEquirectangularShader();
     this.material = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -112,13 +117,58 @@ export class SkyLighting {
     this.captureScene.add(this.sky);
   }
 
+  bindHdrEquirect(texture: THREE.Texture): void {
+    if (this.disposed) return;
+    this.hdrFailed = false;
+    this.hdrReady = true;
+    const next = this.pmrem.fromEquirectangular(texture);
+    const previous = this.hdrTarget;
+    this.hdrTarget = next;
+    this.applyActiveEnvironment();
+    previous?.dispose();
+    this.generation++;
+  }
+
+  markHdrFailed(): void {
+    this.hdrFailed = true;
+    this.hdrReady = false;
+    this.applyActiveEnvironment();
+  }
+
+  private currentSource(): SkyLightingSource {
+    return pickSkyLightingSource({
+      hdrReady: this.hdrReady,
+      hdrFailed: this.hdrFailed,
+      isNight: this.isNight,
+    });
+  }
+
+  private applyActiveEnvironment(): void {
+    if (this.disposed) return;
+    if (this.currentSource() === 'hdr-pmrem' && this.hdrTarget) {
+      this.scene.environment = this.hdrTarget.texture;
+      return;
+    }
+    if (this.target) this.scene.environment = this.target.texture;
+  }
+
   update(state: SkyLightingState, nowSeconds: number, force = false): boolean {
     if (this.disposed) return false;
+    this.isNight = state.isNight;
+    const source = this.currentSource();
+    if (source === 'hdr-pmrem') {
+      this.applyActiveEnvironment();
+      return false;
+    }
+
     const signature = skyLightingSignature(state);
     const cadenceElapsed =
       this.lastRefreshSeconds === null ||
       nowSeconds - this.lastRefreshSeconds >= this.minimumRefreshSeconds;
-    if (!force && (signature === this.signature || !cadenceElapsed)) return false;
+    if (!force && (signature === this.signature || !cadenceElapsed)) {
+      this.applyActiveEnvironment();
+      return false;
+    }
 
     this.material.uniforms.uTop.value.copy(state.skyTop);
     this.material.uniforms.uHorizon.value.copy(state.skyHorizon);
@@ -131,7 +181,7 @@ export class SkyLighting {
     const next = this.pmrem.fromScene(this.captureScene, 0.04);
     const previous = this.target;
     this.target = next;
-    this.scene.environment = next.texture;
+    this.applyActiveEnvironment();
     previous?.dispose();
     this.signature = signature;
     this.lastRefreshSeconds = nowSeconds;
@@ -141,8 +191,8 @@ export class SkyLighting {
 
   getDiagnostics(): SkyLightingDiagnostics {
     return {
-      source: 'procedural-sky-pmrem',
-      ready: this.target !== null && !this.disposed,
+      source: this.currentSource(),
+      ready: (this.target !== null || this.hdrTarget !== null) && !this.disposed,
       generation: this.generation,
       lastRefreshSeconds: this.lastRefreshSeconds,
       minimumRefreshSeconds: this.minimumRefreshSeconds,
@@ -158,9 +208,14 @@ export class SkyLighting {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    if (this.scene.environment === this.target?.texture) this.scene.environment = null;
+    const env = this.scene.environment;
+    if (env === this.target?.texture || env === this.hdrTarget?.texture) {
+      this.scene.environment = null;
+    }
     this.target?.dispose();
     this.target = null;
+    this.hdrTarget?.dispose();
+    this.hdrTarget = null;
     this.sky.geometry.dispose();
     this.material.dispose();
     this.pmrem.dispose();

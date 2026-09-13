@@ -192,6 +192,10 @@ export class App {
     return this.scene.environment.getDiagnostics();
   }
 
+  getOutdoorLightingDiagnostics() {
+    return this.scene.getOutdoorLightingDiagnostics();
+  }
+
   getPerformanceProbe() {
     return {
       quality: this.activeQuality,
@@ -206,6 +210,7 @@ export class App {
           this.game.countermeasures.length,
       },
       environment: this.getEnvironmentDiagnostics(),
+      outdoorLighting: this.getOutdoorLightingDiagnostics(),
       graphics: this.renderer.getPerformanceDiagnostics(),
     };
   }

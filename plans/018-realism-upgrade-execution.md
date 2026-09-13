@@ -299,15 +299,15 @@ Only after machine checks and explicit operator visual/GPU acceptance should a s
 
 - [x] A. Baseline, interrupted drafts, supported runtime and browser evidence reconciled.
 - [x] B. All v2 terrain consumers share authority; legacy replay and required routes pass.
-- [x] C. Coastal field, spectral surface and persistent foam are connected and verified. *(machine: spectral patrol + e2e; foam still coarse — see review)*
-- [x] D. Actual scene reflection/refraction work across camera and immersion cases. *(wired; full POV matrix thin)*
-- [x] E. Projected caustics and bounded spray/underwater effects work on real receivers. *(wired; visual accept open)*
+- [x] C. Coastal field, spectral surface and persistent foam are connected and verified. *(machine: storm honeycomb closed; map follow-square closed via caustic altitude fade)*
+- [x] D. Actual scene reflection/refraction work across camera and immersion cases. *(periscope/bridge reflections inspected in finish matrix)*
+- [x] E. Projected caustics and bounded spray/underwater effects work on real receivers. *(wired + map altitude fade; bed pattern not in peri-depth chase POVs; visual accept open)*
 - [x] F. Fleet probes match the displayed water; picking and camera regressions pass. *(RT leak fixed; unit + e2e)*
-- [x] G. Outdoor IBL, terrain detail and animated foliage are integrated and reviewed. *(integrated on branch; eye-pass open)*
-- [x] H. Runtime quality, resource cycles, fallback and context recovery pass. *(profiles/recovery present; long cycle thin)*
+- [x] G. Outdoor IBL, terrain detail and animated foliage are integrated and reviewed. *(fan palms inspected; eye-pass open)*
+- [x] H. Runtime quality, resource cycles, fallback and context recovery pass. *(20× mission/backend + resize/quality; `artifacts/plan-018-finish/resource-cycles.json`)*
 - [x] I. Importer reproducibility and delayed audio startup defects are resolved.
-- [x] Full unit/build/asset/format gates pass on the final combined candidate. *(typecheck/test/build/smoke/e2e:ocean; format not re-run this pass)*
-- [x] Production-browser matrix and self-only startup pass; artifacts inspected. *(machine subset: spectral+littoral + Gerstner default POV captures + smoke/e2e; see `artifacts/plan-018-upgrade/matrix-report.md` — not operator visual PASS)*
+- [x] Full unit/build/asset/format gates pass on the final combined candidate. *(verify + build; `assets:validate` + `assets:validate:ocean`; `format:check` PASS)*
+- [x] Production-browser matrix and self-only startup pass; artifacts inspected. *(46 PNG four-combo matrix in `artifacts/plan-018-finish/matrix-report.md` — not operator visual PASS)*
 - [ ] Hardware performance measured; operator visual/GPU acceptance recorded separately.
 - [x] Fresh analysis and current-state/release documents accurately describe the candidate.
 - [ ] Defaults activated only after acceptance; rollback and legacy compatibility verified.

@@ -291,7 +291,8 @@ banks.push(
       let glint = 0;
       for (const start of glintStarts) {
         const dt = t - start;
-        if (dt >= 0 && dt < 0.3) glint += sine(1400 + dt * 200, dt) * expDecay(dt, 0.25, 0.002) * 0.12;
+        if (dt >= 0 && dt < 0.3)
+          glint += sine(1400 + dt * 200, dt) * expDecay(dt, 0.25, 0.002) * 0.12;
       }
       return pad + wash + glint;
     });

@@ -35,7 +35,7 @@ vec3 oceanDisplacement(vec2 p) {
   vec3 chop = texture2D(uDisplacement2, cascadeUv(p, uCascadeLength.z)).xyz;
   float shallow = smoothstep(0.15, 2.0, depth);
   float coverage = 1.0 - smoothstep(-uWetBand, uWetBand * 0.2, bed);
-  return (swell * 1.0 + (wind * 0.85 + chop * 0.7) * shallow) *
+  return (swell * 1.0 + (wind * 0.72 + chop * 0.42) * shallow) *
     (0.55 + uWaveHeight * 0.55) * mix(0.92, 1.0, exposure) * coverage;
 }
 
@@ -49,15 +49,14 @@ vec3 oceanNormal(vec2 p) {
 float oceanFoam(vec2 p) {
   vec4 coast = coastAt(p);
   vec2 delayed = p - uSwellDirection * coast.x * 0.35;
-  return clamp(
-    (
-      texture2D(uSlope0, cascadeUv(delayed, uCascadeLength.x)).b +
-      texture2D(uSlope1, cascadeUv(p, uCascadeLength.y)).b +
-      texture2D(uSlope2, cascadeUv(p, uCascadeLength.z)).b
-    ) * 0.28,
-    0.0,
-    1.0
-  );
+  // Chop/wind dominate; swell jacobian plates are the honeycomb lattice.
+  float swell = texture2D(uSlope0, cascadeUv(delayed, uCascadeLength.x)).b;
+  float wind = texture2D(uSlope1, cascadeUv(p, uCascadeLength.y)).b;
+  float chop = texture2D(uSlope2, cascadeUv(p, uCascadeLength.z)).b;
+  float raw = swell * 0.05 + wind * 0.28 + chop * 0.67;
+  float n0 = fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  float n1 = fract(sin(dot(p * 0.41, vec2(269.5, 183.3))) * 43758.5453);
+  return clamp(raw * mix(0.10, 1.0, n0 * n1), 0.0, 1.0);
 }
 
 vec2 oceanInverseDisplacement(vec2 p) {

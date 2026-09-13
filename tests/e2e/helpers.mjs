@@ -295,6 +295,83 @@ export async function readEnvironmentDiagnostics(page) {
 }
 
 /**
+ * Full performance probe (quality, world, graphics memory/programs, environment).
+ * @param {import('playwright').Page} page
+ */
+export async function readPerformanceProbe(page) {
+  return page.evaluate(() => {
+    const app = window.__silentDepths;
+    if (!app || typeof app.getPerformanceProbe !== 'function') return null;
+    return app.getPerformanceProbe();
+  });
+}
+
+/** Three.js cache residuals allowed after backend/quality teardown cycles. */
+export const RESOURCE_CYCLE_SLACK_MULTIPLIER = 3;
+export const RESOURCE_CYCLE_SLACK_ABS = 32;
+
+/**
+ * @param {unknown} probe
+ * @returns {{ geometries: number, textures: number, programs: number }}
+ */
+export function extractResourceCounts(probe) {
+  const memory = probe?.graphics?.memory ?? {};
+  return {
+    geometries: Number(memory.geometries ?? 0),
+    textures: Number(memory.textures ?? 0),
+    programs: Number(probe?.graphics?.programs ?? 0),
+  };
+}
+
+/** @param {number} baseline */
+export function resourceCycleSlackLimit(baseline) {
+  return baseline * RESOURCE_CYCLE_SLACK_MULTIPLIER + RESOURCE_CYCLE_SLACK_ABS;
+}
+
+/**
+ * @param {{ geometries: number, textures: number, programs: number }} baseline
+ * @param {{ geometries: number, textures: number, programs: number }} current
+ * @param {string} label
+ * @returns {string[]}
+ */
+export function checkResourceCycleSlack(baseline, current, label) {
+  /** @type {string[]} */
+  const failures = [];
+  for (const key of /** @type {const} */ (['geometries', 'textures', 'programs'])) {
+    const limit = resourceCycleSlackLimit(baseline[key]);
+    if (current[key] > limit) {
+      failures.push(
+        `${label}: ${key}=${current[key]} exceeds slack limit ${limit} (warmup baseline ${baseline[key]})`,
+      );
+    }
+  }
+  return failures;
+}
+
+/**
+ * @param {Array<{ geometries: number, textures: number, programs: number }>} samples
+ * @param {string} label
+ * @returns {string[]}
+ */
+export function checkResourceCycleMonotonicGrowth(samples, label) {
+  /** @type {string[]} */
+  const failures = [];
+  if (samples.length < 3) return failures;
+  for (const key of /** @type {const} */ (['geometries', 'textures', 'programs'])) {
+    let strictIncreases = 0;
+    for (let i = 1; i < samples.length; i++) {
+      if (samples[i][key] > samples[i - 1][key]) strictIncreases += 1;
+    }
+    if (strictIncreases === samples.length - 1) {
+      failures.push(
+        `${label}: ${key} strictly increased every cycle (${samples[0][key]} → ${samples.at(-1)?.[key]})`,
+      );
+    }
+  }
+  return failures;
+}
+
+/**
  * Helm orders: deep then return to fire-legal periscope / 1/3.
  * @param {import('playwright').Page} page
  */

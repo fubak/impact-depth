@@ -123,7 +123,11 @@ try {
 
   await check('Stop AI', async () => {
     await hudAct(page, '[data-action="stop-ai"]');
-    await expectGame(page, (g) => !g.autopilot.enabled && g.autopilot.tactic === 'manual', 'stop-ai failed');
+    await expectGame(
+      page,
+      (g) => !g.autopilot.enabled && g.autopilot.tactic === 'manual',
+      'stop-ai failed',
+    );
   });
 
   for (const tactic of ['stalk', 'intercept', 'evade', 'exfil']) {
@@ -131,7 +135,8 @@ try {
       await hudAct(page, `[data-action="tactic"][data-value="${tactic}"]`);
       await expectGame(
         page,
-        (g, _a, t) => g.autopilot.enabled && g.autopilot.tactic === t && g.autopilot.waypoint == null,
+        (g, _a, t) =>
+          g.autopilot.enabled && g.autopilot.tactic === t && g.autopilot.waypoint == null,
         `${tactic} missing/overwritten`,
         tactic,
       );
@@ -155,7 +160,12 @@ try {
 
     const silent0 = await page.evaluate(() => window.__silentDepths.game.submarine.silentRunning);
     await hudAct(page, '[data-action="silent"]');
-    await expectGame(page, (g, _a, b) => g.submarine.silentRunning !== b, 'silent did not toggle', silent0);
+    await expectGame(
+      page,
+      (g, _a, b) => g.submarine.silentRunning !== b,
+      'silent did not toggle',
+      silent0,
+    );
 
     const scope0 = await page.evaluate(() => window.__silentDepths.game.submarine.scopeUp);
     await hudAct(page, '[data-action="scope"]');
@@ -163,7 +173,12 @@ try {
 
     const snorkel0 = await page.evaluate(() => window.__silentDepths.game.submarine.snorkel);
     await hudAct(page, '[data-action="snorkel"]');
-    await expectGame(page, (g, _a, b) => g.submarine.snorkel !== b, 'snorkel did not toggle', snorkel0);
+    await expectGame(
+      page,
+      (g, _a, b) => g.submarine.snorkel !== b,
+      'snorkel did not toggle',
+      snorkel0,
+    );
 
     if (await page.evaluate(() => window.__silentDepths.game.submarine.silentRunning)) {
       await hudAct(page, '[data-action="silent"]');
@@ -231,7 +246,12 @@ try {
     });
     const before = await page.evaluate(() => window.__silentDepths.game.countermeasures.length);
     await hudAct(page, '[data-action="screen"]');
-    await expectGame(page, (g, _app, b) => g.countermeasures.length > b, 'screen did not deploy', before);
+    await expectGame(
+      page,
+      (g, _app, b) => g.countermeasures.length > b,
+      'screen did not deploy',
+      before,
+    );
   });
 
   await check('Sonar pulse', async () => {
@@ -306,7 +326,11 @@ try {
       }
     });
     await sleep(100);
-    await expectGame(page, (g) => Math.abs(g.submarine.targetDepth - 0.28) < 0.05, 'KeyX peri failed');
+    await expectGame(
+      page,
+      (g) => Math.abs(g.submarine.targetDepth - 0.28) < 0.05,
+      'KeyX peri failed',
+    );
     await expectGame(page, (g) => g.submarine.speedOrder === 'stop', 'Digit0 stop failed');
     await expectGame(page, (g) => !!g.selectedTargetId, 'KeyT did not select');
   });
@@ -330,7 +354,9 @@ try {
       if (current !== mode) throw new Error(`${code} expected ${mode} got ${current}`);
     }
     await page.evaluate(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit1', key: 'Digit1', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { code: 'Digit1', key: 'Digit1', bubbles: true }),
+      );
     });
   });
 
@@ -340,7 +366,8 @@ try {
     await hudAct(page, '[data-action="depth"][data-value="deep"]');
     await expectGame(
       page,
-      (g) => !g.autopilot.enabled && g.autopilot.tactic === 'manual' && g.submarine.targetDepth > 0.7,
+      (g) =>
+        !g.autopilot.enabled && g.autopilot.tactic === 'manual' && g.submarine.targetDepth > 0.7,
       'depth did not cancel ambush',
     );
   });

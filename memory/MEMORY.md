@@ -1,7 +1,7 @@
 # Silent Depths — agent memory
 
 **Project:** impact-depth / Silent Depths  
-**Last sync:** 2026-09-12  
+**Last sync:** 2026-09-13  
 **SSOT for rolling status:** `tasks/state.md`  
 **Long plans:** `plans/README.md`  
 **Release claims:** `docs/release/solo-production-status.md`
@@ -14,17 +14,23 @@ Playable solo patrol sim on Three.js/Vite (not look-dev only). Deterministic gam
 
 - **Authoritative sim:** `src/game/sim/**` + `src/game/commands/**` — pure TS, fixed step, no Three.
 - **Render:** `src/render/**` — glTF registry, LOD, ocean, vessels fallbacks. Plan 018
-  `EnvironmentController` + Gerstner default; spectral via `?ocean=spectral` (FFT + coastal).
-  Do not add a second canvas or rAF. Presentation weather is look-dev only; `?quality=`
-  locks the governor. HDR pack is not staged (self-only CSP).
+  `EnvironmentController` + Gerstner fallback; spectral FFT + coastal. Do not add a
+  second canvas or rAF. Presentation weather is look-dev only; `?quality=` locks the
+  governor. Plan 019 staged local Kloofendal HDR under `public/assets/environment/v1/`
+  (no runtime Poly Haven / esm.sh). Empty URL defaults to **spectral**; rollback
+  `?ocean=gerstner`. World stays `legacy-v1`.
 - **World versions:** default gameplay is `legacy-v1`. `?world=littoral-v2` +
   `createGame(seed, worldVersion)` for CPU signed-metre field. Do not flip defaults
-  until operator acceptance (`docs/release/realism-upgrade-review.md`).
+  Do not flip the **world** default until operator acceptance (`docs/release/realism-upgrade-review.md`).
+  Ocean empty-URL default is spectral as of Plan 019.
 - **Critical 018 fixes (2026-09-12):** shared `SURFACE_FUNCTIONS_GLSL` (no double GLSL
   include); surface probes wrap `SimulationPass` in `withRendererPass` so the canvas
   RT is not stolen; boot uses `createGame(19, runtime.world)`. Coastal rebuilds snap
   to 128 m and run async (no 1–2 s cruise hitch). Littoral bed uploads at 1 m.
-  Residual spectral foam/cellular look still open for operator eye-pass.
+  Storm honeycomb closed 2026-09-13 (lambda/chop cut + foam `foamPatch`).
+  Spectral map follow-square closed by fading projected caustics above ~70–120 m
+  (detail extent was a 96 m plate from the map camera). Hitch-final CLEAN on
+  RTX 4070 Ti. World default still needs operator ACCEPT. Ocean default is spectral (019).
 - **UI:** `src/ui/hud.ts` (throttled ~8 Hz), tutorial, look-dev panel, sonar/periscope overlays.
 - **Input:** canvas world interact gated so HUD clicks do not plot waypoints (`shouldDispatchWorldInteract`).
 

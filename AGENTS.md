@@ -22,23 +22,23 @@ unless the operator assigns discrete non-plan work (docs, HUD polish, asset impo
 
 ## Exact commands
 
-| Purpose          | Command                                                   |
-| ---------------- | --------------------------------------------------------- |
-| Install          | `npm ci`                                                  |
-| Typecheck        | `npm run typecheck`                                       |
-| Lint             | `npm run lint`                                            |
-| Format check     | `npm run format:check`                                    |
-| Unit tests       | `npm test`                                                |
-| Coverage         | `npm run test:coverage`                                   |
-| Watch tests      | `npm run test:watch`                                      |
-| Asset validate   | `npm run assets:validate`                                 |
-| Asset import     | `npm run assets:import-modern`                            |
-| Procedural GLB export | `npm run assets:export`                              |
-| Production build | `npm run build`                                           |
-| Preview build    | `npm run preview`                                         |
-| Browser smoke    | `npm run test:smoke` (pass serving base URL if not `:8080`) |
-| Patrol E2E       | `npm run test:e2e -- <url>`                               |
-| Full gate        | `npm run verify`                                          |
+| Purpose               | Command                                                     |
+| --------------------- | ----------------------------------------------------------- |
+| Install               | `npm ci`                                                    |
+| Typecheck             | `npm run typecheck`                                         |
+| Lint                  | `npm run lint`                                              |
+| Format check          | `npm run format:check`                                      |
+| Unit tests            | `npm test`                                                  |
+| Coverage              | `npm run test:coverage`                                     |
+| Watch tests           | `npm run test:watch`                                        |
+| Asset validate        | `npm run assets:validate`                                   |
+| Asset import          | `npm run assets:import-modern`                              |
+| Procedural GLB export | `npm run assets:export`                                     |
+| Production build      | `npm run build`                                             |
+| Preview build         | `npm run preview`                                           |
+| Browser smoke         | `npm run test:smoke` (pass serving base URL if not `:8080`) |
+| Patrol E2E            | `npm run test:e2e -- <url>`                                 |
+| Full gate             | `npm run verify`                                            |
 
 Before finishing a milestone: `npm ci && npm run verify`, then `npm run build && npm run preview` in one terminal and browser smoke/e2e in another when the plan requires browser proof. When assets change: also `npm run assets:validate`.
 

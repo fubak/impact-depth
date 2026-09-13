@@ -21,14 +21,14 @@ import { PASS_VERTEX_GLSL, SPECTRUM_SAMPLE_GLSL } from './spectrum';
 import { SURFACE_FUNCTIONS_GLSL } from './surface';
 
 export const WATER_IOR = 1.333;
-export const CAUSTIC_HOOK_CACHE_KEY = 'silent-depths-caustics-v1';
+export const CAUSTIC_HOOK_CACHE_KEY = 'silent-depths-caustics-v2';
 
 export type CausticReceiverRole = 'seabed' | 'rock' | 'hull' | 'weapon';
 
 export const CAUSTICS_PROFILES = {
-  high: { wide: 256, detail: 256, interval: 2, wideExtent: 220, detailExtent: 72 },
-  medium: { wide: 160, detail: 160, interval: 3, wideExtent: 180, detailExtent: 56 },
-  low: { wide: 96, detail: 96, interval: 4, wideExtent: 140, detailExtent: 40 },
+  high: { wide: 256, detail: 256, interval: 2, wideExtent: 480, detailExtent: 96 },
+  medium: { wide: 160, detail: 160, interval: 3, wideExtent: 400, detailExtent: 72 },
+  low: { wide: 96, detail: 96, interval: 4, wideExtent: 320, detailExtent: 56 },
 } as const;
 
 export type CausticsProfile = (typeof CAUSTICS_PROFILES)[QualityName];
@@ -108,12 +108,16 @@ type HookBag = {
   role: CausticReceiverRole;
 };
 
+/** Per-receiver presentation gain — weather/depth attenuation stays in uCausticStrength. */
 const ROLE_GAIN: Record<CausticReceiverRole, number> = {
-  seabed: 1,
-  rock: 0.85,
-  hull: 0.55,
-  weapon: 0.4,
+  seabed: 1.45,
+  rock: 1.05,
+  hull: 0.72,
+  weapon: 0.48,
 };
+
+/** Projection pass boost; weather attenuation is applied once on receivers. */
+export const CAUSTIC_PROJECT_GAIN = 1.28;
 
 const ETA = 1 / WATER_IOR;
 
@@ -302,8 +306,7 @@ void main() {
   float sunH = smoothstep(0.04, 0.22, normalize(uSunDir).y);
   float edge = smoothstep(0.0, 0.08, uv.x) * smoothstep(0.0, 0.08, uv.y)
     * smoothstep(0.0, 0.08, 1.0 - uv.x) * smoothstep(0.0, 0.08, 1.0 - uv.y);
-  float atten = beer * (1.0 - clamp(uCover, 0.0, 1.0) * 0.72)
-    * (1.0 - clamp(uStorm, 0.0, 1.0) * 0.55) * (1.0 - clamp(uNight, 0.0, 1.0)) * sunH;
+  float atten = beer * sunH;
   float coverMask = 1.0 - smoothstep(-uWetBand, uWetBand, bed);
   gl_FragColor = vec4(vec3(energy * atten * coverMask * uGain * edge), 1.0);
 }
@@ -319,15 +322,25 @@ uniform float uCausticDetailExtent;
 uniform float uCausticStrength;
 uniform float uCausticEnabled;
 uniform float uCausticRoleGain;
-vec2 causticUv(vec2 world, vec2 origin, float extent) {
-  return clamp((world - origin) / max(extent, 1.0) + 0.5, 0.0, 1.0);
+vec2 causticUvRaw(vec2 world, vec2 origin, float extent) {
+  return (world - origin) / max(extent, 1.0) + 0.5;
+}
+float causticInside(vec2 uv) {
+  float edge = 0.16;
+  return smoothstep(0.0, edge, uv.x) * smoothstep(0.0, edge, uv.y)
+    * smoothstep(0.0, edge, 1.0 - uv.x) * smoothstep(0.0, edge, 1.0 - uv.y);
 }
 vec3 sampleProjectedCaustics(vec3 world) {
   if (uCausticEnabled < 0.5) return vec3(0.0);
-  float wide = texture2D(uCausticWide, causticUv(world.xz, uCausticWideOrigin, uCausticWideExtent)).r;
-  float detail = texture2D(uCausticDetail, causticUv(world.xz, uCausticDetailOrigin, uCausticDetailExtent)).r;
-  float energy = wide * 0.62 + detail * 0.55;
-  return vec3(0.72, 0.92, 1.0) * energy * uCausticStrength * uCausticRoleGain;
+  // Map/ortho lives at y=150; a finite follow projection reads as a bright square.
+  float altitudeFade = 1.0 - smoothstep(70.0, 120.0, cameraPosition.y);
+  if (altitudeFade < 0.01) return vec3(0.0);
+  vec2 uvWide = causticUvRaw(world.xz, uCausticWideOrigin, uCausticWideExtent);
+  vec2 uvDetail = causticUvRaw(world.xz, uCausticDetailOrigin, uCausticDetailExtent);
+  float wide = texture2D(uCausticWide, clamp(uvWide, 0.0, 1.0)).r * causticInside(uvWide);
+  float detail = texture2D(uCausticDetail, clamp(uvDetail, 0.0, 1.0)).r * causticInside(uvDetail);
+  float energy = wide * 0.78 + detail * 0.68;
+  return vec3(0.78, 0.94, 1.0) * energy * uCausticStrength * uCausticRoleGain * altitudeFade;
 }
 `;
 
@@ -357,7 +370,7 @@ function injectCausticShader(shader: THREE.WebGLProgramParametersWithUniforms): 
     .replace(
       '#include <lights_fragment_end>',
       `#include <lights_fragment_end>
-       reflectedLight.directDiffuse += diffuseColor.rgb * sampleProjectedCaustics(vCausticWorld);`,
+       reflectedLight.directDiffuse += sampleProjectedCaustics(vCausticWorld);`,
     );
 }
 
@@ -618,7 +631,7 @@ export class UnderwaterCaustics {
     this.material.uniforms.uCover.value = cover;
     this.material.uniforms.uStorm.value = storm;
     this.material.uniforms.uNight.value = night;
-    this.material.uniforms.uGain.value = this.strength;
+    this.material.uniforms.uGain.value = CAUSTIC_PROJECT_GAIN;
     if (frame.wetBand !== undefined) this.material.uniforms.uWetBand.value = frame.wetBand;
 
     if (frame.paused || !this.enabled) return;

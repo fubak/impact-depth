@@ -4,7 +4,10 @@
 
 **Current execution update:** [Complete realism upgrade](018-realism-upgrade-execution.md).  
 **Finish remaining gaps:** [018 finish gaps](018-finish-gaps.md) — machine close, full browser
-matrix, visual PNG inspection, operator STOP before defaults.
+matrix, visual PNG inspection, operator STOP before **world** default and GPU/fleet ACCEPT.  
+**Next selected plan:** [019 demo-look water first](019-demo-look-water-first.md) — local Kloofendal
+HDR, spectral empty-URL default, accept on bridge + tactical shallows. Do not start 019 in
+the same session as 018. World stays `legacy-v1`. Art pass is Plan 020 if still not close.
 
 The September 12 review found that the spectral foundation exists but optics,
 coastal coupling, projected lighting, animated foliage, vessel probes and runtime
@@ -14,19 +17,18 @@ self-approved operator gates.
 
 The operator requested a complete, executable plan to integrate
 [`iamtechartist/ocean-simulation`](https://github.com/iamtechartist/ocean-simulation)
-into Silent Depths. **[Plan 018](018-ocean-world-engine-integration.md) is the next
-selected integration track**. It is IN PROGRESS; the original document contains
-historical checkpoint notes. Use the execution update above for current scope and
-resume state. Writing either plan does not constitute implementing or accepting it.
+into Silent Depths. **[Plan 018](018-ocean-world-engine-integration.md) is the
+integration track** (IN PROGRESS, machine close via `018-finish-gaps.md`).
+**[Plan 019](019-demo-look-water-first.md) is IN PROGRESS** (spectral default + local HDR IBL in tree):
+water-first look-match with local HDR and spectral empty-URL default. World stays `legacy-v1`.
 
-Execute only 018 when selecting this track. It replaces the implementation scope
-of 013 and 016, including their shoreline and performance acceptance obligations,
-and explicitly permits FFT plus a versioned shared-world migration. Keep their
-old documents as historical reference; do not execute them as parallel alternatives.
-Plans 012, 014 and 015 retain their independent responsibilities. The release path
-is accepted 018 plus completed 012/014/015 → 017 → 009. Existing machine and
-operator gates are not waived. Plan 018's checkpoints include a playable experiment
-before terrain migration, and operator acceptance before changing defaults.
+Execute only one plan per session. 018 replaced the implementation scope of 013
+and 016. Keep those old documents as historical reference; do not execute them
+as parallel alternatives. Plans 012, 014 and 015 retain their independent
+responsibilities. The release path is accepted 018 plus completed 012/014/015 →
+017 → 009. Existing machine and operator gates are not waived. Plan 019 may
+change the ocean URL default; it must not flip the world default or self-approve
+GPU/fleet ACCEPT.
 
 Generated on 2026-08-02 from `docs/prd.md`, the current Three.js look-development prototype, and the preserved `.archive/silent-depths-project.zip`. These plans are written for Cursor Agent to execute one at a time. The archive is reference material only and must never be modified.
 
@@ -75,7 +77,8 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 | 014  | Make authored audio load, transition, and mix correctly             | P1       | 3–5 days + content review              | 011                                                                  | TODO                                                                                                                                                          |
 | 015  | Ship distinct, licensed, versioned fleet assets                     | P1       | 1–3 weeks                              | 011; shoreline acceptance via 018                                    | **IN PROGRESS (partial 2026-08-04)** — `models/v2` + validate/import pipeline + runtime LOD/preload; operator visual accept + delayed-load test open          |
 | 016  | Make water effects scale to the GPU budget                          | P1       | 4–8 days + GPU run                     | 013, 015 (historical)                                                | SUPERSEDED BY 018 — GPU thresholds and operator proof retained                                                                                                |
-| 018  | Integrate the spectral ocean and a shared world into Silent Depths  | P1       | Multiple weeks + GPU/visual acceptance | 011 + existing 015 pipeline; no fleet sign-off prerequisite to start | IN PROGRESS — execute [018-finish-gaps.md](018-finish-gaps.md) next; machine candidate playable; operator GPU/visual + defaults still open; see `docs/release/realism-upgrade-review.md` |
+| 018  | Integrate the spectral ocean and a shared world into Silent Depths  | P1       | Multiple weeks + GPU/visual acceptance | 011 + existing 015 pipeline; no fleet sign-off prerequisite to start | IN PROGRESS — `018-finish-gaps.md` machine complete (operator STOP); GPU/lighting/fleet PENDING; **world** default remains `legacy-v1`; ocean default moves in 019; see `docs/release/realism-upgrade-review.md` |
+| 019  | Demo-look water first (local HDR + spectral default)               | P1       | Days + headed look-report             | 018 machine close; operator approved water-first look-match        | **IN PROGRESS** — spectral default + local HDR IBL landed (uncommitted); look-report in `artifacts/plan-019/`; world still `legacy-v1` |
 | 017  | Polish and release the solo production build                        | P1       | 4–10 days                              | 011, 012, 014, 015, accepted 018                                     | TODO                                                                                                                                                          |
 | 009  | Add optional host-authoritative co-op for up to 10 players          | P2       | 3–6 weeks                              | 017                                                                  | TODO                                                                                                                                                          |
 
@@ -106,6 +109,10 @@ only after Plan 017's production tag.
   into 018. Do not mark the superseded plans DONE or treat their replacement as a waiver.
 - Plan 017 is the only place operator visual acceptance, GPU proof, wall-clock soak, deploy,
   rollback, and the production tag may be closed.
+- Plan 019 is a water-first look-match against the pinned ocean-simulation demo. It may
+  flip the **ocean** empty-URL default to spectral (rollback `?ocean=gerstner`) and stage a
+  local CC0 HDR. It must not flip the **world** default, copy the demo island, or self-approve
+  GPU/fleet ACCEPT. Island/art restyle is a later 020 if 019 is still not close.
 - Plan 009 may reuse archive concepts but must rebuild against the deterministic command/snapshot
   model, capped at 10 peers, and cannot start before 017 is DONE.
 

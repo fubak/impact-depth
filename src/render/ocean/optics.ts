@@ -10,14 +10,17 @@ export function excludeFromWaterCapture(object: THREE.Object3D): void {
   object.userData.waterCapture = false;
 }
 
-export function reflectedCamera(source: THREE.Camera): THREE.PerspectiveCamera | THREE.OrthographicCamera {
+export function reflectedCamera(
+  source: THREE.Camera,
+  surfaceHeight = 0,
+): THREE.PerspectiveCamera | THREE.OrthographicCamera {
   if (!(source instanceof THREE.PerspectiveCamera || source instanceof THREE.OrthographicCamera)) {
     throw new Error('Water captures require a perspective or orthographic camera');
   }
   source.updateMatrixWorld(true);
   const camera = source.clone();
   camera.position.setFromMatrixPosition(source.matrixWorld);
-  camera.position.y *= -1;
+  camera.position.y = 2 * surfaceHeight - camera.position.y;
   const direction = source.getWorldDirection(new THREE.Vector3());
   direction.y *= -1;
   const up = new THREE.Vector3(0, 1, 0).transformDirection(source.matrixWorld);
@@ -100,7 +103,7 @@ export class WaterOptics {
     });
     this.captureObjects = 0;
     scene.traverseVisible((o) => { if (o instanceof THREE.Mesh) this.captureObjects++; });
-    const reflected = reflectedCamera(source);
+    const reflected = reflectedCamera(source, surfaceHeight);
     const refracted = source.clone();
     refracted.position.setFromMatrixPosition(source.matrixWorld);
     refracted.quaternion.setFromRotationMatrix(source.matrixWorld);
@@ -110,15 +113,26 @@ export class WaterOptics {
         renderer.xr.enabled = false;
         renderer.autoClear = true;
         renderer.toneMapping = THREE.NoToneMapping;
+        renderer.localClippingEnabled = true;
         // Reuse primary shadows: optical passes must not repeatedly regenerate them.
         const autoShadow = renderer.shadowMap.autoUpdate;
         renderer.shadowMap.autoUpdate = false;
         try {
-          renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, this.under ? -1 : 1, 0), .08)];
+          renderer.clippingPlanes = [
+            new THREE.Plane(
+              new THREE.Vector3(0, this.under ? -1 : 1, 0),
+              this.under ? surfaceHeight + 0.08 : -(surfaceHeight - 0.08),
+            ),
+          ];
           renderer.setRenderTarget(this.reflection);
           renderer.clear(); renderer.render(scene, reflected);
           this.reflectionUpdates++;
-          renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, this.under ? 1 : -1, 0), .12)];
+          renderer.clippingPlanes = [
+            new THREE.Plane(
+              new THREE.Vector3(0, this.under ? 1 : -1, 0),
+              this.under ? -(surfaceHeight + 0.12) : surfaceHeight + 0.12,
+            ),
+          ];
           renderer.setRenderTarget(this.refraction);
           renderer.clear(); renderer.render(scene, refracted);
           this.refractionUpdates++;

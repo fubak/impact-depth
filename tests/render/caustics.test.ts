@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import {
   attachCausticLighting,
   CAUSTIC_HOOK_CACHE_KEY,
+  CAUSTIC_PROJECT_GAIN,
   CAUSTIC_PROJECT_GLSL,
+  CAUSTIC_SAMPLE_GLSL,
   CAUSTICS_PROFILES,
   type CausticFrame,
   causticAttenuation,
@@ -92,12 +94,32 @@ describe('caustic attenuation and follow quantization', () => {
   });
 
   it('assigns distinct receiver gains without extra program variants', () => {
+    expect(receiverRoleGain('seabed')).toBeGreaterThan(1);
     expect(receiverRoleGain('seabed')).toBeGreaterThan(receiverRoleGain('hull'));
     expect(receiverRoleGain('weapon')).toBeLessThan(receiverRoleGain('rock'));
+  });
+
+  it('fully fades at night while staying strong at noon', () => {
+    const noon = causticAttenuation({ depthMetres: 0, surfaceCover: 0, storm: 0, night: 0 });
+    const dusk = causticAttenuation({ depthMetres: 0, surfaceCover: 0, storm: 0, night: 0.5 });
+    const night = causticAttenuation({ depthMetres: 0, surfaceCover: 0, storm: 0, night: 1 });
+    expect(noon).toBe(1);
+    expect(dusk).toBeCloseTo(0.5, 5);
+    expect(night).toBe(0);
   });
 });
 
 describe('UnderwaterCaustics lifecycle', () => {
+  it('covers the follow seabed mesh so map POVs do not show a postage-stamp square', () => {
+    expect(CAUSTICS_PROFILES.high.wideExtent).toBeGreaterThanOrEqual(440);
+    expect(CAUSTIC_SAMPLE_GLSL).toContain('causticInside');
+    expect(CAUSTIC_SAMPLE_GLSL).toContain('altitudeFade');
+    expect(CAUSTIC_SAMPLE_GLSL).toContain('smoothstep(70.0, 120.0, cameraPosition.y)');
+    expect(CAUSTIC_SAMPLE_GLSL).not.toContain(
+      'clamp((world - origin) / max(extent, 1.0) + 0.5, 0.0, 1.0)',
+    );
+  });
+
   it('constructs quality-scaled wide and detail targets in linear color space', () => {
     const caustics = new UnderwaterCaustics('high');
     const high = CAUSTICS_PROFILES.high;
@@ -157,6 +179,15 @@ describe('UnderwaterCaustics lifecycle', () => {
     caustics.dispose();
   });
 
+  it('enables receiver sampling when spectral maps are present', () => {
+    const caustics = new UnderwaterCaustics('high');
+    caustics.update(null, frame());
+    expect(caustics.receiverUniforms.uCausticEnabled.value).toBe(1);
+    expect(caustics.getDiagnostics().strength).toBe(1);
+    expect(CAUSTIC_PROJECT_GAIN).toBeGreaterThan(1);
+    caustics.dispose();
+  });
+
   it('preserves prior shader hooks, cache keys, color space, and normal maps', () => {
     const map = new THREE.Texture();
     map.colorSpace = THREE.SRGBColorSpace;
@@ -188,6 +219,10 @@ describe('UnderwaterCaustics lifecycle', () => {
     expect(shader.vertexShader).toContain('wind-hook');
     expect(shader.vertexShader).toContain('vCausticWorld');
     expect(shader.fragmentShader).toContain('sampleProjectedCaustics');
+    expect(shader.fragmentShader).toContain(
+      'reflectedLight.directDiffuse += sampleProjectedCaustics(vCausticWorld)',
+    );
+    expect(shader.fragmentShader).not.toContain('diffuseColor.rgb * sampleProjectedCaustics');
     expect(material.customProgramCacheKey()).toContain('vegetation-wind-0.16');
     expect(material.customProgramCacheKey()).toContain(CAUSTIC_HOOK_CACHE_KEY);
     expect(material.map?.colorSpace).toBe(THREE.SRGBColorSpace);

@@ -16,11 +16,15 @@ function compileWindMaterial(material: THREE.MeshStandardMaterial): void {
 }
 
 describe('vegetation geometry', () => {
+  // Wet-sand shoreline band lives on island terrain material (islands.ts), not vegetation.
+  // Littoral palms/shrubs are seeded on grass/beach bands via generatePalmPlacements / generateShrubPlacements.
+
   it('builds a nondegenerate palm crown with tapered fronds', () => {
     const geo = palmCrownGeometry();
     geo.computeBoundingSphere();
-    expect(geo.attributes.position.count).toBeGreaterThan(40);
-    expect(geo.boundingSphere?.radius ?? 0).toBeGreaterThan(1.5);
+    geo.computeBoundingBox();
+    expect(geo.attributes.position.count).toBeGreaterThan(120);
+    expect(geo.boundingSphere?.radius ?? 0).toBeGreaterThan(2.2);
 
     const pos = geo.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
@@ -28,6 +32,29 @@ describe('vegetation geometry', () => {
       expect(Number.isFinite(pos.getY(i))).toBe(true);
       expect(Number.isFinite(pos.getZ(i))).toBe(true);
     }
+
+    const unique = new Set<string>();
+    for (let i = 0; i < pos.count; i++) {
+      unique.add(
+        `${pos.getX(i).toFixed(2)},${pos.getY(i).toFixed(2)},${pos.getZ(i).toFixed(2)}`,
+      );
+    }
+    expect(unique.size).toBeGreaterThan(80);
+
+    const size = new THREE.Vector3();
+    geo.boundingBox!.getSize(size);
+    expect(Math.max(size.x, size.z)).toBeGreaterThan(size.y * 0.75);
+
+    const crownY = 4.85;
+    let maxReach = 0;
+    let maxRibbon = 0;
+    for (let i = 0; i < pos.count; i++) {
+      maxReach = Math.max(maxReach, Math.hypot(pos.getX(i), pos.getZ(i)));
+      maxRibbon = Math.max(maxRibbon, Math.abs(pos.getY(i) - crownY) + Math.abs(pos.getZ(i)));
+    }
+    expect(maxReach).toBeGreaterThan(1.9);
+    expect(maxReach).toBeGreaterThan(maxRibbon * 0.42);
+
     geo.dispose();
   });
 });
