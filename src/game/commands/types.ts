@@ -14,6 +14,7 @@ export type GameCommand =
   | { type: 'cancelAutopilot' }
   | { type: 'sonarPulse' }
   | { type: 'selectTarget'; id: string | null }
+  | { type: 'setAimPoint'; point: Point | null }
   | { type: 'fireWeapon' }
   | { type: 'deployBubble' }
   | { type: 'spawnThreat'; threat: ThreatKind; sourceId: string; targetId?: string }

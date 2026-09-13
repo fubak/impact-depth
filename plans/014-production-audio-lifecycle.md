@@ -90,12 +90,12 @@ Chromium. Operator acceptance remains PENDING until heard on the target machine.
 
 ## Done criteria
 
-- [ ] Loaded ambient banks replace the early fallback without duplicate sources.
-- [ ] Engine is a continuous speed-responsive layer.
-- [ ] Fake-context lifecycle/error tests cover asynchronous behavior.
-- [ ] Every WAV has provenance and fallback/production status.
-- [ ] Gesture unlock and mute work in Chromium E2E.
-- [ ] `npm run verify` passes; human listening acceptance is recorded separately.
+- [x] Loaded ambient banks replace the early fallback without duplicate sources.
+- [x] Engine is a continuous speed-responsive layer.
+- [x] Fake-context lifecycle/error tests cover asynchronous behavior.
+- [x] Every WAV has provenance and fallback/production status.
+- [x] Gesture unlock and mute work in Chromium E2E (`scripts/e2e-hud-commands.mjs` Pause/Mute/Help).
+- [ ] Human listening acceptance is recorded separately (operator). `npm run verify` still required at session close.
 
 ## STOP conditions
 

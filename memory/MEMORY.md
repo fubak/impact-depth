@@ -46,7 +46,7 @@ Playable solo patrol sim on Three.js/Vite (not look-dev only). Deterministic gam
   - CC0 OGA light plane → aircraft (Blender export to `staging/aircraft_src.glb`)
   - Project procedural: torpedo (+ `src/render/vessels.ts` fallbacks)
 - Runtime: preload gate (no player procedural flash), LOD distances `[40,120,280]`, hot-swap contacts after preload, Look-dev **ASSET CREDITS** from ledger.
-- Plan **015** is **partially** complete — machine pipeline + distinct GLBs + LOD/preload yes; operator visual acceptance per class **not** closed.
+- Plan **015** is **partially** complete — machine pipeline + distinct GLBs + LOD/preload + delayed-GLB E2E; operator visual acceptance per class **not** closed.
 
 ## Combat / AI facts worth remembering
 

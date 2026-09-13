@@ -223,7 +223,7 @@ function makeInstances(
     }
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
-    color.setHSL(0.31 + (hash2(i + 7, spec.seed) - 0.5) * 0.035, 0.42, 0.28 + hash2(i, spec.seed + 3) * 0.12);
+    color.setHSL(0.28 + (hash2(i + 7, spec.seed) - 0.5) * 0.03, 0.32, 0.22 + hash2(i, spec.seed + 3) * 0.1);
     mesh.setColorAt(i, color);
   });
   mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
@@ -266,10 +266,10 @@ export class VegetationField {
       specs,
       palms,
     );
-    const crowns = makeInstances(palmCrownGeometry(), windMaterial(0x397c45, 0.32), specs, palms);
-    const shrubs = makeInstances(groundCoverGeometry(), windMaterial(0x3f824a, 0.11), specs, ground);
+    const crowns = makeInstances(palmCrownGeometry(), windMaterial(0x2f6a3c, 0.32), specs, palms);
+    const shrubs = makeInstances(groundCoverGeometry(), windMaterial(0x355e38, 0.11), specs, ground);
     const grassPlacements = ground.filter((_, i) => i % 2 === 0);
-    const grass = makeInstances(grassClumpGeometry(), windMaterial(0x609550, 0.2), specs, grassPlacements);
+    const grass = makeInstances(grassClumpGeometry(), windMaterial(0x4a7240, 0.2), specs, grassPlacements);
     this.meshes.push(trunks, crowns, shrubs, grass);
     this.group.add(...this.meshes);
     this.setQuality(this.quality);

@@ -13,7 +13,7 @@ Wave-1 escorts and the U-boat shared the innermost spawn ring (radius 12) around
 |--------|--------|-------|-----------|
 | `DEFAULT_CRUISE` | `1.6` | `0.85` | Quiet opening signature |
 | `createSubmarine.speedOrder` | `twoThirds` | `oneThird` | Matches cruise; player can still order flank |
-| `seedWave` ring radius | `12 + (i%3)*4` → 12/16/20 | `26 + (i%3)*6` → 26/32/38 | Outside ~17u passive detection envelope |
+| `seedWave` ring radius | `12 + (i%3)*4` → 12/16/20 | `34 + (i%3)*8` → 34/42/50 | Outside ~17u passive detection envelope |
 | Wave-1 escort count | `2+min(3,wave)` (=3) | `1` | Fewer simultaneous lethal contacts at open |
 | Wave-1 `weaponCooldown` | `0` | `6 + (i%4)*1.5` | Opening grace before ordnance |
 | `startMission` `invuln` | `0` (unused) | `8` seconds | Wired into `applyPlayerDamage` + seamount crush |

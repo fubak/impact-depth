@@ -4,6 +4,7 @@ import { seedPowerups, seedWave } from './create';
 import type {
   Countermeasure,
   GameState,
+  Point,
   Powerup,
   Ship,
   ShipKind,
@@ -137,6 +138,7 @@ function makeTorpedo(
   kind: 'mk14' | 'mk18',
   targetId: string | null,
   offset = 0,
+  aimPoint: Point | null = null,
 ): Torpedo {
   const target = targetId ? state.ships.find((ship) => ship.id === targetId) : undefined;
   const sub = state.submarine;
@@ -149,6 +151,8 @@ function makeTorpedo(
     const leadX = target.x + Math.cos(target.heading) * target.speed * eta;
     const leadY = target.y + Math.sin(target.heading) * target.speed * eta;
     heading = Math.atan2(leadY - sub.y, leadX - sub.x) + offset;
+  } else if (aimPoint) {
+    heading = Math.atan2(aimPoint.y - sub.y, aimPoint.x - sub.x) + offset;
   }
   return {
     id: `${kind}-${state.tick}-${offset}`,
@@ -380,7 +384,14 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             path: [],
           },
         };
-      else if (command.type === 'selectTarget') next = { ...next, selectedTargetId: command.id };
+      else if (command.type === 'selectTarget')
+        next = { ...next, selectedTargetId: command.id, aimPoint: null };
+      else if (command.type === 'setAimPoint')
+        next = {
+          ...next,
+          aimPoint: command.point,
+          selectedTargetId: command.point ? null : next.selectedTargetId,
+        };
       else if (command.type === 'sonarPulse') {
         if (next.sonarPing <= 0 && next.sonarCooldown <= 0) {
           next = {
@@ -430,9 +441,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
           };
       } else if (command.type === 'fireWeapon') {
         const sub = next.submarine;
-        const target =
-          next.ships.find((ship) => ship.id === next.selectedTargetId) ??
-          next.ships.find((ship) => Math.hypot(ship.x - sub.x, ship.y - sub.y) <= 6);
+        const usePointAim = next.aimPoint != null && next.selectedTargetId == null;
         const canFire = sub.z >= FIRE_MIN_DEPTH && sub.z <= FIRE_MAX_DEPTH && sub.sysTubes >= 0.35;
         if (!canFire) {
           const text =
@@ -447,20 +456,39 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
           };
           continue;
         }
+        if (usePointAim && next.weaponMode === 'seeker') {
+          next = {
+            ...next,
+            messages: [
+              ...next.messages,
+              { id: `fire-need-target-${next.tick}`, text: 'PICK TARGET', ttl: 2 },
+            ],
+          };
+          continue;
+        }
+        const target = usePointAim
+          ? undefined
+          : (next.ships.find((ship) => ship.id === next.selectedTargetId) ??
+            next.ships.find((ship) => Math.hypot(ship.x - sub.x, ship.y - sub.y) <= 6));
         // Prefer selected target; otherwise lock the nearest ship in engagement range.
-        const engage =
-          target ??
-          [...next.ships]
-            .filter((ship) => ship.hp > 0 && !ship.sinking)
-            .sort(
-              (a, b) => Math.hypot(a.x - sub.x, a.y - sub.y) - Math.hypot(b.x - sub.x, b.y - sub.y),
-            )[0];
+        const engage = usePointAim
+          ? undefined
+          : (target ??
+            [...next.ships]
+              .filter((ship) => ship.hp > 0 && !ship.sinking)
+              .sort(
+                (a, b) =>
+                  Math.hypot(a.x - sub.x, a.y - sub.y) - Math.hypot(b.x - sub.x, b.y - sub.y),
+              )[0]);
         const fireTarget =
-          engage && Math.hypot(engage.x - sub.x, engage.y - sub.y) <= 22 ? engage : target;
+          !usePointAim && engage && Math.hypot(engage.x - sub.x, engage.y - sub.y) <= 22
+            ? engage
+            : target;
         if (fireTarget && next.selectedTargetId !== fireTarget.id) {
-          next = { ...next, selectedTargetId: fireTarget.id };
+          next = { ...next, selectedTargetId: fireTarget.id, aimPoint: null };
         }
         const aim = fireTarget ?? target;
+        const pointAim = usePointAim ? next.aimPoint : null;
         if (next.weaponMode === 'decoy' && sub.decoys > 0) {
           const cm: Countermeasure = {
             id: `foxer-${next.tick}`,
@@ -486,7 +514,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
               reloadMk18: Math.max(1.4, sub.reloadMk18Max - sub.weaponTier * 0.22),
               noise: clamp(sub.noise + 0.35, 0, 1),
             },
-            torpedoes: [...next.torpedoes, makeTorpedo(next, 'mk18', aim?.id ?? null)],
+            torpedoes: [...next.torpedoes, makeTorpedo(next, 'mk18', aim?.id ?? null, 0, pointAim)],
             stats: { ...next.stats, torpedoesFired: next.stats.torpedoesFired + 1 },
             messages: [
               ...next.messages,
@@ -509,7 +537,9 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             },
             torpedoes: [
               ...next.torpedoes,
-              ...offsets.map((offset) => makeTorpedo(next, 'mk14', aim?.id ?? null, offset)),
+              ...offsets.map((offset) =>
+                makeTorpedo(next, 'mk14', aim?.id ?? null, offset, pointAim),
+              ),
             ],
             stats: { ...next.stats, torpedoesFired: next.stats.torpedoesFired + count },
             messages: [
@@ -1032,6 +1062,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       ...state,
       ships,
       selectedTargetId: null,
+      aimPoint: null,
       stats: {
         ...state.stats,
         shipsSunk,

@@ -344,6 +344,7 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     torpedoSpread: false,
     viewMode: 'tactical',
     selectedTargetId: null,
+    aimPoint: null,
     missionFlavor: 'SHADOW CONVOY · REMAIN UNDETECTED',
     messages: [],
     settings: null,

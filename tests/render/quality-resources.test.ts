@@ -126,9 +126,13 @@ describe('QualityGovernor forced URL quality', () => {
 
   it('still steps high→medium→low when unlocked', () => {
     const governor = new QualityGovernor({ initial: 'high', locked: false });
+    for (let i = 0; i < 45; i++) governor.update(16, 0.2);
+    expect(governor.current).toBe('high');
     for (let i = 0; i < 20; i++) governor.update(40, 0.2);
     expect(governor.current).toBe('medium');
-    for (let i = 0; i < 20; i++) governor.update(40, 0.2);
+    for (let i = 0; i < 55; i++) governor.update(40, 0.2);
+    expect(governor.current).toBe('medium');
+    for (let i = 0; i < 30; i++) governor.update(50, 0.2);
     expect(governor.current).toBe('low');
   });
 });

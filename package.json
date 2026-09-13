@@ -27,6 +27,8 @@
     "assets:stage:kloofendal": "node scripts/stage-kloofendal-hdr.mjs",
     "test:e2e": "node scripts/e2e-patrol.mjs",
     "test:e2e:ocean": "node scripts/e2e-ocean.mjs",
+    "test:e2e:hud": "node scripts/e2e-hud-commands.mjs",
+    "test:e2e:assets": "node scripts/e2e-delayed-assets.mjs",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {

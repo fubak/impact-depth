@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ATTITUDE_MAX_HEAVE,
   ATTITUDE_MAX_LATENCY,
   VesselAttitudeSmoother,
   attitudeFromFootprint,
@@ -100,8 +101,9 @@ describe('vessel attitude smoother', () => {
       dt: 1 / 60,
     });
     expect(first.source).toBe('probe');
-    expect(first.heave).toBeCloseTo(2);
-    expect(first.presentationY).toBeCloseTo(2.15);
+    expect(first.heave).toBeCloseTo(fallback.heave);
+    expect(first.pitch).toBeGreaterThan(0.02);
+    expect(first.presentationY).toBeCloseTo(0.15 + fallback.heave);
 
     const mid = smoother.update({
       entityId: 'hull',
@@ -122,9 +124,56 @@ describe('vessel attitude smoother', () => {
       dt: 1 / 60,
     });
     expect(mid.source).toBe('probe');
-    expect(mid.heave).toBeGreaterThan(0);
-    expect(mid.heave).toBeLessThan(2);
+    expect(mid.heave).toBeCloseTo(fallback.heave);
+    expect(mid.pitch).toBeGreaterThan(0);
+    expect(mid.pitch).toBeLessThan(first.pitch);
     expect(mid.presentationY).toBeCloseTo(0.15 + mid.heave);
+  });
+
+  it('holds last GPU pitch/roll instead of snapping to Gerstner when readback goes stale', () => {
+    const smoother = new VesselAttitudeSmoother();
+    const footprint = {
+      center: { site: 'center' as const, height: 0.4, x: 0, z: 0 },
+      bow: { site: 'bow' as const, height: 2.2, x: 8, z: 0 },
+      stern: { site: 'stern' as const, height: 0.2, x: -8, z: 0 },
+      port: { site: 'port' as const, height: 0.4, x: 0, z: 5 },
+      starboard: { site: 'starboard' as const, height: 0.4, x: 0, z: -5 },
+    };
+    const first = smoother.update({
+      entityId: 'player',
+      heading: 0,
+      depth: 0,
+      waterlineOffset: 0,
+      fallback: { heave: 0.2, pitch: 0.2, roll: -0.2 },
+      footprint,
+      probeTime: 2,
+      now: 2,
+      dt: 1 / 60,
+    });
+    expect(first.source).toBe('probe');
+    expect(first.heave).toBeCloseTo(0.2);
+    expect(first.pitch).toBeGreaterThan(0.05);
+
+    const held = smoother.update({
+      entityId: 'player',
+      heading: 0,
+      depth: 0,
+      waterlineOffset: 0,
+      fallback: { heave: 0.2, pitch: 0.2, roll: -0.2 },
+      footprint,
+      probeTime: 2,
+      now: 2 + ATTITUDE_MAX_LATENCY + 0.1,
+      dt: 1 / 60,
+    });
+    expect(held.source).toBe('probe');
+    expect(held.heave).toBeCloseTo(0.2, 2);
+    expect(held.pitch).toBeCloseTo(first.pitch, 2);
+    expect(held.pitch).toBeLessThan(0.18);
+  });
+
+  it('clamps a wild probe heave so the hull cannot jump metres', () => {
+    const pose = attitudeFromFootprint(footprint(12, 12, 12, 12, 12));
+    expect(pose.heave).toBe(ATTITUDE_MAX_HEAVE);
   });
 
   it('treats a slightly late probe as usable and a late probe as expired', () => {
@@ -162,5 +211,29 @@ describe('vessel attitude smoother', () => {
     });
     expect(next.source).toBe('fallback');
     expect(next.heave).toBe(1);
+  });
+
+  it('drops non-finite probe heights instead of poisoning hull Y', () => {
+    const smoother = new VesselAttitudeSmoother();
+    const pose = smoother.update({
+      entityId: 'player',
+      heading: 0,
+      depth: 0,
+      waterlineOffset: 0,
+      fallback,
+      footprint: {
+        center: { site: 'center', height: Number.NaN, x: 0, z: 0 },
+        bow: { site: 'bow', height: 1, x: 8, z: 0 },
+        stern: { site: 'stern', height: 1, x: -8, z: 0 },
+        port: { site: 'port', height: 1, x: 0, z: 5 },
+        starboard: { site: 'starboard', height: 1, x: 0, z: -5 },
+      },
+      probeTime: 1,
+      now: 1,
+      dt: 1 / 60,
+    });
+    expect(pose.source).toBe('fallback');
+    expect(Number.isFinite(pose.presentationY)).toBe(true);
+    expect(Number.isFinite(pose.pitch)).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { islandShoreUniforms } from '../../src/render/ocean';
+import { islandShoreUniforms, snappedFollowPosition } from '../../src/render/ocean';
 import { ISLAND_SPECS } from '../../src/core/terrain';
 
 describe('islandShoreUniforms', () => {
@@ -18,5 +18,17 @@ describe('islandShoreUniforms', () => {
     expect(packed.a.z).toBe(30);
     expect(packed.b.z).toBe(0);
     expect(packed.c.z).toBe(0);
+  });
+});
+
+describe('snappedFollowPosition', () => {
+  it('does not crawl the tessellation grid every metre of vessel motion', () => {
+    const first = snappedFollowPosition(0, 0, 40, -20, 16, 1.6);
+    expect(first.x).toBe(48);
+    expect(first.z).toBe(-16);
+    const held = snappedFollowPosition(first.x, first.z, 44, -18, 16, 1.6);
+    expect(held).toEqual(first);
+    const moved = snappedFollowPosition(first.x, first.z, 80, 40, 16, 1.6);
+    expect(moved.x).not.toBe(first.x);
   });
 });

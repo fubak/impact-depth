@@ -79,13 +79,26 @@ try {
   await page.screenshot({ path: join(artifacts, 'bridge-waterline.png') });
 
   await setMode(page, 'tactical');
-  await page.waitForTimeout(400);
+  // Script-only framing: keep the near cay in view with the shelf in the lower third.
+  await page.evaluate(() => {
+    const app = window.__silentDepths;
+    const cameras = app?.cameras;
+    const vessel = app?.sim?.vessel;
+    if (!cameras || !vessel) return;
+    cameras.orbitTheta = Math.atan2(vessel.x - 55, vessel.z + 95);
+    cameras.orbitPhi = 1.05;
+    cameras.orbitRadius = 108;
+  });
+  await page.waitForTimeout(500);
   await page.screenshot({ path: join(artifacts, 'tactical-shallows.png') });
 
   const rollback = new URL(url);
   rollback.searchParams.set('ocean', 'gerstner');
   rollback.searchParams.set('world', 'legacy-v1');
-  const rollbackResp = await page.goto(rollback.toString(), { waitUntil: 'load', timeout: E2E_TIMEOUT_MS });
+  const rollbackResp = await page.goto(rollback.toString(), {
+    waitUntil: 'load',
+    timeout: E2E_TIMEOUT_MS,
+  });
   if ((rollbackResp?.status() ?? 0) >= 400) {
     throw new Error(`Gerstner rollback load failed with status ${rollbackResp?.status()}`);
   }

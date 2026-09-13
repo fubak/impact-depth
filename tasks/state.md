@@ -6,21 +6,21 @@
 
 ## Current
 
-**Resume instruction (2026-09-13):** Plan 018 finish-gaps **machine complete**. Spectral
-storm honeycomb closed; map follow-square closed (caustic altitude fade). Four-combo
-matrix inspected in `artifacts/plan-018-finish/matrix-report.md`. Hitch-final CLEAN
-on RTX 4070 Ti (~75 FPS, 0 frames >100 ms). **World** default remains `legacy-v1`.
-Operator GPU/lighting/fleet gates still PENDING — do not self-approve those.
-Look evidence: `artifacts/plan-019/look-report.md`. Plan 019 water-first is implemented (uncommitted): spectral empty-URL default + local Kloofendal HDR. Do not start 012/014/015/017/020 in this tree unless the look-report says it is not close.
+**Resume instruction (2026-09-13):** Plan 019 water-first is **close** (HDR +
+spectral default, Caribbean body, cay palms in `artifacts/plan-019/`). Plan 012
+machine + patrol E2E targeting is green. Plan 014 Chromium mute/unlock green;
+operator listen PENDING. Plan 015 delayed-GLB E2E green; operator fleet ACCEPT
+PENDING. Plan 018/017 operator GPU/soak/tag/world-default **must not** be
+self-approved. Do not start Plan 009.
 
 | Field              | Value                                                                                        |
 | ------------------ | -------------------------------------------------------------------------------------------- |
 | Product            | Solo patrol game (Silent Depths) on Vite + Three.js                                          |
 | Technical RC       | `solo-rc` / Plan 008 — **not** `solo-production`                                             |
-| Plan track         | 001–008 DONE · 011 DONE · **018 IN PROGRESS** · **019 IN PROGRESS** (water-first implemented, uncommitted) |
+| Plan track         | 001–008 DONE · 011 DONE · 012 machine DONE · **018 IN PROGRESS** (operator) · **019 IN PROGRESS** (look close) · 014/015 operator PENDING |
 | Fleet content      | **models/v2** + manifest **v5** · `@gltf-transform/core` + `extensions` 4.5.0 declared       |
 | HUD                | Clarity pass 2026-08-04 (tooltips, fold Gear/Doctrine, plain labels)                         |
-| Open plans (order) | **019 demo-look water** · 018 operator ACCEPT (GPU/lighting/fleet) · 012 camera · 014 audio · **015 fleet** (partial) · 017 operator accept |
+| Open plans (order) | **019 look** · 020 island art · 018 operator ACCEPT · 014 listen · **015 fleet ACCEPT** · 017 operator accept |
 | Dev URL note       | Preview often `http://127.0.0.1:8082/` when 8080 is busy (`npx vite preview …`)              |
 
 ## Done recently (agent + tree)
@@ -38,7 +38,7 @@ Look evidence: `artifacts/plan-019/look-report.md`. Plan 019 water-first is impl
 | 1 Validator + contract                  | DONE (`npm run assets:validate`)                                                                |
 | 2 Safe importer + sources.json          | DONE (no download/cookie path)                                                                  |
 | 3 models/v2 + manifest                  | DONE (content is stylized CC0 + CC-BY heroes; not photoreal warships)                           |
-| 4 Preload / hot-swap                    | DONE enough for daily play (player gate + contact refresh); delayed-GLB browser test still thin |
+| 4 Preload / hot-swap                    | DONE — delayed-GLB browser test (`npm run test:e2e:assets`) |
 | 5 Operator visual accept/waive per kind | **PENDING**                                                                                     |
 
 ## Plan 018 snapshot (2026-09-13)

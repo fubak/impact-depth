@@ -94,12 +94,26 @@ export const QUALITY_PROFILES: Record<QualityName, QualityProfile> = {
   },
 };
 
+/** Ignore hitchy HDR / FFT settle before auto-quality may drop. */
+export const QUALITY_BOOT_GRACE = 8;
+/** After a quality change, wait before another swap (FFT rebuild is a blink). */
+export const QUALITY_CHANGE_COOLDOWN = 10;
+export const QUALITY_SLOW_MS = 28;
+export const QUALITY_CRITICAL_MS = 40;
+export const QUALITY_FAST_MS = 15;
+export const QUALITY_DOWNGRADE_AFTER = 3;
+export const QUALITY_CRITICAL_AFTER = 5;
+export const QUALITY_UPGRADE_AFTER = 8;
+
 /** Hysteresis prevents an unstable device from toggling visual quality every frame. */
 export class QualityGovernor {
   current: QualityName;
   readonly locked: boolean;
   private slowFor = 0;
+  private criticalFor = 0;
   private fastFor = 0;
+  private bootFor = 0;
+  private cooldown = 0;
 
   constructor(opts?: { initial?: QualityName; locked?: boolean }) {
     this.current = opts?.initial ?? 'high';
@@ -108,14 +122,37 @@ export class QualityGovernor {
 
   update(frameMs: number, dt: number): QualityName {
     if (this.locked) return this.current;
-    this.slowFor = frameMs > 24 ? this.slowFor + dt : Math.max(0, this.slowFor - dt * 0.5);
-    this.fastFor = frameMs < 15 ? this.fastFor + dt : Math.max(0, this.fastFor - dt * 0.5);
-    if (this.slowFor > 3 && this.current !== 'low') {
-      this.current = this.current === 'high' ? 'medium' : 'low';
+    const step = Math.max(0, dt);
+    if (this.bootFor < QUALITY_BOOT_GRACE) {
+      this.bootFor += step;
+      return this.current;
+    }
+    if (this.cooldown > 0) {
+      this.cooldown = Math.max(0, this.cooldown - step);
+      return this.current;
+    }
+    this.slowFor = frameMs > QUALITY_SLOW_MS ? this.slowFor + step : Math.max(0, this.slowFor - step * 0.5);
+    this.criticalFor =
+      frameMs > QUALITY_CRITICAL_MS ? this.criticalFor + step : Math.max(0, this.criticalFor - step * 0.5);
+    this.fastFor = frameMs < QUALITY_FAST_MS ? this.fastFor + step : Math.max(0, this.fastFor - step * 0.5);
+    if (this.slowFor > QUALITY_DOWNGRADE_AFTER && this.current === 'high') {
+      this.current = 'medium';
       this.slowFor = 0;
-    } else if (this.fastFor > 8 && this.current !== 'high') {
-      this.current = this.current === 'low' ? 'medium' : 'high';
+      this.criticalFor = 0;
       this.fastFor = 0;
+      this.cooldown = QUALITY_CHANGE_COOLDOWN;
+    } else if (this.criticalFor > QUALITY_CRITICAL_AFTER && this.current === 'medium') {
+      this.current = 'low';
+      this.slowFor = 0;
+      this.criticalFor = 0;
+      this.fastFor = 0;
+      this.cooldown = QUALITY_CHANGE_COOLDOWN;
+    } else if (this.fastFor > QUALITY_UPGRADE_AFTER && this.current !== 'high') {
+      this.current = this.current === 'low' ? 'medium' : 'high';
+      this.slowFor = 0;
+      this.criticalFor = 0;
+      this.fastFor = 0;
+      this.cooldown = QUALITY_CHANGE_COOLDOWN;
     }
     return this.current;
   }

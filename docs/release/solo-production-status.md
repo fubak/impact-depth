@@ -23,7 +23,7 @@
 | B GPU FPS gate | PENDING operator | `docs/release/perf-notes.md` — agent host is not GPU proof |
 | C glTF fleet | **PARTIAL** (code + v2 content) | `public/assets/models/v2/*` + manifest v5; `npm run assets:validate`; Plan 015 not closed (operator silhouette accept; kenney/CC0 not final warship bar) |
 | D Convoy/escort formation | DONE | `tests/game/formation.test.ts` |
-| E Authored audio banks | DONE (code; lifecycle polish in 014) | `public/assets/audio/*.wav`; `tests/game/audio.test.ts` |
+| E Authored audio banks | PARTIAL (fallback-generated WAVs; 014 lifecycle in progress; operator listen PENDING) | `public/assets/audio/*.wav` + `manifest.json` `audioBanks`; `tests/game/audio.test.ts`; `docs/release/audio-banks.md` |
 | F Deploy path | DONE (docs) | `docs/release/solo-production.md`, `public/_headers` (`/assets/models/*` immutable) |
 | G Lighting acceptance | PENDING operator (partial code) | `docs/release/lighting-acceptance.md` |
 | H Operator gate | PENDING operator | Wall-clock soak + 3 playthroughs + deploy/rollback + tag |

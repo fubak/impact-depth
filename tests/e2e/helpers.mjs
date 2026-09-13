@@ -418,6 +418,221 @@ export async function navigateHelm(page) {
 }
 
 /**
+ * Drag the tactical camera so water-plane picks are not identity-screen mappings.
+ * @param {import('playwright').Page} page
+ * @param {number} [dx]
+ * @param {number} [dy]
+ */
+export async function orbitTacticalCamera(page, dx = 180, dy = 40) {
+  await setMode(page, 'tactical');
+  const canvas = page.locator('#scene');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Expected #scene for camera orbit');
+  const startX = box.x + box.width * 0.55;
+  const startY = box.y + box.height * 0.42;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + dx, startY + dy, { steps: 8 });
+  await page.mouse.up();
+}
+
+/**
+ * Left-click canvas water and wait for a plotted course in Active orders.
+ * @param {import('playwright').Page} page
+ * @param {{ x?: number, y?: number }} [offset] client offset from canvas top-left
+ * @returns {Promise<{ x: number, y: number, text: string }>}
+ */
+export async function plotCanvasWater(page, offset = {}) {
+  const canvas = page.locator('#scene');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Expected #scene for water plot');
+  const x = offset.x ?? Math.round(box.width * 0.58);
+  const y = offset.y ?? Math.round(box.height * 0.38);
+  await canvas.click({ position: { x, y } });
+  await pollUntil(
+    page,
+    5000,
+    async () =>
+      /PLOT\s+\d+\s*,\s*\d+/i.test(await page.locator('[data-field="course"]').innerText()),
+    'PLOT course after water click',
+  );
+  const text = await page.locator('[data-field="course"]').innerText();
+  const match = text.match(/PLOT\s+(\d+)\s*,\s*(\d+)/i);
+  if (!match) throw new Error(`Expected PLOT x,y in orders; got: ${text}`);
+  return { x: Number(match[1]), y: Number(match[2]), text };
+}
+
+const SIM_WORLD_SIZE = 128;
+const SIM_METERS_PER_UNIT = 5;
+
+/**
+ * Project a simulation-plane point to canvas-local pixels via the live camera.
+ * @param {import('playwright').Page} page
+ * @param {number} simX
+ * @param {number} simY
+ * @returns {Promise<{ x: number, y: number, ndcX: number, ndcY: number } | null>}
+ */
+export async function projectSimToCanvas(page, simX, simY) {
+  return page.evaluate(
+    ({ sx, sy, worldSize, meters }) => {
+      const app = window.__silentDepths;
+      const canvas = document.getElementById('scene');
+      if (!app?.cameras || !(canvas instanceof HTMLCanvasElement)) return null;
+      const rect = canvas.getBoundingClientRect();
+      const wx = (sx - worldSize / 2) * meters;
+      const wz = (sy - worldSize / 2) * meters;
+      const ndc = app.cameras.projectNdc(wx, 0, wz);
+      if (ndc.clipW < 0) return null;
+      if (Math.abs(ndc.ndcX) > 0.98 || Math.abs(ndc.ndcY) > 0.98) return null;
+      return {
+        x: ((ndc.ndcX + 1) / 2) * rect.width,
+        y: ((1 - ndc.ndcY) / 2) * rect.height,
+        ndcX: ndc.ndcX,
+        ndcY: ndc.ndcY,
+      };
+    },
+    { sx: simX, sy: simY, worldSize: SIM_WORLD_SIZE, meters: SIM_METERS_PER_UNIT },
+  );
+}
+
+/**
+ * After an orbit, click a known sim water point and assert the HUD plot lands nearby.
+ * @param {import('playwright').Page} page
+ * @returns {Promise<{ expected: { x: number, y: number }, plot: { x: number, y: number, text: string } }>}
+ */
+export async function plotProjectedWaterAfterOrbit(page) {
+  await orbitTacticalCamera(page, 110, 18);
+  await page.waitForTimeout(350);
+  const candidate = await page.evaluate(() => {
+    const sub = window.__silentDepths?.game?.submarine;
+    if (!sub) return null;
+    return [
+      { x: sub.x + 10, y: sub.y + 6 },
+      { x: sub.x - 8, y: sub.y + 8 },
+      { x: sub.x + 6, y: sub.y - 9 },
+    ];
+  });
+  if (!candidate) throw new Error('Missing submarine for projected water plot');
+  /** @type {{ x: number, y: number } | null} */
+  let expected = null;
+  /** @type {{ x: number, y: number, ndcX: number, ndcY: number } | null} */
+  let projected = null;
+  for (const point of candidate) {
+    const hit = await projectSimToCanvas(page, point.x, point.y);
+    if (hit) {
+      expected = point;
+      projected = hit;
+      break;
+    }
+  }
+  if (!expected || !projected) {
+    throw new Error('No on-screen water candidate after tactical orbit');
+  }
+  const plot = await plotCanvasWater(page, {
+    x: Math.round(projected.x),
+    y: Math.round(projected.y),
+  });
+  const dist = Math.hypot(plot.x - expected.x, plot.y - expected.y);
+  if (dist > 12) {
+    throw new Error(
+      `Projected water plot drifted ${dist.toFixed(1)}u from ${expected.x.toFixed(1)},${expected.y.toFixed(1)} (got ${plot.text})`,
+    );
+  }
+  return { expected, plot };
+}
+
+/**
+ * Right-click a visible contact using camera projection, then assert selection.
+ * @param {import('playwright').Page} page
+ * @returns {Promise<{ id: string, name: string }>}
+ */
+export async function rightClickProjectedContact(page) {
+  const viewMode = await page.evaluate(() => window.__silentDepths?.sim?.viewMode ?? 'tactical');
+  const ships = await page.evaluate((mode) => {
+    const game = window.__silentDepths?.game;
+    const cameras = window.__silentDepths?.cameras;
+    const vessel = window.__silentDepths?.sim?.vessel;
+    if (!game || !cameras || !vessel) return [];
+    const WORLD_SIZE = 128;
+    const METERS = 5;
+    const live = game.ships.filter((entry) => entry.hp > 0);
+    const first = live[0];
+    if (mode === 'map') {
+      cameras.mapCamera.left = -220;
+      cameras.mapCamera.right = 220;
+      cameras.mapCamera.top = 220;
+      cameras.mapCamera.bottom = -220;
+      cameras.mapCamera.updateProjectionMatrix();
+    } else if (first) {
+      const wx = (first.x - WORLD_SIZE / 2) * METERS;
+      const wz = (first.y - WORLD_SIZE / 2) * METERS;
+      cameras.orbitTheta = Math.atan2(wx - vessel.x, wz - vessel.z);
+      cameras.orbitPhi = 0.85;
+      cameras.orbitRadius = 160;
+    }
+    return live.map((entry) => ({ id: entry.id, name: entry.name, x: entry.x, y: entry.y }));
+  }, viewMode);
+  if (ships.length === 0) throw new Error('No live contact to right-click');
+  await page.waitForTimeout(400);
+  for (const ship of ships) {
+    const projected = await projectSimToCanvas(page, ship.x, ship.y);
+    if (!projected) continue;
+    const canvas = page.locator('#scene');
+    await canvas.click({
+      button: 'right',
+      position: { x: Math.round(projected.x), y: Math.round(projected.y) },
+    });
+    await pollUntil(
+      page,
+      4000,
+      async () => {
+        const selected = await page.evaluate(() => window.__silentDepths.game.selectedTargetId);
+        return selected === ship.id;
+      },
+      `select ${ship.name} via projected right-click`,
+    );
+    return { id: ship.id, name: ship.name };
+  }
+  throw new Error('No live contact projected on screen after orbit');
+}
+
+/**
+ * Right-click the scene (ship or empty water) and wait for magazine/toast evidence.
+ * @param {import('playwright').Page} page
+ */
+export async function rightClickSceneFire(page) {
+  const magBefore = await page.locator('[aria-label="Weapons"]').innerText();
+  const mk14Match = magBefore.match(/Mk-14\s+(\d+)/i);
+  const ammoBefore = mk14Match ? Number(mk14Match[1]) : null;
+  const canvas = page.locator('#scene');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Expected #scene for right-click fire');
+  await canvas.click({
+    button: 'right',
+    position: { x: Math.round(box.width * 0.56), y: Math.round(box.height * 0.36) },
+  });
+  await pollUntil(
+    page,
+    6000,
+    async () => {
+      const mag = await page.locator('[aria-label="Weapons"]').innerText();
+      const hud = await page.locator('#hud').innerText();
+      const toasts = await page
+        .locator('.hud-toasts')
+        .innerText()
+        .catch(() => '');
+      const mk14 = mag.match(/Mk-14\s+(\d+)/i);
+      const ammoDropped =
+        ammoBefore !== null && mk14 !== null && Number(mk14[1]) === ammoBefore - 1;
+      const reload = /RELOAD/i.test(mag);
+      const firedToast = /MK-14|PICK TARGET/i.test(`${hud}\n${toasts}`);
+      return ammoDropped || reload || firedToast;
+    },
+    'magazine/toast change after right-click fire',
+  );
+}
+
+/**
  * Acquire with KeyT and fire Mk-14 with KeyF.
  * @param {import('playwright').Page} page
  */

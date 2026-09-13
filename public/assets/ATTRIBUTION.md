@@ -22,5 +22,10 @@ In-game credits: Look-dev panel → **ASSET CREDITS**.
 
 Water normals / ripples: mqnc/cheapwater (MIT) — see manifest ledger.
 
+Audio WAVs (`audio/*.wav`) are project-owned synthesized **fallback-generated**
+banks (`scripts/generate-audio-banks.mjs`). They are not operator-accepted
+production audio. Ledger: `manifest.json` → `audioBanks`. Listening checklist:
+`docs/release/audio-banks.md`.
+
 **Do not** re-use the Visby mesh as multi-class hulls. Older `models/v1/` copies remain for
 importer fallbacks and historical path references; gameplay ships against **v2**.

@@ -207,6 +207,8 @@ export interface GameState {
   viewMode: ViewMode;
   missionFlavor: string;
   selectedTargetId: string | null;
+  /** Explicit water aim in sim coords. Mutually exclusive with selectedTargetId. */
+  aimPoint: Point | null;
   messages: GameMessage[];
   settings: LookDevSettings | null;
   debugFacing: boolean;

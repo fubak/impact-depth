@@ -49,15 +49,123 @@
       "source": "https://sketchfab.com/3d-models/visby-corvette-06d445dc90304c598286d63f52f2ff85 (Vavtrudner)",
       "license": "CC BY 4.0",
       "usage": "destroyer visual only (models/v2/destroyer.glb); attribution required"
+    },
+    {
+      "id": "procedural-audio-banks-v1",
+      "source": "scripts/generate-audio-banks.mjs in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "usage": "CI/offline fallback WAV cues; not operator-accepted production audio"
     }
   ],
+  "audioBanks": {
+    "click": {
+      "file": "audio/click.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "UI click",
+      "durationSec": 0.06,
+      "status": "fallback-generated"
+    },
+    "torpedo": {
+      "file": "audio/torpedo.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "torpedo launch",
+      "durationSec": 0.5,
+      "status": "fallback-generated"
+    },
+    "explosion": {
+      "file": "audio/explosion.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "explosion / kill",
+      "durationSec": 1.0,
+      "status": "fallback-generated"
+    },
+    "sonar": {
+      "file": "audio/sonar.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "active sonar ping",
+      "durationSec": 0.55,
+      "status": "fallback-generated"
+    },
+    "countermeasure": {
+      "file": "audio/countermeasure.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "countermeasure deploy",
+      "durationSec": 0.3,
+      "status": "fallback-generated"
+    },
+    "alarm": {
+      "file": "audio/alarm.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "hull alarm",
+      "durationSec": 0.2,
+      "status": "fallback-generated"
+    },
+    "pickup": {
+      "file": "audio/pickup.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "powerup pickup",
+      "durationSec": 0.22,
+      "status": "fallback-generated"
+    },
+    "engine": {
+      "file": "audio/engine.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "continuous engine bed",
+      "durationSec": 1.5,
+      "status": "fallback-generated"
+    },
+    "ambient": {
+      "file": "audio/ambient.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "primary underwater ambience",
+      "durationSec": 3.5,
+      "status": "fallback-generated"
+    },
+    "ambient2": {
+      "file": "audio/ambient2.wav",
+      "creator": "Silent Depths (scripts/generate-audio-banks.mjs)",
+      "source": "in-process oscillator + noise synthesis",
+      "license": "project-owned",
+      "licenseId": "procedural-audio-banks-v1",
+      "cue": "optional second ambience layer",
+      "durationSec": 3.5,
+      "status": "fallback-generated"
+    }
+  },
   "budgets": {
     "heroVesselTris": 12000,
     "escortTris": 12000,
     "merchantTris": 6000,
     "propTris": 2000,
     "textureMaxPx": 2048,
-    "lodDistancesM": [40, 120, 280]
+    "lodDistancesM": [280, 900, 2400]
   },
   "entities": {
     "sub_nautilus": {

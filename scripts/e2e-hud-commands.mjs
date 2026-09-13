@@ -305,6 +305,16 @@ try {
     if (mutedAfter === mutedBefore) throw new Error('mute did not toggle');
     if (mutedAfter) await hudAct(page, '[data-action="mute"]');
 
+    const audio = await page.evaluate(() =>
+      typeof window.__silentDepths.getAudioDiagnostics === 'function'
+        ? window.__silentDepths.getAudioDiagnostics()
+        : null,
+    );
+    if (!audio?.unlocked) throw new Error('audio was not unlocked after Begin Patrol');
+    if (audio.contextState !== 'running' && audio.contextState !== 'suspended') {
+      throw new Error(`unexpected audio context state ${audio.contextState}`);
+    }
+
     await hudAct(page, '[data-action="help"]');
     const helpVisible = await page.evaluate(() => {
       const el = document.getElementById('tutorial-overlay');

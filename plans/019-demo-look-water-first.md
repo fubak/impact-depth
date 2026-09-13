@@ -554,7 +554,7 @@ Lead then runs Task 3 → 4 → 5. Do not start 020.
 - [x] Task 1 spectral default tests green
 - [x] Task 2 pack on disk + validator fail-closed when missing
 - [x] Task 3 HDR IBL bound, procedural fallback works, night not blown out
-- [x] Task 4 water retune without honeycomb (IBL + mix weights; tactical nadir still paler than demo)
+- [x] Task 4 water retune without honeycomb (Caribbean body + nadir alpha; shore foam still hot)
 - [x] Task 5 look-report + gates
 - [x] `?ocean=gerstner` still playable
 - [x] Milestone 2 (art) **not** started in this session
