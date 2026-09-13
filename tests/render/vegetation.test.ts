@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { ISLAND_SPECS } from '../../src/core/terrain';
-import { palmCrownGeometry, VegetationField } from '../../src/render/environment/vegetation';
+import {
+  generateRockPlacements,
+  islandVegetationCount,
+  palmCrownGeometry,
+  VegetationField,
+  WIND_VERTEX_GLSL,
+} from '../../src/render/environment/vegetation';
 
 function compileWindMaterial(material: THREE.MeshStandardMaterial): void {
   // Three's onBeforeCompile second arg is WebGLRenderer; tests only need the shader params.
@@ -35,9 +41,7 @@ describe('vegetation geometry', () => {
 
     const unique = new Set<string>();
     for (let i = 0; i < pos.count; i++) {
-      unique.add(
-        `${pos.getX(i).toFixed(2)},${pos.getY(i).toFixed(2)},${pos.getZ(i).toFixed(2)}`,
-      );
+      unique.add(`${pos.getX(i).toFixed(2)},${pos.getY(i).toFixed(2)},${pos.getZ(i).toFixed(2)}`);
     }
     expect(unique.size).toBeGreaterThan(80);
 
@@ -95,5 +99,45 @@ describe('vegetation wind and LOD', () => {
     }
 
     field.dispose();
+  });
+
+  it('keeps representative instances on every island at low density', () => {
+    expect(islandVegetationCount(40, 0.1)).toBeGreaterThanOrEqual(1);
+    expect(islandVegetationCount(40, 0.1)).toBeLessThan(40);
+    const field = new VegetationField(ISLAND_SPECS);
+    field.setQuality({
+      vegetationDensity: 0.08,
+      vegetationLodDistance: 300,
+      vegetationShadows: false,
+    });
+    const islands = new Set(
+      field.group.children.map((mesh) => (mesh as THREE.InstancedMesh).userData.islandIndex),
+    );
+    expect(islands.size).toBe(ISLAND_SPECS.length);
+    for (const mesh of field.group.children) {
+      expect((mesh as THREE.InstancedMesh).count).toBeGreaterThan(0);
+    }
+    field.dispose();
+  });
+
+  it('shares wind deformation with the depth/shadow material', () => {
+    expect(WIND_VERTEX_GLSL).toContain('uWindDirection');
+    const field = new VegetationField(ISLAND_SPECS.slice(0, 1));
+    const leafy = field.group.children.find(
+      (mesh) => (mesh as THREE.InstancedMesh).userData.layer === 'crown',
+    ) as THREE.InstancedMesh;
+    expect(leafy.customDepthMaterial).toBeDefined();
+    field.dispose();
+  });
+});
+
+describe('island rocks', () => {
+  it('places a capped rock cluster on dry slope, not in the channel', () => {
+    const rocks = generateRockPlacements(ISLAND_SPECS[0]!);
+    expect(rocks.length).toBeGreaterThan(0);
+    expect(rocks.length).toBeLessThanOrEqual(18);
+    for (const rock of rocks) {
+      expect(rock.y).toBeGreaterThan(1.3);
+    }
   });
 });
