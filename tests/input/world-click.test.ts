@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { shouldDispatchWorldInteract } from '../../src/input/controls';
 import {
+  canPlotFromView,
   clientToNdc,
   findPixelProximateContact,
   findScreenProximateContact,
@@ -68,5 +69,15 @@ describe('world click targeting', () => {
   it('preserves HUD-origin gating so chrome clicks never become world plots', () => {
     expect(shouldDispatchWorldInteract(false, false, 0)).toBe(false);
     expect(shouldDispatchWorldInteract(true, false, 0)).toBe(true);
+  });
+
+  it('plots water only from tactical, free, and map views', () => {
+    expect(canPlotFromView('tactical')).toBe(true);
+    expect(canPlotFromView('free')).toBe(true);
+    expect(canPlotFromView('map')).toBe(true);
+    expect(canPlotFromView('chase')).toBe(false);
+    expect(canPlotFromView('bridge')).toBe(false);
+    expect(canPlotFromView('periscope')).toBe(false);
+    expect(canPlotFromView('sonar')).toBe(false);
   });
 });

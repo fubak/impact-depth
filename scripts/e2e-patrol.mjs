@@ -21,7 +21,12 @@ import {
   assertPlaying,
   beginPatrolAndSkipTutorial,
   controlReachable,
+  orbitTacticalCamera,
+  plotCanvasWater,
+  plotProjectedWaterAfterOrbit,
   pollUntil,
+  rightClickProjectedContact,
+  rightClickSceneFire,
   setMode,
 } from '../tests/e2e/helpers.mjs';
 
@@ -155,20 +160,29 @@ try {
     await setMode(page, 'tactical');
     // Ensure tubes can fire: peri depth, wait for HUD ready if needed.
     await page.keyboard.press('KeyX');
+    const projected = await plotProjectedWaterAfterOrbit(page);
+    await orbitTacticalCamera(page, -80, 16);
+    const secondPlot = await plotCanvasWater(page, { x: 820, y: 310 });
+    if (secondPlot.x < 0 || secondPlot.x >= 128 || secondPlot.y < 0 || secondPlot.y >= 128) {
+      throw new Error(`Plot ${secondPlot.text} is outside the 128-unit sector`);
+    }
+    if (
+      projected.plot.x < 0 ||
+      projected.plot.x >= 128 ||
+      projected.plot.y < 0 ||
+      projected.plot.y >= 128
+    ) {
+      throw new Error(`Projected plot ${projected.plot.text} is outside the 128-unit sector`);
+    }
+
     const magBefore = await page.locator('[aria-label="Weapons"]').innerText();
     const mk14Match = magBefore.match(/Mk-14\s+(\d+)/i);
     const ammoBefore = mk14Match ? Number(mk14Match[1]) : null;
 
-    await page.keyboard.press('KeyT');
-    await pollUntil(
-      page,
-      4000,
-      async () => {
-        const orders = await page.locator('[aria-label="Active orders"]').innerText();
-        return !/TARGET\s*NONE/i.test(orders.replace(/\s+/g, ' '));
-      },
-      'target lock after KeyT',
-    );
+    await setMode(page, 'map');
+    await rightClickProjectedContact(page);
+    await setMode(page, 'tactical');
+    await rightClickSceneFire(page);
 
     await page.keyboard.press('KeyF');
     await pollUntil(

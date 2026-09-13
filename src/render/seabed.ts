@@ -4,6 +4,22 @@ import type { EnvironmentSettings } from '../core/types';
 
 export type SeabedHeightSampler = (worldX: number, worldZ: number) => number;
 
+/** Rebuild only after a large world drift so the floor does not crawl under the hull. */
+export const SEABED_FOLLOW_FRACTION = 0.22;
+
+export function shouldRebuildSeabedFollow(
+  originX: number,
+  originZ: number,
+  x: number,
+  z: number,
+  patchSize: number,
+  sandChanged: boolean,
+): boolean {
+  if (sandChanged) return true;
+  if (!Number.isFinite(originX) || !Number.isFinite(originZ)) return true;
+  return Math.hypot(x - originX, z - originZ) > patchSize * SEABED_FOLLOW_FRACTION;
+}
+
 /**
  * Procedural sandy bathymetry mesh that follows the player.
  * Built in XZ (Y-up) without Geometry.rotateX so height writes stick.
@@ -54,6 +70,7 @@ export class Seabed {
     this.geometry.setIndex(indices);
 
     this.material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
       vertexColors: true,
       roughness: 0.94,
       metalness: 0.02,
@@ -121,17 +138,13 @@ export class Seabed {
     const cell = this.size / this.segments;
     const snapX = Math.round(x / cell) * cell;
     const snapZ = Math.round(z / cell) * cell;
-    if (
-      !Number.isFinite(this.originX) ||
-      !Number.isFinite(this.originZ) ||
-      Math.hypot(snapX - this.originX, snapZ - this.originZ) > cell * 2.5 ||
-      this.material.userData.sand !== env.sandColor
-    ) {
+    const sandChanged = this.material.userData.sand !== env.sandColor;
+    if (shouldRebuildSeabedFollow(this.originX, this.originZ, x, z, this.size, sandChanged)) {
       this.material.userData.sand = env.sandColor;
       this.rebuild(snapX, snapZ, env.sandColor);
+      this.mesh.position.x = snapX;
+      this.mesh.position.z = snapZ;
     }
-    this.mesh.position.x = snapX;
-    this.mesh.position.z = snapZ;
   }
 
   dispose(): void {

@@ -27,6 +27,7 @@ import {
   validateFloatFramebuffer,
   withRendererPass,
 } from './resources';
+import { clearFoamTargets, FOAM_DERIVE_GLSL } from './foam';
 import {
   buildPackedInitialSpectrum,
   cascadeSeed,
@@ -34,7 +35,6 @@ import {
   DEFAULT_SPECTRUM_SEED,
   fftSizeForQuality,
   PASS_VERTEX_GLSL,
-  SPECTRUM_DERIVE_GLSL,
   SPECTRUM_EVOLVE_GLSL,
   SPECTRUM_FFT_GLSL,
   SPECTRUM_PACK_GLSL,
@@ -142,19 +142,10 @@ class GpuSpectralCascade {
         uDelta: { value: 1 / 60 },
         uFoamStorm: { value: 0 },
       },
-      SPECTRUM_DERIVE_GLSL,
+      FOAM_DERIVE_GLSL,
       PASS_VERTEX_GLSL,
     );
-    const clear = simulationMaterial(
-      {},
-      'void main() { gl_FragColor = vec4(0.0); }',
-      PASS_VERTEX_GLSL,
-    );
-    try {
-      for (const target of this.normals) pass.run(renderer, clear, target);
-    } finally {
-      disposeMaterial(clear);
-    }
+    clearFoamTargets(pass, renderer, this.normals);
   }
 
   setGain(gain: number): void {
@@ -433,9 +424,9 @@ export class SpectralBackend implements EnvironmentBackend {
 
     const [swell, wind, detail] = this.cascades;
     // Keep gains conservative — high chop folds the mesh into cellular plates.
-    swell?.setGain(0.95 * (0.35 + sea * 0.85));
-    wind?.setGain(0.75 * (0.35 + chop * 0.8));
-    detail?.setGain(0.55);
+    swell?.setGain(0.72 * (0.35 + sea * 0.65));
+    wind?.setGain(0.52 * (0.35 + chop * 0.55));
+    detail?.setGain(0.42);
 
     // Set storm conditions for foam generation
     for (const cascade of this.cascades) {
@@ -551,19 +542,8 @@ export class SpectralBackend implements EnvironmentBackend {
     if (previousGeneration !== missionGeneration && this.pass) {
       withRendererPass(this.renderer, () => {
         for (const cascade of this.cascades) {
-          // Clear foam history targets
-          const clear = simulationMaterial(
-            {},
-            'void main() { gl_FragColor = vec4(0.0); }',
-            PASS_VERTEX_GLSL,
-          );
-          try {
-            this.pass!.run(this.renderer, clear, cascade.normals[0]);
-            this.pass!.run(this.renderer, clear, cascade.normals[1]);
-            cascade.normalIndex = 0;
-          } finally {
-            disposeMaterial(clear);
-          }
+          clearFoamTargets(this.pass!, this.renderer, cascade.normals);
+          cascade.normalIndex = 0;
         }
       });
     }

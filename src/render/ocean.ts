@@ -155,6 +155,28 @@ export function islandShoreUniforms(
   return { a: pack(0), b: pack(1), c: pack(2) };
 }
 
+/** Snap a following tile so the tessellation grid does not crawl every frame. */
+export function snappedFollowPosition(
+  currentX: number,
+  currentZ: number,
+  x: number,
+  z: number,
+  cellMetres: number,
+  hysteresis = 1.5,
+): { x: number; z: number } {
+  const cell = Math.max(0.25, cellMetres);
+  const snapX = Math.round(x / cell) * cell;
+  const snapZ = Math.round(z / cell) * cell;
+  if (
+    !Number.isFinite(currentX) ||
+    !Number.isFinite(currentZ) ||
+    Math.hypot(snapX - currentX, snapZ - currentZ) > cell * hysteresis
+  ) {
+    return { x: snapX, z: snapZ };
+  }
+  return { x: currentX, z: currentZ };
+}
+
 const commonGlsl = /* glsl */ `
 float hash21(vec2 p) {
   p = fract(p * vec2(127.1, 311.7));
@@ -457,10 +479,12 @@ void main() {
   float crest = uSpectral > 0.5
     ? spectralDisp.y / max(0.35 + heightScale, 0.001)
     : pos.y / max(heightScale * 0.85, 0.001);
-  float crestBand = smoothstep(0.55, 0.9, crest) * (1.0 - smoothstep(0.9, 1.2, crest));
+  float crestBand = uSpectral > 0.5
+    ? smoothstep(0.78, 0.96, crest) * (1.0 - smoothstep(0.98, 1.25, crest))
+    : smoothstep(0.55, 0.9, crest) * (1.0 - smoothstep(0.9, 1.2, crest));
   float breakNoise = sin(vWorldPos.x * 1.4 + uTime * 1.8) * sin(vWorldPos.z * 1.1 - uTime * 1.3);
   float cascadeFoam = uSpectral > 0.5 ? oceanFoam(flatXZ) : 0.0;
-  vFoam = max(crestBand * (0.18 + 0.45 * step(0.35, breakNoise)), cascadeFoam * 0.08);
+  vFoam = max(crestBand * (0.18 + 0.45 * step(0.35, breakNoise)), cascadeFoam * 0.045);
   vCrest = clamp(crest * 0.5 + 0.5, 0.0, 1.0);
 
   gl_Position = projectionMatrix * viewMatrix * world;
@@ -581,8 +605,12 @@ void main() {
   // Beer-Lambert absorption from true water-column depth.
   float absorbCoeff = mix(0.045, 0.14, clamp(uAbsorption, 0.0, 1.0));
   float absorb = 1.0 - exp(-depth * absorbCoeff);
-  vec3 turquoise = vec3(0.12, 0.78, 0.82);
-  vec3 shallow = mix(uShallowColor * 1.05, turquoise, smoothstep(0.0, 5.0, depth) * 0.55);
+  vec3 turquoise = uSpectral > 0.5 ? vec3(0.10, 0.68, 0.66) : vec3(0.12, 0.78, 0.82);
+  vec3 shallow = mix(
+    uShallowColor * (uSpectral > 0.5 ? 0.96 : 1.05),
+    turquoise,
+    smoothstep(0.0, 5.0, depth) * 0.62
+  );
   vec3 deep = mix(uDeepColor * 1.05, uDeepColor * 0.72, smoothstep(6.0, 18.0, depth));
   vec3 water = mix(shallow, deep, absorb);
 
@@ -590,18 +618,22 @@ void main() {
   float clarity = clamp(uClarity, 0.0, 1.0);
   float seeFloor = exp(-depth * mix(0.55, 0.22, clarity));
   if (uSpectral > 0.5) {
-    seeFloor *= smoothstep(0.6, 2.8, depth) * 0.45;
+    // Keep a thin-film cutoff so 0 m water is not dry sand, but island shelves show.
+    seeFloor *= smoothstep(0.0, 0.45, depth);
   }
-  water = mix(water, mix(water, uSandColor * 0.92, 0.55), seeFloor * (uSpectral > 0.5 ? 0.35 : 0.85));
+  water = mix(water, mix(water, uSandColor * 0.92, 0.55), seeFloor * (uSpectral > 0.5 ? 0.88 : 0.85));
 
   // Shallow caustic veins.
   float caus = caustic(vFlat, uTime) * seeFloor * uCaustics;
   water += vec3(0.9, 1.0, 0.95) * caus * (uSpectral > 0.5 ? 0.12 : 0.35);
 
-  // Reflective sky / metalness-like film (CheapWater look).
-  vec3 skyReflect = mix(uSkyColor * 0.85, vec3(0.78, 0.92, 1.0), fresnel);
-  water = mix(water, skyReflect, 0.18 + fresnel * 0.55);
+  // Reflective sky film. Spectral leans on planar HDR reflection, not a teal overlay.
+  vec3 skyHi = uSpectral > 0.5 ? mix(uSkyColor, vec3(0.86, 0.91, 0.96), 0.35) : vec3(0.78, 0.92, 1.0);
+  vec3 skyReflect = mix(uSkyColor * 0.85, skyHi, fresnel);
+  float skyFilm = uSpectral > 0.5 ? (0.02 + fresnel * 0.34) : (0.18 + fresnel * 0.55);
+  water = mix(water, skyReflect, skyFilm);
 
+  float hullLidPunch = 0.0;
   if (uOpticsEnabled > 0.5) {
     vec3 body = water;
     vec4 reflectClip = uReflectionMatrix * vec4(vWorldPos, 1.0);
@@ -623,18 +655,24 @@ void main() {
     viewPos /= max(viewPos.w, 1e-4);
     vec4 sceneWorld = uCameraWorld * viewPos;
     float column = max(0.0, vWorldPos.y - sceneWorld.y);
+    hullLidPunch = depthValid * smoothstep(0.12, 1.6, column) * (1.0 - smoothstep(16.0, 32.0, column));
     float opticsAbsorb = 1.0 - exp(-column * absorbCoeff);
     refracted = mix(refracted, body, opticsAbsorb * 0.72);
-    water = mix(refracted, reflected, fresnel);
+    float opticsMix = uSpectral > 0.5 ? fresnel * 0.62 : fresnel;
+    water = mix(refracted, reflected, opticsMix);
   }
 
   vec3 L = normalize(uSunDir);
   float ndotl = max(dot(N, L), 0.0);
   water += uSunColor * ndotl * 0.07;
   float spec = pow(max(dot(reflect(-L, N), V), 0.0), 160.0);
-  water += uSunColor * spec * (0.55 + fresnel * 1.05);
+  water += uSunColor * spec * (uSpectral > 0.5 ? (0.38 + fresnel * 0.75) : (0.55 + fresnel * 1.05));
   float glitter = pow(max(dot(reflect(-L, normalize(vWorldNormal + N * 0.35)), V), 0.0), 36.0);
-  water += uSunColor * glitter * 0.14;
+  water += uSunColor * glitter * (uSpectral > 0.5 ? 0.10 * (1.0 - overhead * 0.75) : 0.14);
+  if (uSpectral > 0.5) {
+    vec3 nadirTeal = mix(water, vec3(0.04, 0.36, 0.48), 0.38);
+    water = mix(nadirTeal, water, fresnel);
+  }
 
   // ---- Shore foam (ragged lip + wash) + crest whitecaps + wake foam ----
   float foamT = uTime * uFoamSpeed;
@@ -659,9 +697,10 @@ void main() {
   float shoreFoam = clamp((lip * 1.15 + wash * 0.7 + caps * 0.85) * uShoreFoam, 0.0, 1.0);
   float crestFoam = vFoam * uFoamAmount * (0.35 + 0.35 * sin(vWorldPos.x * 2.2 + uTime * 2.5));
   crestFoam += length(ripple.xy) * 0.08 * uRippleStrength;
-  float foamMask = clamp(max(shoreFoam, crestFoam), 0.0, 1.0) * vCoverage;
+  float ragged = uSpectral > 0.5 ? smoothstep(0.32, 0.78, fField) : 1.0;
+  float foamMask = clamp(max(shoreFoam, crestFoam * ragged), 0.0, 1.0) * vCoverage;
   vec3 foamCol = vec3(0.92, 0.96, 0.97) * (0.9 + 0.12 * fField);
-  float foamMix = uSpectral > 0.5 ? 0.35 : 0.9;
+  float foamMix = uSpectral > 0.5 ? 0.05 : 0.9;
   water = mix(water, foamCol, foamMask * foamMix);
 
   float alphaDown = mix(0.34, 0.24, clarity);
@@ -677,19 +716,27 @@ void main() {
   water *= mix(1.0, 0.42, under);
   water += vec3(0.05, 0.22, 0.2) * caus * under * 0.55;
   if (uSpectral > 0.5) {
-    foamMask = clamp(foamMask + abs(vCrest - 0.5) * 0.08 * uFoamAmount, 0.0, 1.0);
-    water = mix(water, foamCol, foamMask * 0.14 * (1.0 - under));
+    water = mix(water, foamCol, foamMask * 0.04 * (1.0 - under) * (1.0 - overhead));
   }
   alpha = mix(alpha, mix(0.78, 0.94, absorb), under);
   float lookDown = smoothstep(0.15, 0.85, overhead);
-  alpha *= mix(1.0, 0.72, lookDown * (1.0 - under));
+  if (uSpectral > 0.5) {
+    // Nadir used to punch through to the HDR sky (milky tactical). Keep a dense Caribbean body.
+    vec3 shelf = mix(vec3(0.03, 0.48, 0.56), mix(uSandColor * 0.55, vec3(0.14, 0.62, 0.52), 0.55), seeFloor);
+    water = mix(water, shelf, lookDown * 0.55 * (1.0 - under));
+    float lid = mix(0.58, 0.74, absorb);
+    alpha = mix(alpha, lid, lookDown * (1.0 - under));
+    alpha *= mix(1.0, 0.36, hullLidPunch * lookDown * (1.0 - under));
+  } else {
+    alpha *= mix(1.0, 0.72, lookDown * (1.0 - under));
+  }
   if (vCoverage < 0.02) discard;
   alpha *= vCoverage;
   alpha = clamp(alpha, 0.05, 0.94);
 
   float dist = length(cameraPosition - vWorldPos);
   float fogFactor = 1.0 - exp(-uFogDensity * dist * 0.35);
-  water = mix(water, uFogColor, clamp(fogFactor, 0.0, 0.22));
+  water = mix(water, uFogColor, clamp(fogFactor, 0.0, uSpectral > 0.5 ? 0.10 : 0.22));
 
   gl_FragColor = vec4(water, alpha);
 }
@@ -867,16 +914,16 @@ export class Ocean {
     u.uDeepColor.value.copy(hexToVec3(ocean.deepColor));
     u.uShallowColor.value.copy(hexToVec3(ocean.shallowColor));
     u.uSandColor.value.copy(hexToVec3(sandColorHex));
-    u.uFoamAmount.value = ocean.foamAmount * this.foamScale;
+    const spectral = (u.uSpectral?.value as number) > 0.5;
+    u.uFoamAmount.value = ocean.foamAmount * this.foamScale * (spectral ? 0.28 : 1);
     // Map look-dev foam slider into shore foam without losing the shoreline stack.
-    u.uShoreFoam.value = (0.45 + ocean.foamAmount * 2.8) * this.foamScale;
+    u.uShoreFoam.value = (0.45 + ocean.foamAmount * 2.8) * this.foamScale * (spectral ? 0.28 : 1);
     this.setReadability(ocean.clarity, ocean.absorption);
     u.uFogDensity.value = fogDensity;
     u.uFogColor.value.set(fogColor.r, fogColor.g, fogColor.b);
     u.uSunDir.value.copy(sunDir);
     u.uSunColor.value.set(sunColor.r, sunColor.g, sunColor.b);
     u.uSkyColor.value.set(skyColor.r, skyColor.g, skyColor.b);
-    const spectral = (u.uSpectral?.value as number) > 0.5;
     u.uOverlays.value = spectral ? 1 : 3;
     u.uRippleStrength.value = spectral ? 1.4 : 3.6;
     this.ripples.update(dt);
@@ -900,8 +947,17 @@ export class Ocean {
   }
 
   follow(x: number, z: number): void {
-    this.mesh.position.x = x;
-    this.mesh.position.z = z;
+    const cell = this.size / Math.max(1, this.segments);
+    const next = snappedFollowPosition(
+      this.mesh.position.x,
+      this.mesh.position.z,
+      x,
+      z,
+      Math.max(12, cell * 4),
+      1.6,
+    );
+    this.mesh.position.x = next.x;
+    this.mesh.position.z = next.z;
   }
 
   bindSpectralMaps(maps: SpectralMapBind | null): void {

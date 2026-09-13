@@ -8,7 +8,14 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const defaultManifestPath = resolve(__dirname, '../../config/fleet-source-manifest.json');
 
-const REQUIRED_ENTITY_FIELDS = ['input', 'targetLengthM', 'licenseId', 'source', 'license', 'usage'];
+const REQUIRED_ENTITY_FIELDS = [
+  'input',
+  'targetLengthM',
+  'licenseId',
+  'source',
+  'license',
+  'usage',
+];
 /** Entity keys become `${kind}.glb` under outputDir — no path separators or traversal. */
 export const SAFE_ENTITY_KIND = /^[A-Za-z0-9_-]+$/;
 
@@ -28,7 +35,10 @@ export function isPathInside(parent, child) {
  * @param {string} [manifestPath]
  * @param {string} [repoRoot]
  */
-export function loadManifest(manifestPath = defaultManifestPath, repoRoot = resolve(__dirname, '../..')) {
+export function loadManifest(
+  manifestPath = defaultManifestPath,
+  repoRoot = resolve(__dirname, '../..'),
+) {
   if (!existsSync(manifestPath)) {
     throw new Error(`fleet source manifest missing at ${manifestPath}`);
   }
@@ -54,7 +64,10 @@ export function resolveStagedInput(manifest, repoRoot, inputRel) {
  * @param {string} [manifestPath]
  * @param {string} [repoRoot]
  */
-export function validateFleetSourceManifest(manifestPath = defaultManifestPath, repoRoot = resolve(__dirname, '../..')) {
+export function validateFleetSourceManifest(
+  manifestPath = defaultManifestPath,
+  repoRoot = resolve(__dirname, '../..'),
+) {
   const errors = [];
   const entities = [];
 

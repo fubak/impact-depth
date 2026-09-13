@@ -2,14 +2,23 @@ import { describe, expect, it } from 'vitest';
 import { parseRuntimeSelection } from '../../src/core/runtime-selection';
 
 describe('parseRuntimeSelection', () => {
-  it('defaults to gerstner, legacy-v1, high with no params', () => {
+  it('defaults to spectral, legacy-v1, high with no params', () => {
     expect(parseRuntimeSelection('')).toEqual({
-      ocean: 'gerstner',
+      ocean: 'spectral',
       world: 'legacy-v1',
       quality: 'high',
       qualityForced: false,
       diagnostics: [],
     });
+  });
+
+  it('keeps spectral when ocean param is omitted but other params exist', () => {
+    expect(parseRuntimeSelection('?world=legacy-v1&quality=high').ocean).toBe('spectral');
+    expect(parseRuntimeSelection('?world=legacy-v1&quality=high').qualityForced).toBe(true);
+  });
+
+  it('selects gerstner only when asked', () => {
+    expect(parseRuntimeSelection('?ocean=gerstner').ocean).toBe('gerstner');
   });
 
   it('accepts explicit spectral + littoral-v2 + medium', () => {

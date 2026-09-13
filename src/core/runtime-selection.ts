@@ -20,10 +20,13 @@ export function parseRuntimeSelection(search: string): RuntimeSelection {
   const diagnostics: string[] = [];
 
   const oceanRaw = params.get('ocean');
-  let ocean: OceanBackendName = 'gerstner';
+  let ocean: OceanBackendName = 'spectral';
   if (oceanRaw) {
     if (OCEANS.has(oceanRaw as OceanBackendName)) ocean = oceanRaw as OceanBackendName;
-    else diagnostics.push(`unknown ocean=${oceanRaw}; using gerstner`);
+    else {
+      ocean = 'gerstner';
+      diagnostics.push(`unknown ocean=${oceanRaw}; using gerstner`);
+    }
   }
 
   const worldRaw = params.get('world');

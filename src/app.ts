@@ -30,7 +30,7 @@ import { worldMetersToSim } from './game/sim/coords';
 import { GameAudio } from './game/audio/audio';
 import type { GameState, Point } from './game/sim/types';
 import { InputController } from './input/controls';
-import { resolveWorldClick } from './input/world-click';
+import { canPlotFromView, resolveWorldClick } from './input/world-click';
 import { CameraRig } from './render/cameras';
 import { RendererHost } from './render/renderer';
 import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-selection';
@@ -192,6 +192,14 @@ export class App {
     return this.scene.environment.getDiagnostics();
   }
 
+  getOutdoorLightingDiagnostics() {
+    return this.scene.getOutdoorLightingDiagnostics();
+  }
+
+  getAudioDiagnostics() {
+    return this.audio.getDiagnostics();
+  }
+
   getPerformanceProbe() {
     return {
       quality: this.activeQuality,
@@ -206,6 +214,7 @@ export class App {
           this.game.countermeasures.length,
       },
       environment: this.getEnvironmentDiagnostics(),
+      outdoorLighting: this.getOutdoorLightingDiagnostics(),
       graphics: this.renderer.getPerformanceDiagnostics(),
     };
   }
@@ -336,11 +345,6 @@ export class App {
 
   private handleWorldInteraction(button: 0 | 2, clientX: number, clientY: number): void {
     if (this.game.phase !== 'playing') return;
-    if (button === 2) {
-      this.game = fireWeapon(this.game);
-      this.sim = adaptToLookDevSim(this.game);
-      return;
-    }
     const canvas = $('scene') as HTMLCanvasElement;
     const rect = canvas.getBoundingClientRect();
     const raycaster = this.cameras.setPickRay(clientX, clientY, rect);
@@ -352,22 +356,40 @@ export class App {
       this.cameras.camera,
     );
     const decision = resolveWorldClick(rayHit, screenProximate);
+    if (button === 2) {
+      if (decision.action === 'select') {
+        this.game = updateGame(
+          this.game,
+          [{ type: 'selectTarget', id: decision.id }, { type: 'fireWeapon' }],
+          0,
+        );
+      } else {
+        const point = this.pickWaterSimPoint(clientX, clientY, rect);
+        if (!point) return;
+        this.game = updateGame(
+          this.game,
+          [{ type: 'setAimPoint', point }, { type: 'fireWeapon' }],
+          0,
+        );
+      }
+      this.sim = adaptToLookDevSim(this.game);
+      return;
+    }
     if (decision.action === 'select') {
       this.select(decision.id);
       return;
     }
-    const point = this.pickWaterSimPoint(raycaster);
+    if (!canPlotFromView(this.game.viewMode)) return;
+    const point = this.pickWaterSimPoint(clientX, clientY, rect);
     if (!point) return;
     this.plot(point.x, point.y);
   }
 
   /** Intersect the active camera ray with the y=0 sea plane, then convert to sim coords. */
-  private pickWaterSimPoint(raycaster: THREE.Raycaster): Point | null {
-    const hit = new THREE.Vector3();
-    const sea = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    if (!raycaster.ray.intersectPlane(sea, hit)) return null;
-    const sim = worldMetersToSim(hit.x, hit.z);
-    return snapToNavigable(this.game, sim);
+  private pickWaterSimPoint(clientX: number, clientY: number, rect: DOMRect): Point | null {
+    const hit = this.cameras.intersectWaterPlane(clientX, clientY, rect);
+    if (!hit) return null;
+    return snapToNavigable(this.game, worldMetersToSim(hit.x, hit.z));
   }
 
   private changeView(mode: ViewMode): void {

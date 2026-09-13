@@ -1,7 +1,7 @@
 # Plan 018 finish gaps — machine close + browser visual proof
 
 Date: 2026-09-12  
-Status: **READY TO EXECUTE**  
+Status: **MACHINE COMPLETE — operator STOP** (O1–O3 PENDING; defaults unchanged)  
 Parent: [018-realism-upgrade-execution.md](018-realism-upgrade-execution.md)  
 Authority: [AGENTS.md](../AGENTS.md) — one plan per session; do **not** self-approve operator GPU/lighting/fleet/production gates; do **not** flip defaults until the operator records ACCEPT.
 
@@ -285,21 +285,23 @@ npm run test:fps -- "http://127.0.0.1:8082/?ocean=spectral&world=littoral-v2&qua
 
 ## 7. Completion checklist
 
-- [ ] W1-A foam machine visual PASS (images inspected)
-- [ ] W1-B resource-cycles.json green
-- [ ] W1-C fps-bench authoritative/casual split documented + verified
-- [ ] W1-D four-combo matrix tooling works
-- [ ] W1-E foliage improved (images inspected)
-- [ ] W2-A optics machine visual PASS
-- [ ] W2-B caustics/effects machine visual PASS
-- [ ] W3 hitch-final: 0 frames >100 ms
-- [ ] W3 full matrix PNGs inspected line-by-line in report
-- [ ] W3 `verify` + format + asset validators green
-- [ ] Docs/state/README/§11 updated honestly
-- [ ] Operator accept doc ready with PENDING markers
-- [ ] Defaults unchanged until operator ACCEPT (then tiny activation + bare-URL regression)
+- [x] W1-A foam machine visual PASS (images inspected)
+- [x] W1-B resource-cycles.json green
+- [x] W1-C fps-bench authoritative/casual split documented + verified
+- [x] W1-D four-combo matrix tooling works
+- [x] W1-E foliage improved (images inspected)
+- [x] W2-A optics machine visual PASS
+- [x] W2-B caustics/effects machine visual PASS — map follow-square closed via altitude fade; chase still peri-depth so bed pattern is not a hero receiver shot (operator lighting)
+- [x] W3 hitch-final: 0 frames >100 ms
+- [x] W3 full matrix PNGs inspected line-by-line in report
+- [x] W3 `verify` + asset validators green; `format:check` PASS
+- [x] Docs/state/README/§11 updated honestly
+- [x] Operator accept doc ready with PENDING markers
+- [x] Defaults unchanged until operator ACCEPT (then tiny activation + bare-URL regression)
 
 Writing this plan completes none of these checkboxes.
+
+**Honesty notes (2026-09-13):** W1-A honeycomb closed on spectral tactical/storm after Tessendorf lambda cut. Spectral **map** follow-square was projected detail caustics, not FFT foam; closed by fading receivers above ~70–120 m camera height. `format:check` PASS. Operator GPU ≥55 / lighting / fleet **not** self-approved. Defaults unchanged.
 
 ---
 

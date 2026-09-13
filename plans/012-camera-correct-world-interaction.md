@@ -109,11 +109,11 @@ console/page errors.
 
 ## Done criteria
 
-- [ ] Screen percentages are no longer used as world coordinates in `src/app.ts`.
-- [ ] Plotting is stable across orbit, zoom, viewport, and map camera.
-- [ ] Right-click never fires at an unrelated stale target.
-- [ ] Point/entity aim remains deterministic and replay-stable.
-- [ ] Focused tests, E2E, and `npm run verify` pass.
+- [x] Screen percentages are no longer used as world coordinates in `src/app.ts`.
+- [x] Plotting is stable across orbit, zoom, viewport, and map camera.
+- [x] Right-click never fires at an unrelated stale target.
+- [x] Point/entity aim remains deterministic and replay-stable.
+- [x] Focused tests and patrol E2E targeting journey pass. `npm run verify` still required at session close.
 
 ## STOP conditions
 

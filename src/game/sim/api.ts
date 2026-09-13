@@ -81,11 +81,15 @@ export const selectTarget = (state: GameState, id: string): GameState =>
     : state;
 export const clearEngagement = (state: GameState): GameState =>
   stepGame(state, [{ type: 'selectTarget', id: null }], 0);
+export const setAimPoint = (state: GameState, point: Point | null): GameState =>
+  stepGame(state, [{ type: 'setAimPoint', point }], 0);
 export const detachCamera = (): ApiResult => ({ ok: false, reason: 'not_implemented' });
 export const deployCountermeasure = (state: GameState): GameState =>
   stepGame(state, [{ type: 'deployBubble' }], 0);
-export const fireWeapon = (state: GameState): GameState =>
-  stepGame(state, [{ type: 'fireWeapon' }], 0);
+export const fireWeapon = (state: GameState, aimPoint?: Point): GameState =>
+  aimPoint
+    ? stepGame(state, [{ type: 'setAimPoint', point: aimPoint }, { type: 'fireWeapon' }], 0)
+    : stepGame(state, [{ type: 'fireWeapon' }], 0);
 export const sonarPulse = (state: GameState): GameState =>
   stepGame(state, [{ type: 'sonarPulse' }], 0);
 export const updateGame = (

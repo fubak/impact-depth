@@ -55,7 +55,9 @@ if (flags.validate) {
   );
   if (flags.dryRun) {
     for (const entity of validation.entities) {
-      console.log(`would import ${entity.kind} ← ${entity.inputRel} → models/v2/${entity.kind}.glb`);
+      console.log(
+        `would import ${entity.kind} ← ${entity.inputRel} → models/v2/${entity.kind}.glb`,
+      );
     }
   }
   process.exit(0);
@@ -118,7 +120,8 @@ function ensureRootWrapper(document) {
 }
 
 function applyWorldMatrix(node, matrix) {
-  const current = node.getMatrix()?.length === 16 ? Float32Array.from(node.getMatrix()) : identity();
+  const current =
+    node.getMatrix()?.length === 16 ? Float32Array.from(node.getMatrix()) : identity();
   node.setMatrix(Array.from(mulMat4(matrix, current)));
 }
 
@@ -243,7 +246,10 @@ writeFileSync(
   resolve(reportDir, 'import-report-v2.json'),
   JSON.stringify({ credits: [...creditsById.values()], report, failures }, null, 2),
 );
-writeFileSync(resolve(reportDir, 'credits-v2.json'), JSON.stringify([...creditsById.values()], null, 2));
+writeFileSync(
+  resolve(reportDir, 'credits-v2.json'),
+  JSON.stringify([...creditsById.values()], null, 2),
+);
 
 if (failures.length) {
   console.error(`import finished with ${failures.length} failure(s)`);

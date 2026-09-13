@@ -8,11 +8,13 @@ import { sampleLittoralBedMetres } from '../game/world/littoral';
 import { worldCacheKey } from '../game/world/definition';
 import { normalizedBedToMetres, packWorldHeightTexture } from './environment/terrain-texture';
 import {
+  DEFAULT_SUB_HULL_HEIGHT_M,
   entityDepthY,
-  metersToEntityY,
   simToWorldMeters,
   SURFACE_SPLASH_Y,
+  visualKeelY,
 } from './presentation/coordinates';
+import { hullHeightY } from './hull-fit';
 import {
   VesselAttitudeSmoother,
   attitudeSpanForKind,
@@ -154,8 +156,7 @@ export class GameScene {
     });
     this.scene.add(this.islands.group);
 
-    // Stable transform shell; mesh children appear only after asset preload settles
-    // so there is no procedural → glTF flash on the player boat.
+    // Stable transform shell; procedural mesh mounts immediately, then glTF hot-swaps.
     this.sub = new THREE.Group();
     this.sub.name = 'player-submarine';
     this.sub.userData.pickId = 'player';
@@ -178,6 +179,7 @@ export class GameScene {
     this.scene.add(this.surfaceEffects.group);
     this.caustics.attachToObject(this.seabed.mesh, 'seabed');
     this.caustics.attachToObject(this.islands.group, 'rock');
+    this.mountPlayerMesh();
     excludeFromWaterCapture(this.surfaceEffects.group);
     const gerstner = new GerstnerBackend(this.ocean);
     this.environment = new EnvironmentController({
@@ -302,7 +304,7 @@ export class GameScene {
         }
       });
     });
-    const playerSub = wrapWithLod(detail, this.assets.getLodDistances());
+    const playerSub = wrapWithLod(detail, this.assets.getLodDistances(), { neverCull: true });
     playerSub.userData.pickId = 'player';
     this.sub.clear();
     this.sub.add(playerSub);
@@ -311,6 +313,7 @@ export class GameScene {
     this.sub.userData.assetSource = gltf ? 'gltf' : 'procedural';
     this.sub.userData.hasLod = true;
     this.sub.visible = true;
+    this.sub.userData.hullHeight = hullHeightY(this.sub);
     this.caustics.attachToObject(this.sub, 'hull');
   }
 
@@ -543,6 +546,8 @@ export class GameScene {
 
   /** CheapWater ripple normals — must run with the same camera as the main pass. */
   preRenderWater(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+    camera.updateMatrixWorld();
+    this.scene.updateMatrixWorld(true);
     const backend = this.environment.current;
     if (backend instanceof GerstnerBackend || backend instanceof SpectralBackend) {
       backend.bindPassTargets(renderer, camera);
@@ -744,11 +749,12 @@ export class GameScene {
   private resolveEntityMesh(kind: AssetEntity, classScale = 1): THREE.Group {
     const gltf = this.assets.clone(kind);
     const detail = gltf ?? this.createFallback(kind);
-    const mesh = wrapWithLod(detail, this.assets.getLodDistances());
+    const mesh = wrapWithLod(detail, this.assets.getLodDistances(), { neverCull: true });
     mesh.scale.setScalar(classScale);
     mesh.userData.classScale = classScale;
     mesh.userData.assetKind = kind;
     mesh.userData.assetSource = gltf ? 'gltf' : 'procedural';
+    mesh.userData.hullHeight = hullHeightY(mesh);
     return mesh;
   }
 
@@ -878,20 +884,26 @@ export class GameScene {
     const poses = this.consumeVesselAttitudes(sim, dt);
     const playerPose = poses.get('player');
     const seabedY = sampleSeabedY(v.x, v.z);
-    // Probe heave replaces the old spectral 1.28 multiplier. GPU samples never
-    // write GameState; missing/stale probes use look-dev fallback heave.
-    const rawSubY = metersToEntityY(v.depth) + (playerPose?.presentationY ?? v.heave);
-    // Keep the hull above the bathymetry mesh at every depth order.
-    const subY = Math.max(rawSubY, seabedY + 1.6);
+    // Depth sets the waterline. CPU look-dev heave is a few centimetres; GPU
+    // probe height is not applied as altitude (it threw hulls metres off the sea).
+    const hullHeight =
+      (this.sub.userData.hullHeight as number | undefined) ?? DEFAULT_SUB_HULL_HEIGHT_M;
+    const lift = playerPose?.presentationY ?? v.heave;
+    const rawSubY =
+      visualKeelY(v.depth, hullHeight) + (Number.isFinite(lift) ? lift : 0);
+    const floor = Number.isFinite(seabedY) ? seabedY + 0.45 : Number.NEGATIVE_INFINITY;
+    const subY = Number.isFinite(rawSubY) ? Math.max(rawSubY, floor) : visualKeelY(v.depth, hullHeight);
     this.sub.position.set(v.x, subY, v.z);
     this.sub.rotation.order = 'YXZ';
     this.sub.rotation.y = -v.heading;
     const pitchGain = v.depth < 4 ? 1 : 0.35;
-    this.sub.rotation.x = (playerPose?.pitch ?? v.pitch) * pitchGain;
-    this.sub.rotation.z = (playerPose?.roll ?? v.roll) * pitchGain;
+    const pitch = playerPose?.pitch ?? v.pitch;
+    const roll = playerPose?.roll ?? v.roll;
+    this.sub.rotation.x = (Number.isFinite(pitch) ? pitch : 0) * pitchGain;
+    this.sub.rotation.z = (Number.isFinite(roll) ? roll : 0) * pitchGain;
 
     const peri = sim.viewMode === 'periscope';
-    // Hide the shell until preload mounts a mesh (avoids empty shell + procedural flash).
+    // Procedural hull stays visible until glTF hot-swaps after preload.
     this.sub.visible = this.sub.userData.assetSource !== 'pending';
     this.sub.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
@@ -902,7 +914,9 @@ export class GameScene {
           material instanceof THREE.MeshStandardMaterial ||
           material instanceof THREE.MeshBasicMaterial
         ) {
-          material.transparent = peri || v.depth > 4;
+          // Only the periscope camera ghosts the hull. Tactical depth > 4 used to
+          // flip transparent every order change and the boat vanished against water.
+          material.transparent = peri;
           material.opacity = peri ? 0.35 : 1;
           material.depthWrite = !peri;
           if ('emissiveIntensity' in material) {
@@ -966,13 +980,24 @@ export class GameScene {
       const submerged = ship.kind === 'uboat' ? Math.max(ship.depth, 8) : 0;
       const pose = poses.get(ship.id);
       const heave = pose?.presentationY ?? ship.heave;
-      const shipY = submerged > 0 ? -submerged + heave * 0.12 : heave;
-      entity.mesh.position.set(ship.x, shipY, ship.z);
+      const hullHeight =
+        (entity.mesh.userData.hullHeight as number | undefined) ?? DEFAULT_SUB_HULL_HEIGHT_M;
+      const lift = Number.isFinite(heave) ? heave : 0;
+      const shipY =
+        submerged > 0 ? visualKeelY(submerged, hullHeight) + lift * 0.12 : lift;
+      entity.mesh.position.set(ship.x, Number.isFinite(shipY) ? shipY : 0, ship.z);
       entity.mesh.rotation.order = 'YXZ';
-      entity.mesh.rotation.set(pose?.pitch ?? ship.pitch, -ship.heading, pose?.roll ?? ship.roll);
+      const pitch = pose?.pitch ?? ship.pitch;
+      const roll = pose?.roll ?? ship.roll;
+      entity.mesh.rotation.set(
+        Number.isFinite(pitch) ? pitch : 0,
+        -ship.heading,
+        Number.isFinite(roll) ? roll : 0,
+      );
       entity.mesh.visible = true;
       entity.mesh.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
+        object.frustumCulled = false;
         const materials = Array.isArray(object.material) ? object.material : [object.material];
         for (const material of materials) {
           if (material instanceof THREE.MeshStandardMaterial && submerged > 0) {
@@ -1103,7 +1128,7 @@ export class GameScene {
     if (v.depth > 0.6) {
       this.lastEffectSubmerged.push({
         x: v.x,
-        y: metersToEntityY(v.depth),
+        y: visualKeelY(v.depth, hullHeight),
         z: v.z,
         speed: v.speed,
       });
@@ -1112,7 +1137,7 @@ export class GameScene {
       if (ship.kind !== 'uboat') continue;
       this.lastEffectSubmerged.push({
         x: ship.x,
-        y: metersToEntityY(Math.max(ship.depth, 8)),
+        y: visualKeelY(Math.max(ship.depth, 8), DEFAULT_SUB_HULL_HEIGHT_M),
         z: ship.z,
         speed: ship.speed,
       });

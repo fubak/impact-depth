@@ -312,28 +312,13 @@ uniform sampler2D uInput;
 uniform float uGain;
 void main() {
   vec4 field = texelFetch(uInput, ivec2(gl_FragCoord.xy), 0);
-  float chop = min(1.15, pow(uGain, .75)) * 0.72;
+  float chop = min(0.72, pow(uGain, .75)) * 0.40;
   gl_FragColor = vec4(field.b * chop, field.r * uGain, field.a * chop, 1.0);
 }
 `;
 
-export const SPECTRUM_DERIVE_GLSL = /* glsl */ `
-uniform sampler2D uDisplacement, uPrevious;
-uniform float uSize, uLength, uDelta, uFoamStorm;
-void main() {
-  vec2 uv = gl_FragCoord.xy / uSize, texel = vec2(1.0 / uSize, 0.0);
-  vec3 dx = (texture2D(uDisplacement, uv + texel.xy).xyz - texture2D(uDisplacement, uv - texel.xy).xyz) * uSize / (2.0 * uLength);
-  vec3 dz = (texture2D(uDisplacement, uv + texel.yx).xyz - texture2D(uDisplacement, uv - texel.yx).xyz) * uSize / (2.0 * uLength);
-  vec3 n = cross(vec3(dz.x, dz.y, 1.0 + dz.z), vec3(1.0 + dx.x, dx.y, dx.z));
-  n *= inversesqrt(max(dot(n, n), 1e-12));
-  vec2 slope = clamp(-n.xz / max(.25, n.y), vec2(-4.0), vec2(4.0));
-  float jacobian = (1.0 + dx.x) * (1.0 + dz.z) - dx.z * dz.x;
-  float previous = texture2D(uPrevious, uv - vec2(1.9, .8) * uDelta / uLength).b;
-  float breaking = smoothstep(.42, .72, 1.0 - jacobian);
-  float foam = max(previous * exp(-uDelta * mix(.72,.45,uFoamStorm)), breaking * 0.55);
-  gl_FragColor = vec4(slope, foam, dot(slope, slope));
-}
-`;
+/** Foam derive pass — single source of truth lives in `foam.ts`. */
+export { FOAM_DERIVE_GLSL as SPECTRUM_DERIVE_GLSL } from './foam';
 
 /** Displacement / slope sampling. Cascade tile lengths are uniforms, not world size. */
 export const SPECTRUM_SAMPLE_GLSL = /* glsl */ `

@@ -101,7 +101,7 @@ duplicate scene entities or errors.
 
 **Verify:** delayed-load integration test passes and renderer entity counts remain bounded.
 
-**Status 2026-08-04:** PARTIAL — readiness + player gate + contact refresh landed; dedicated delayed-response browser test still open.
+**Status 2026-09-13:** DONE for machine path — player mounts procedural immediately, GLBs hot-swap; `npm run test:e2e:assets` holds `models/v2/*.glb`, asserts procedural play, then glTF without duplicate pick ids.
 
 ### Step 5: Run visual acceptance by vessel class
 
@@ -118,10 +118,10 @@ ranges. HTTP 200 or loader success is not visual acceptance.
 - [x] Validator covers every kind, budget, and provenance field (bounds optional grace).
 - [x] No changed model is published under an old immutable path (`models/v2`).
 - [x] Every class has a distinct accepted GLB **or** documented pack (operator may still waive quality).
-- [ ] Existing fallback entities hot-swap safely after delayed preload (**browser test remaining**).
+- [x] Existing fallback entities hot-swap safely after delayed preload (`npm run test:e2e:assets`).
 - [x] Missing assets remain playable through procedural fallbacks.
 - [ ] Operator visual capture and accept/waive ledger.
-- [ ] Build, unit tests, E2E, visual capture, and asset validation pass on a clean post-015 tree (re-run at close).
+- [ ] Full `npm run verify` + operator silhouette accept still required to close 015.
 
 ## STOP conditions
 

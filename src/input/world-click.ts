@@ -1,8 +1,17 @@
+import type { ViewMode } from '../core/types';
+
 /**
  * World-click targeting. Empty water plots a waypoint even when a ship is
  * close in world space. Selection requires an actual hit or screen-proximate
  * contact. Mean-sea-plane picking and HUD gating stay with the caller.
  */
+
+const WATER_PLOT_VIEWS: ReadonlySet<ViewMode> = new Set(['tactical', 'free', 'map']);
+
+/** Left-click water orders are only comprehensible in tactical, free, and map. */
+export function canPlotFromView(mode: ViewMode): boolean {
+  return WATER_PLOT_VIEWS.has(mode);
+}
 
 export type WorldClickDecision =
   | { readonly action: 'select'; readonly id: string }

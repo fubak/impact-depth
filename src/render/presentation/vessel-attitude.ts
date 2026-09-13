@@ -2,12 +2,13 @@
  * Presentation-only vessel waterline attitude.
  *
  * GPU surface probes never enter GameState, AI, collision, damage, sonar, RNG,
- * or replay. Late / missing / stale samples fall back to the look-dev CPU
- * attitude already on the render snapshot (`adaptToLookDevSim`).
+ * or replay. Stale probes hold the last GPU pose instead of snapping to CPU
+ * Gerstner; only a long gap falls back to look-dev (`adaptToLookDevSim`).
  *
  * Fitted hulls keep their model waterline offset (`fitPresentationHull` sits
- * the keel at y=0). Probe heave is added on top of that offset; it does not
- * replace it.
+ * the keel at y=0). GPU probes drive pitch/roll only. Vertical heave stays on
+ * the CPU look-dev sample so a bad FFT texel cannot throw the fleet off the
+ * waterline.
  */
 
 export type FootprintSite = 'center' | 'bow' | 'stern' | 'port' | 'starboard';
@@ -21,11 +22,15 @@ export const FOOTPRINT_SITES: readonly FootprintSite[] = [
 ];
 
 /** Seconds a probe may lag the presentation clock before we drop it. */
-export const ATTITUDE_MAX_LATENCY = 0.35;
+export const ATTITUDE_MAX_LATENCY = 0.6;
+/** Hold the last GPU pose instead of snapping to CPU Gerstner while readback is late. */
+export const ATTITUDE_HOLD_SECONDS = 1.25;
 /** Seconds of held-velocity extrapolation while a readback is in flight. */
 export const ATTITUDE_MAX_EXTRAPOLATION = 0.08;
 /** Exponential damping rate (1/s). `1 - exp(-k*dt)` is frame-rate independent. */
-export const ATTITUDE_DAMPING = 8;
+export const ATTITUDE_DAMPING = 5;
+/** Clamp spectral probe heave so a bad texel cannot throw the hull. */
+export const ATTITUDE_MAX_HEAVE = 2.5;
 /** Depth (m) at which surface attitude is fully attenuated. */
 export const ATTITUDE_SUBMERGE_METRES = 9;
 
@@ -77,6 +82,7 @@ interface SmootherState {
   pose: AttitudeSample;
   velocity: AttitudeSample;
   lastTime: number;
+  lastGoodProbeTime: number | null;
   source: AttitudeSource;
 }
 
@@ -84,6 +90,18 @@ const ZERO_POSE: AttitudeSample = { heave: 0, pitch: 0, roll: 0 };
 
 export function clamp(value: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, value));
+}
+
+function finiteOr(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function sanitizeAttitude(sample: AttitudeSample): AttitudeSample {
+  return {
+    heave: clamp(finiteOr(sample.heave, 0), -ATTITUDE_MAX_HEAVE, ATTITUDE_MAX_HEAVE),
+    pitch: clamp(finiteOr(sample.pitch, 0), -0.45, 0.45),
+    roll: clamp(finiteOr(sample.roll, 0), -0.5, 0.5),
+  };
 }
 
 /** 1 at the surface, 0 once `depth >= ATTITUDE_SUBMERGE_METRES`. */
@@ -129,7 +147,7 @@ export function addAttitudes(a: AttitudeSample, b: AttitudeSample): AttitudeSamp
 export function attitudeFromFootprint(footprint: FootprintHeights): AttitudeSample {
   const span = Math.max(0.5, footprint.span);
   return {
-    heave: footprint.center,
+    heave: clamp(footprint.center, -ATTITUDE_MAX_HEAVE, ATTITUDE_MAX_HEAVE),
     pitch: Math.atan2(footprint.bow - footprint.stern, span * 2),
     roll: Math.atan2(footprint.starboard - footprint.port, span * 1.2),
   };
@@ -145,6 +163,15 @@ export function footprintFromSamples(
   const port = samples.port;
   const starboard = samples.starboard;
   if (!center || !bow || !stern || !port || !starboard) return null;
+  if (
+    !Number.isFinite(center.height) ||
+    !Number.isFinite(bow.height) ||
+    !Number.isFinite(stern.height) ||
+    !Number.isFinite(port.height) ||
+    !Number.isFinite(starboard.height)
+  ) {
+    return null;
+  }
   return {
     center: center.height,
     bow: bow.height,
@@ -242,17 +269,34 @@ export class VesselAttitudeSmoother {
   }
 
   update(input: VesselAttitudeInput): VesselAttitudeResult {
-    const blend = submergenceAttenuation(input.depth);
-    const fallback = scaleAttitude(input.fallback, 1);
+    const blend = submergenceAttenuation(finiteOr(input.depth, 0));
+    const fallback = sanitizeAttitude(scaleAttitude(input.fallback, 1));
     const heights = input.footprint ? footprintFromSamples(input.footprint, footprintSpanFrom(input)) : null;
     const freshness = probeFreshness(input.probeTime, input.now);
-    const rawProbe = heights ? scaleAttitude(attitudeFromFootprint(heights), blend) : null;
+    const rawProbe = heights ? sanitizeAttitude(scaleAttitude(attitudeFromFootprint(heights), blend)) : null;
     const useProbe = Boolean(rawProbe && freshness.usable);
-    const target = useProbe && rawProbe ? rawProbe : fallback;
-    const source: AttitudeSource = useProbe ? 'probe' : 'fallback';
 
     const prev = this.states.get(input.entityId);
-    const dt = Math.max(0, input.dt);
+    const dt = Number.isFinite(input.dt) ? Math.max(0, input.dt) : 1 / 60;
+    let target: AttitudeSample;
+    let source: AttitudeSource;
+    let lastGoodProbeTime = prev?.lastGoodProbeTime ?? null;
+    if (useProbe && rawProbe) {
+      target = { heave: fallback.heave, pitch: rawProbe.pitch, roll: rawProbe.roll };
+      source = 'probe';
+      lastGoodProbeTime = input.now;
+    } else if (
+      prev?.source === 'probe' &&
+      lastGoodProbeTime !== null &&
+      input.now - lastGoodProbeTime < ATTITUDE_HOLD_SECONDS
+    ) {
+      target = { heave: fallback.heave, pitch: prev.pose.pitch, roll: prev.pose.roll };
+      source = 'probe';
+    } else {
+      target = fallback;
+      source = 'fallback';
+    }
+
     let current: AttitudeSample;
     if (!prev) {
       current = target;
@@ -263,22 +307,25 @@ export class VesselAttitudeSmoother {
       current = dampAttitude(prev.pose, target, dt);
     }
 
+    current = sanitizeAttitude(current);
     const velocity = prev ? poseVelocity(prev.pose, current, Math.max(dt, 1 / 120)) : ZERO_POSE;
     this.states.set(input.entityId, {
       pose: current,
       velocity,
       lastTime: input.now,
+      lastGoodProbeTime,
       source,
     });
 
+    const waterline = finiteOr(input.waterlineOffset, 0);
     return {
       heave: current.heave,
-      pitch: clamp(current.pitch, -0.45, 0.45),
-      roll: clamp(current.roll, -0.5, 0.5),
+      pitch: current.pitch,
+      roll: current.roll,
       source,
       // Heave is already submergence-attenuated (probe) or pre-damped (look-dev
       // fallback). Only add the fitted waterline offset here.
-      presentationY: input.waterlineOffset + current.heave,
+      presentationY: waterline + current.heave,
     };
   }
 }

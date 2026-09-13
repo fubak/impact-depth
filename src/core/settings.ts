@@ -23,8 +23,8 @@ export const DEFAULT_SETTINGS: LookDevSettings = {
   },
   environment: {
     sandColor: '#c8b57a',
-    foliageColor: '#4aa05c',
-    rockColor: '#889888',
+    foliageColor: '#243e2c',
+    rockColor: '#6a6e62',
   },
   presentation: {
     hudOpacity: 0.92,
@@ -62,7 +62,7 @@ export const PRESETS: Record<PresetId, LookDevSettings> = {
     },
     environment: {
       sandColor: '#cbb882',
-      foliageColor: '#318048',
+        foliageColor: '#2a5c34',
       rockColor: '#5a6a56',
     },
     presentation: {

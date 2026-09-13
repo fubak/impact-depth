@@ -1,42 +1,76 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GameAudio } from '../../src/game/audio/audio';
-import type { GameState } from '../../src/game/sim/types';
+import manifest from '../../public/assets/manifest.json';
+import { GameAudio, mapEngineMix } from '../../src/game/audio/audio';
+import type { GamePhase, GameState } from '../../src/game/sim/types';
+
+const shippedWavs = Object.keys(import.meta.glob('../../public/assets/audio/*.wav', { eager: true })).map(
+  (path) => path.replace(/^.*\//, ''),
+);
+
+type Automation = {
+  value: number;
+  setValueAtTime: ReturnType<typeof vi.fn>;
+  linearRampToValueAtTime: ReturnType<typeof vi.fn>;
+  exponentialRampToValueAtTime: ReturnType<typeof vi.fn>;
+};
 
 type MockNode = {
-  type?: OscillatorType;
-  frequency: { value: number };
+  kind?: 'gain' | 'buffer' | 'oscillator' | 'biquad';
+  type?: OscillatorType | BiquadFilterType;
+  frequency: Automation;
+  playbackRate: Automation;
   buffer: AudioBuffer | null;
   loop: boolean;
-  gain: {
-    value: number;
-    setValueAtTime: ReturnType<typeof vi.fn>;
-    linearRampToValueAtTime: ReturnType<typeof vi.fn>;
-    exponentialRampToValueAtTime: ReturnType<typeof vi.fn>;
-  };
+  gain: Automation;
   connect: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
   destination?: MockNode;
 };
 
-function createMockGain(): MockNode['gain'] {
+function createAutomation(value = 0): Automation {
   return {
-    value: 0,
+    value,
     setValueAtTime: vi.fn(),
     linearRampToValueAtTime: vi.fn(),
     exponentialRampToValueAtTime: vi.fn(),
   };
 }
 
-function createPlayingState(): GameState {
+function createPlayingState(
+  overrides: { phase?: GamePhase; speed?: number; maxSpeed?: number } = {},
+): GameState {
   return {
-    phase: 'playing',
+    phase: overrides.phase ?? 'playing',
     torpedoes: [],
     countermeasures: [],
     sonarPing: 0,
     stats: { shipsSunk: 0, powerupsTaken: 0 },
-    submarine: { hp: 100, speed: 0 },
+    submarine: { hp: 100, speed: overrides.speed ?? 0, maxSpeed: overrides.maxSpeed ?? 2.4 },
   } as unknown as GameState;
+}
+
+function walksToBiquad(node: MockNode): boolean {
+  let current: MockNode | undefined = node;
+  const seen = new Set<MockNode>();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current.kind === 'biquad') return true;
+    current = current.destination;
+  }
+  return false;
+}
+
+function engineLoopSources(nodes: MockNode[]): MockNode[] {
+  return nodes.filter(
+    (node) => node.start.mock.calls.length > 0 && walksToBiquad(node),
+  );
+}
+
+function lastRampTarget(param: Automation): number | undefined {
+  const calls = param.linearRampToValueAtTime.mock.calls;
+  if (calls.length === 0) return undefined;
+  return calls[calls.length - 1]?.[0] as number;
 }
 
 function installAudioMocks() {
@@ -53,10 +87,12 @@ function installAudioMocks() {
     decodeAudioData: vi.fn(async () => ({ duration: 2 }) as AudioBuffer),
     createGain: vi.fn(() => {
       const node: MockNode = {
-        frequency: { value: 0 },
+        kind: 'gain',
+        frequency: createAutomation(),
+        playbackRate: createAutomation(1),
         buffer: null,
         loop: false,
-        gain: createMockGain(),
+        gain: createAutomation(),
         connect: vi.fn(function (this: MockNode, target: MockNode) {
           this.destination = target;
           return target;
@@ -69,10 +105,12 @@ function installAudioMocks() {
     }),
     createBufferSource: vi.fn(() => {
       const node: MockNode = {
-        frequency: { value: 0 },
+        kind: 'buffer',
+        frequency: createAutomation(),
+        playbackRate: createAutomation(1),
         buffer: null,
         loop: false,
-        gain: createMockGain(),
+        gain: createAutomation(),
         connect: vi.fn(function (this: MockNode, target: MockNode) {
           this.destination = target;
           return target;
@@ -85,11 +123,32 @@ function installAudioMocks() {
     }),
     createOscillator: vi.fn(() => {
       const node: MockNode = {
+        kind: 'oscillator',
         type: 'sine',
-        frequency: { value: 0 },
+        frequency: createAutomation(),
+        playbackRate: createAutomation(1),
         buffer: null,
         loop: false,
-        gain: createMockGain(),
+        gain: createAutomation(),
+        connect: vi.fn(function (this: MockNode, target: MockNode) {
+          this.destination = target;
+          return target;
+        }),
+        start: vi.fn(),
+        stop: vi.fn(),
+      };
+      nodes.push(node);
+      return node;
+    }),
+    createBiquadFilter: vi.fn(() => {
+      const node: MockNode = {
+        kind: 'biquad',
+        type: 'lowpass',
+        frequency: createAutomation(),
+        playbackRate: createAutomation(1),
+        buffer: null,
+        loop: false,
+        gain: createAutomation(),
         connect: vi.fn(function (this: MockNode, target: MockNode) {
           this.destination = target;
           return target;
@@ -164,6 +223,14 @@ describe('GameAudio', () => {
   it('constructs without a WebAudio context and defaults to unmuted', () => {
     const audio = new GameAudio();
     expect(audio.isMuted).toBe(false);
+    expect(audio.getDiagnostics()).toEqual({
+      unlocked: false,
+      muted: false,
+      contextState: 'none',
+      banksLoaded: 0,
+      ambientUsingFallback: false,
+      engineUsingFallback: false,
+    });
   });
 
   it('setMuted toggles isMuted without requiring unlock()', () => {
@@ -268,5 +335,197 @@ describe('GameAudio bank readiness', () => {
     await mocks.flushLoads(audio);
     expect(mocks.context.createOscillator).toHaveBeenCalled();
     expect(mocks.context.createBufferSource).not.toHaveBeenCalled();
+  });
+});
+
+describe('mapEngineMix', () => {
+  it('keeps playback rate, filter, and gain inside bounded ranges', () => {
+    for (const speed of [-2, 0, 0.4, 1.2, 2.4, 12]) {
+      const mix = mapEngineMix(speed, 2.4);
+      expect(mix.playbackRate).toBeGreaterThanOrEqual(0.5);
+      expect(mix.playbackRate).toBeLessThanOrEqual(1.6);
+      expect(mix.filterHz).toBeGreaterThanOrEqual(80);
+      expect(mix.filterHz).toBeLessThanOrEqual(2000);
+      expect(mix.gain).toBeGreaterThanOrEqual(0);
+      expect(mix.gain).toBeLessThanOrEqual(0.25);
+    }
+  });
+
+  it('raises rate, filter cutoff, and gain as submarine speed increases', () => {
+    const idle = mapEngineMix(0, 2.4);
+    const flank = mapEngineMix(2.4, 2.4);
+    expect(flank.playbackRate).toBeGreaterThan(idle.playbackRate);
+    expect(flank.filterHz).toBeGreaterThan(idle.filterHz);
+    expect(flank.gain).toBeGreaterThan(idle.gain);
+  });
+});
+
+describe('GameAudio continuous engine layer', () => {
+  let mocks: ReturnType<typeof installAudioMocks>;
+
+  beforeEach(() => {
+    mocks = installAudioMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('starts one synthesized engine loop while playing when the bank is absent', () => {
+    const audio = new GameAudio();
+    audio.unlock();
+    audio.observe(createPlayingState());
+
+    const loops = engineLoopSources(mocks.nodes);
+    expect(loops).toHaveLength(1);
+    expect(loops[0]?.kind).toBe('oscillator');
+    expect(mocks.context.createBiquadFilter).toHaveBeenCalledTimes(1);
+  });
+
+  it('loops a single authored engine.wav bed once the bank is ready', async () => {
+    mocks.loadBankImmediately('engine');
+    const audio = new GameAudio();
+    audio.unlock();
+    await audio.settleBankLoad('engine');
+    audio.observe(createPlayingState({ speed: 1.2 }));
+
+    const loops = engineLoopSources(mocks.nodes);
+    expect(loops).toHaveLength(1);
+    expect(loops[0]?.kind).toBe('buffer');
+    expect(loops[0]?.loop).toBe(true);
+    expect(loops[0]?.playbackRate.value).toBeGreaterThanOrEqual(0.5);
+    expect(loops[0]?.playbackRate.value).toBeLessThanOrEqual(1.6);
+  });
+
+  it('maps speed into bounded ramps without replacing the engine bed', async () => {
+    mocks.loadBankImmediately('engine');
+    const audio = new GameAudio();
+    audio.unlock();
+    await audio.settleBankLoad('engine');
+    audio.observe(createPlayingState({ speed: 0 }));
+    const [bed] = engineLoopSources(mocks.nodes);
+    expect(bed).toBeDefined();
+
+    audio.observe(createPlayingState({ speed: 2.2 }));
+
+    expect(bed?.stop).not.toHaveBeenCalled();
+    expect(engineLoopSources(mocks.nodes).filter((node) => node.stop.mock.calls.length === 0)).toHaveLength(
+      1,
+    );
+
+    const filter = mocks.nodes.find((node) => node.kind === 'biquad');
+    const engineGain = filter?.destination;
+    const rateTarget = lastRampTarget(bed!.playbackRate) ?? bed!.playbackRate.value;
+    const filterTarget = lastRampTarget(filter!.frequency) ?? filter!.frequency.value;
+    const gainTarget = lastRampTarget(engineGain!.gain) ?? engineGain!.gain.value;
+    expect(rateTarget).toBeGreaterThanOrEqual(0.5);
+    expect(rateTarget).toBeLessThanOrEqual(1.6);
+    expect(filterTarget).toBeGreaterThanOrEqual(80);
+    expect(filterTarget).toBeLessThanOrEqual(2000);
+    expect(gainTarget).toBeGreaterThanOrEqual(0);
+    expect(gainTarget).toBeLessThanOrEqual(0.25);
+  });
+
+  it('plays speed-change chatter without stopping the engine loop', () => {
+    const audio = new GameAudio();
+    audio.unlock();
+    audio.observe(createPlayingState({ speed: 0 }));
+    const [bed] = engineLoopSources(mocks.nodes);
+    const startedBefore = mocks.nodes.filter((node) => node.start.mock.calls.length > 0).length;
+
+    audio.observe(createPlayingState({ speed: 1.6 }));
+
+    expect(bed?.stop).not.toHaveBeenCalled();
+    expect(engineLoopSources(mocks.nodes)).toHaveLength(1);
+    expect(mocks.nodes.filter((node) => node.start.mock.calls.length > 0).length).toBeGreaterThan(
+      startedBefore,
+    );
+  });
+
+  it('stops the engine loop on mute and restarts a single loop after unmute', () => {
+    const audio = new GameAudio();
+    audio.unlock();
+    audio.observe(createPlayingState());
+    const [first] = engineLoopSources(mocks.nodes);
+    expect(first).toBeDefined();
+
+    audio.setMuted(true);
+    expect(first?.stop).toHaveBeenCalled();
+    expect(engineLoopSources(mocks.nodes).filter((node) => node.stop.mock.calls.length === 0)).toHaveLength(
+      0,
+    );
+
+    audio.setMuted(false);
+    audio.observe(createPlayingState({ speed: 0.8 }));
+    expect(engineLoopSources(mocks.nodes).filter((node) => node.stop.mock.calls.length === 0)).toHaveLength(
+      1,
+    );
+  });
+
+  it('stops the engine loop on result and dispose', () => {
+    const audio = new GameAudio();
+    audio.unlock();
+    audio.observe(createPlayingState());
+    const [bed] = engineLoopSources(mocks.nodes);
+    expect(bed).toBeDefined();
+
+    audio.observe(createPlayingState({ phase: 'gameover' }));
+    expect(bed?.stop).toHaveBeenCalled();
+
+    const audio2 = new GameAudio();
+    audio2.unlock();
+    audio2.observe(createPlayingState());
+    const [live] = engineLoopSources(mocks.nodes).filter((node) => node.stop.mock.calls.length === 0);
+    audio2.dispose();
+    expect(live?.stop).toHaveBeenCalled();
+  });
+
+  it('crossfades the synthesized engine bed to the decoded bank without stacking loops', async () => {
+    mocks.deferBank('engine');
+    const audio = new GameAudio();
+    audio.unlock();
+    audio.observe(createPlayingState({ speed: 0.9 }));
+    const [fallback] = engineLoopSources(mocks.nodes);
+    expect(fallback?.kind).toBe('oscillator');
+
+    mocks.resolveBank('engine');
+    await audio.settleBankLoad('engine');
+
+    expect(fallback?.stop).toHaveBeenCalled();
+    const live = engineLoopSources(mocks.nodes).filter((node) => node.stop.mock.calls.length === 0);
+    expect(live).toHaveLength(1);
+    expect(live[0]?.kind).toBe('buffer');
+    expect(live[0]?.loop).toBe(true);
+  });
+});
+
+describe('audio bank ledger', () => {
+  it('records provenance and fallback/production status for every shipped WAV', () => {
+    expect(shippedWavs.length).toBeGreaterThan(0);
+    expect(manifest.audioBanks).toBeDefined();
+
+    for (const wav of shippedWavs) {
+      const key = wav.replace(/\.wav$/, '');
+      const entry = manifest.audioBanks[key as keyof typeof manifest.audioBanks];
+      expect(entry, `${wav} missing audioBanks ledger entry`).toBeDefined();
+      expect(entry.file).toBe(`audio/${wav}`);
+      expect(entry.creator.length).toBeGreaterThan(0);
+      expect(entry.source.length).toBeGreaterThan(0);
+      expect(entry.license.length).toBeGreaterThan(0);
+      expect(entry.cue.length).toBeGreaterThan(0);
+      expect(entry.durationSec).toBeGreaterThan(0);
+      expect(entry.status === 'fallback-generated' || entry.status === 'production-accepted').toBe(true);
+    }
+  });
+
+  it('does not mark synthesized fallback banks as production-accepted', () => {
+    const banks = Object.values(manifest.audioBanks);
+    expect(banks.length).toBeGreaterThan(0);
+    for (const entry of banks) {
+      expect(entry.status).toBe('fallback-generated');
+    }
+    const audioLicense = manifest.licenseLedger.find((item) => item.id === 'procedural-audio-banks-v1');
+    expect(audioLicense).toBeDefined();
+    expect((audioLicense?.usage ?? '').toLowerCase()).toContain('fallback');
   });
 });

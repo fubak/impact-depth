@@ -86,25 +86,109 @@ function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return geometry;
 }
 
+/** Tapered palm frond ribbon: width shrinks toward the tip with droop and twist. */
+function makePalmFrond(
+  length: number,
+  baseWidth: number,
+  tipWidth: number,
+  droop: number,
+  twist: number,
+  widthSegments = 6,
+): THREE.BufferGeometry {
+  const frond = new THREE.PlaneGeometry(length, baseWidth, widthSegments, 2);
+  frond.translate(length * 0.5, 0, 0);
+  const pos = frond.getAttribute('position') as THREE.BufferAttribute;
+  for (let v = 0; v < pos.count; v++) {
+    const x = pos.getX(v);
+    let y = pos.getY(v);
+    let z = pos.getZ(v);
+    const along = Math.max(0, Math.min(1, x / length));
+    const width = baseWidth * (1 - along) + tipWidth * along;
+    y = (y / baseWidth) * width - droop * along * along + 0.12 * Math.sin(along * Math.PI);
+    z *= Math.sin(Math.PI * along) * (0.28 + 0.72 * (1 - along));
+    const midrib = Math.exp(-((y / (width * 0.5 + 0.01)) ** 2)) * 0.05 * (1 - along);
+    z += midrib;
+    const twistAngle = twist * along;
+    const cosT = Math.cos(twistAngle);
+    const sinT = Math.sin(twistAngle);
+    pos.setY(v, y * cosT - z * sinT);
+    pos.setZ(v, y * sinT + z * cosT);
+  }
+  return frond;
+}
+
+function groundCoverGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const blobs: [number, number, number, number][] = [
+    [0, 0, 0, 0.55],
+    [0.16, 0.04, -0.11, 0.48],
+    [-0.13, 0.02, 0.12, 0.42],
+  ];
+  for (let i = 0; i < blobs.length; i++) {
+    const [ox, oy, oz, radius] = blobs[i]!;
+    const blob = new THREE.IcosahedronGeometry(radius, 1);
+    blob.scale(1.15 + i * 0.12, 0.38 + i * 0.07, 0.92 + i * 0.08);
+    blob.translate(ox, 0.34 + oy, oz);
+    const pos = blob.getAttribute('position') as THREE.BufferAttribute;
+    for (let v = 0; v < pos.count; v++) {
+      const nudge = (hash2(v, i + 11) - 0.5) * 0.09;
+      pos.setX(v, pos.getX(v) + nudge);
+      pos.setY(v, pos.getY(v) * (0.92 + hash2(v + 3, i) * 0.12));
+      pos.setZ(v, pos.getZ(v) + nudge * 0.65);
+    }
+    parts.push(blob);
+  }
+  return merge(parts);
+}
+
+function grassClumpGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 4; i++) {
+    const angle = (i / 4) * Math.PI * 2 + 0.3;
+    const height = 0.52 + (i % 3) * 0.16;
+    const radius = 0.09 + (i % 2) * 0.035;
+    const blade = new THREE.ConeGeometry(radius, height, 4);
+    blade.translate(Math.cos(angle) * 0.1, height * 0.5, Math.sin(angle) * 0.1);
+    blade.rotateZ((hash2(i, 5) - 0.5) * 0.22);
+    blade.rotateX((hash2(i, 9) - 0.5) * 0.28);
+    blade.scale(1, 1, 0.72 + hash2(i, 13) * 0.35);
+    parts.push(blade);
+  }
+  return merge(parts);
+}
+
 /** Exported for geometry nondegeneracy tests. */
 export function palmCrownGeometry(): THREE.BufferGeometry {
-  const leaves: THREE.BufferGeometry[] = [];
-  for (let i = 0; i < 11; i++) {
-    const angle = (i / 11) * Math.PI * 2;
-    const length = 2.1 + (i % 3) * 0.18;
-    const leaf = new THREE.PlaneGeometry(length, 0.52, 5, 1);
-    leaf.translate(length * 0.5, 0, 0);
-    const pos = leaf.getAttribute('position') as THREE.BufferAttribute;
-    for (let v = 0; v < pos.count; v++) {
-      const along = Math.max(0, pos.getX(v)) / length;
-      pos.setY(v, -0.62 * along * along + 0.14 * Math.sin(along * Math.PI));
-      pos.setZ(v, pos.getZ(v) * Math.sin(Math.PI * along));
+  const parts: THREE.BufferGeometry[] = [];
+  const frondCount = 12;
+  for (let i = 0; i < frondCount; i++) {
+    const angle = (i / frondCount) * Math.PI * 2 + (i % 3) * 0.11;
+    const length = 1.92 + (i % 4) * 0.24 + (i % 2) * 0.07;
+    const droop = 0.52 + (i % 5) * 0.08;
+    const twist = 0.05 + (i % 4) * 0.055;
+    const pitch = -0.2 + (i % 3) * 0.05;
+    const frond = makePalmFrond(length, 0.56, 0.05, droop, twist, 7);
+    frond.rotateZ(pitch);
+    frond.rotateY(-angle);
+    frond.translate(0, 4.8 + (i % 3) * 0.06, 0);
+    parts.push(frond);
+    if (i % 2 === 0) {
+      const leaflet = makePalmFrond(length * 0.6, 0.34, 0.04, droop * 0.72, -twist * 0.55, 5);
+      leaflet.rotateZ(pitch + 0.14);
+      leaflet.rotateY(-angle + 0.17);
+      leaflet.translate(0, 4.76 + (i % 3) * 0.06, 0.09);
+      parts.push(leaflet);
     }
-    leaf.rotateY(-angle);
-    leaf.translate(0, 4.85 + (i % 2) * 0.07, 0);
-    leaves.push(leaf);
   }
-  return merge(leaves);
+  for (let i = 0; i < 5; i++) {
+    const angle = (i / 5) * Math.PI * 2 + 0.35;
+    const inner = makePalmFrond(1.15 + (i % 2) * 0.18, 0.4, 0.05, 0.22, 0.035, 4);
+    inner.rotateZ(0.38);
+    inner.rotateY(-angle);
+    inner.translate(0, 5.02, 0);
+    parts.push(inner);
+  }
+  return merge(parts);
 }
 
 function makeInstances(
@@ -118,11 +202,28 @@ function makeInstances(
   const color = new THREE.Color();
   placements.forEach(({ spec, item }, i) => {
     dummy.position.set(spec.cx + item.x, item.y, spec.cz + item.z);
-    dummy.rotation.set(0, item.rot, item.kind === 'palm' ? (hash2(i, spec.seed) - 0.5) * 0.08 : 0);
-    dummy.scale.setScalar(item.scale);
+    dummy.rotation.set(
+      0,
+      item.rot,
+      item.kind === 'palm'
+        ? (hash2(i, spec.seed) - 0.5) * 0.08
+        : (hash2(i, spec.seed + 1) - 0.5) * 0.14,
+    );
+    if (item.kind === 'palm') {
+      dummy.scale.setScalar(item.scale);
+    } else {
+      const sx = item.scale * (0.82 + hash2(i, spec.seed) * 0.36);
+      const sy =
+        item.scale *
+        (item.kind === 'canopy'
+          ? 0.88 + hash2(i + 2, spec.seed) * 0.38
+          : 0.52 + hash2(i + 2, spec.seed) * 0.38);
+      const sz = item.scale * (0.76 + hash2(i + 4, spec.seed) * 0.42);
+      dummy.scale.set(sx, sy, sz);
+    }
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
-    color.setHSL(0.31 + (hash2(i + 7, spec.seed) - 0.5) * 0.035, 0.42, 0.28 + hash2(i, spec.seed + 3) * 0.12);
+    color.setHSL(0.28 + (hash2(i + 7, spec.seed) - 0.5) * 0.03, 0.32, 0.22 + hash2(i, spec.seed + 3) * 0.1);
     mesh.setColorAt(i, color);
   });
   mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
@@ -165,20 +266,10 @@ export class VegetationField {
       specs,
       palms,
     );
-    const crowns = makeInstances(palmCrownGeometry(), windMaterial(0x397c45, 0.32), specs, palms);
-    const shrubs = makeInstances(
-      new THREE.IcosahedronGeometry(0.72, 1).scale(1.25, 0.55, 1.05).translate(0, 0.4, 0),
-      windMaterial(0x3f824a, 0.11),
-      specs,
-      ground,
-    );
+    const crowns = makeInstances(palmCrownGeometry(), windMaterial(0x2f6a3c, 0.32), specs, palms);
+    const shrubs = makeInstances(groundCoverGeometry(), windMaterial(0x355e38, 0.11), specs, ground);
     const grassPlacements = ground.filter((_, i) => i % 2 === 0);
-    const grass = makeInstances(
-      new THREE.ConeGeometry(0.24, 0.72, 5).translate(0, 0.34, 0),
-      windMaterial(0x609550, 0.2),
-      specs,
-      grassPlacements,
-    );
+    const grass = makeInstances(grassClumpGeometry(), windMaterial(0x4a7240, 0.2), specs, grassPlacements);
     this.meshes.push(trunks, crowns, shrubs, grass);
     this.group.add(...this.meshes);
     this.setQuality(this.quality);

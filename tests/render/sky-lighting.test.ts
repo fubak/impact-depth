@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
+import { pickSkyLightingSource } from '../../src/render/environment/sky-source';
 import { skyLightingSignature } from '../../src/render/environment/sky-lighting';
 
 function state(overrides: Partial<Parameters<typeof skyLightingSignature>[0]> = {}) {
@@ -27,5 +28,28 @@ describe('procedural sky lighting key', () => {
     expect(skyLightingSignature(state({ isNight: true }))).not.toBe(base);
     expect(skyLightingSignature(state({ cloudCoverage: 0.9 }))).not.toBe(base);
     expect(skyLightingSignature(state({ lightning: 1 }))).not.toBe(base);
+  });
+});
+
+describe('pickSkyLightingSource', () => {
+  it('uses hdr when the pack loaded and it is day', () => {
+    expect(pickSkyLightingSource({ hdrReady: true, hdrFailed: false, isNight: false })).toBe(
+      'hdr-pmrem',
+    );
+  });
+
+  it('stays procedural when the pack is missing or failed', () => {
+    expect(pickSkyLightingSource({ hdrReady: false, hdrFailed: false, isNight: false })).toBe(
+      'procedural-sky-pmrem',
+    );
+    expect(pickSkyLightingSource({ hdrReady: false, hdrFailed: true, isNight: false })).toBe(
+      'procedural-sky-pmrem',
+    );
+  });
+
+  it('does not use the noon HDR at night', () => {
+    expect(pickSkyLightingSource({ hdrReady: true, hdrFailed: false, isNight: true })).toBe(
+      'procedural-sky-pmrem',
+    );
   });
 });

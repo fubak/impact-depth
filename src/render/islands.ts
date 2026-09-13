@@ -77,9 +77,9 @@ function createIslandTerrainMaterial(): THREE.MeshStandardMaterial {
 function buildIslandGeometry(spec: IslandSpec, rings = 44, sectors = 64): THREE.BufferGeometry {
   const maxR = spec.radius * ISLAND_MESH_RADIUS_FACTOR;
   const sand = new THREE.Color(0xc8b57a);
-  const grass = new THREE.Color(0x3d8f52);
-  const rock = new THREE.Color(0x7a8a72);
-  const shelf = new THREE.Color(0x9aaa88);
+  const grass = new THREE.Color(0x243e2c);
+  const rock = new THREE.Color(0x6a6e62);
+  const shelf = new THREE.Color(0xb8a878);
   const tmp = new THREE.Color();
 
   const vertCount = 1 + rings * sectors;
@@ -113,7 +113,7 @@ function buildIslandGeometry(spec: IslandSpec, rings = 44, sectors = 64): THREE.
       tintIslandVertex(h, sand, grass, rock, shelf, tmp);
       const rimFade = Math.max(0, (rt - 0.88) / 0.12);
       if (rimFade > 0) {
-        tmp.lerp(new THREE.Color(0x7ab0a0), rimFade * 0.35);
+        tmp.lerp(new THREE.Color(0x8a9a70), rimFade * 0.28);
       }
       colors[i * 3] = tmp.r;
       colors[i * 3 + 1] = tmp.g;
@@ -172,9 +172,9 @@ export class IslandField {
       const foam = new THREE.Mesh(
         new THREE.RingGeometry(spec.radius * 0.78, spec.radius * 1.03, 64),
         new THREE.MeshBasicMaterial({
-          color: 0xeaf9ef,
+          color: 0xf2efe6,
           transparent: true,
-          opacity: 0.26,
+          opacity: 0.1,
           depthWrite: false,
           side: THREE.DoubleSide,
         }),

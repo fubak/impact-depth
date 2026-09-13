@@ -311,11 +311,7 @@ function createSurfaceShip(kind, config) {
       0.4,
       0.2,
     );
-    dome.position.set(
-      config.bridgeX,
-      deckY + config.bridgeHeight * 1.35 + 0.35,
-      0,
-    );
+    dome.position.set(config.bridgeX, deckY + config.bridgeHeight * 1.35 + 0.35, 0);
     group.add(dome);
   }
 
@@ -410,7 +406,13 @@ function createSubmarine(kind, scale = 1, options = {}) {
   body.scale.set(1, 0.86, 1);
   group.add(body);
 
-  const bow = mesh(new THREE.SphereGeometry(0.95, 14, 10), palette.hullLight, 'sonar_dome', 0.5, 0.16);
+  const bow = mesh(
+    new THREE.SphereGeometry(0.95, 14, 10),
+    palette.hullLight,
+    'sonar_dome',
+    0.5,
+    0.16,
+  );
   bow.scale.set(1.35, 0.78, 0.9);
   bow.position.set(7.1, -0.05, 0);
   group.add(bow);

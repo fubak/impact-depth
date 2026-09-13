@@ -13,6 +13,7 @@ import {
   peakOmega,
   samplePackedRgba,
   SPECTRUM_SAMPLE_GLSL,
+  SPECTRUM_PACK_GLSL,
   waveVector,
   type CascadeSpec,
 } from '../../src/render/ocean/spectrum';
@@ -138,6 +139,11 @@ describe('spectrum sampling GLSL', () => {
     expect(SPECTRUM_SAMPLE_GLSL).toContain('spectralDisplacement');
     expect(SPECTRUM_SAMPLE_GLSL).toContain('spectralSlope');
     expect(SPECTRUM_SAMPLE_GLSL).not.toContain('1100.0');
+  });
+
+  it('packs Tessendorf lambda below the folding threshold that makes honeycomb plates', () => {
+    expect(SPECTRUM_PACK_GLSL).toContain('min(0.72, pow(uGain, .75)) * 0.40');
+    expect(SPECTRUM_PACK_GLSL).not.toContain('min(1.15, pow(uGain, .75)) * 0.72');
   });
 });
 

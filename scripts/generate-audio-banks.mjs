@@ -4,11 +4,14 @@
  *
  * These are synthesized in-process from layered oscillators (sine/square/
  * triangle/sawtooth) and filtered noise bursts — nothing scraped or licensed
- * from third parties. Each cue combines a handful of sound sources (tonal
- * fundamental + harmonic + shaped noise) so authored playback sounds richer
+ * from third parties. Status is `fallback-generated` until an operator
+ * listening pass records `production-accepted` in `public/assets/manifest.json`
+ * (`audioBanks`). Each cue combines a handful of sound sources (tonal
+ * fundamental + harmonic + shaped noise) so decoded-bank playback is richer
  * than the single-oscillator WebAudio tone fallbacks in
  * `src/game/audio/audio.ts`, while still landing in the same pitch/duration
- * neighborhood so the fallback feels like a family member, not a mismatch.
+ * neighborhood so the oscillator fallback feels like a family member, not a
+ * mismatch. Do not label this output as accepted production audio.
  * Regenerate with `npm run audio:banks`.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -235,7 +238,7 @@ banks.push(
 );
 
 // engine.wav — loopable hum: three-harmonic tonal stack (~90-125Hz band, matching the
-// observe() engine blip range) with a slow amplitude throb and low-pass filtered rumble.
+// continuous engine-bed neighborhood) with a slow amplitude throb and low-pass rumble.
 banks.push(
   (() => {
     const taps = makeNoiseTaps(0x9e3d1a02, 0.15, 0.02);
@@ -291,7 +294,8 @@ banks.push(
       let glint = 0;
       for (const start of glintStarts) {
         const dt = t - start;
-        if (dt >= 0 && dt < 0.3) glint += sine(1400 + dt * 200, dt) * expDecay(dt, 0.25, 0.002) * 0.12;
+        if (dt >= 0 && dt < 0.3)
+          glint += sine(1400 + dt * 200, dt) * expDecay(dt, 0.25, 0.002) * 0.12;
       }
       return pad + wash + glint;
     });

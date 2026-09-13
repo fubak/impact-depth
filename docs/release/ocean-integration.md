@@ -23,13 +23,17 @@ Extracted symbols (not yet ported): `buildCoastalField`, `SpectralCascade`, `cre
 
 Three.js in the demo is `esm.sh/three@0.185.0`. HDR sky: Poly Haven _Kloofendal 48d Partly Cloudy (Pure Sky)_, CC0 1.0.
 
-**HDR staging skipped (CP6).** There is no local CC0 Kloofendal file in-tree. Do not download it, do not load `esm.sh`, and do not whitelist polyhaven.org. Production stays self-only (`RoomEnvironment` PMREM). `npm run assets:validate:ocean` exits 0 with `no environment pack` until a local file is staged under `public/assets/environment/v1/` with a license/hash manifest.
+**HDR pack (Plan 019).** Local CC0 1k file:
+
+`public/assets/environment/v1/kloofendal_48d_partly_cloudy_puresky_1k.hdr`
+
+with `manifest.json` (license CC0-1.0, SHA-256, Poly Haven provenance). Staging is a one-shot script (`npm run assets:stage:kloofendal` with `HDR_SOURCE` or `ALLOW_HDR_STAGE=1`). The game loads the same-origin public path only. Do not fetch Poly Haven or `esm.sh` at runtime; do not whitelist those origins. `npm run assets:validate:ocean` **fails** if the pack is missing or hash-mismatched.
+
+Empty URL ocean default is **spectral**. Rollback: `?ocean=gerstner`. World default remains **`legacy-v1`**.
 
 ## Architecture (current)
 
-Silent Depths owns the canvas, clock, and `updateGame` loop. `EnvironmentController` wraps an `EnvironmentBackend`. Checkpoint 1 wraps the existing Gerstner `Ocean` and does not install a second animation loop. Spectral activation is stubbed to fail closed onto Gerstner until checkpoint 3.
-
-World version remains `legacy-v1` until checkpoint 5. Default ocean remains Gerstner.
+Silent Depths owns the canvas, clock, and `updateGame` loop. `EnvironmentController` wraps an `EnvironmentBackend`. Spectral FFT is the empty-URL default; GPU init failure still fall-closes to Gerstner (`requestedBackend` stays spectral). `OutdoorLighting` binds local HDR → PMREM (`source: hdr-pmrem`) and fail-closes to procedural sky PMREM. Night stays procedural so the noon HDR does not light a night patrol.
 
 ### Presentation weather (CP6)
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { fitPresentationHull, hullLengthX, hullMinY } from '../../src/render/hull-fit';
+import { fitPresentationHull, hullHeightY, hullLengthX, hullMinY } from '../../src/render/hull-fit';
 
 describe('fitPresentationHull', () => {
   it('rotates a Z-long Kenney-style hull onto +X and sits the keel on y=0', () => {
@@ -11,6 +11,7 @@ describe('fitPresentationHull', () => {
     fitPresentationHull(root, 'freighter');
     expect(hullLengthX(root)).toBeCloseTo(26, 5);
     expect(hullMinY(root)).toBeCloseTo(0, 5);
+    expect(hullHeightY(root)).toBeGreaterThan(1.5);
     const box = new THREE.Box3().setFromObject(root);
     const size = box.getSize(new THREE.Vector3());
     expect(size.x).toBeGreaterThan(size.z);

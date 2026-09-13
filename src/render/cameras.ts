@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { SimState, ViewMode } from '../core/types';
 import { updateImmersion, type ImmersionState } from './presentation/immersion';
+import { DEFAULT_SUB_HULL_HEIGHT_M, visualKeelY } from './presentation/coordinates';
 
 /** Optional lock id is presentation-only; picking/commands stay on the mean sea plane. */
 export type CameraSimState = SimState & { selectedTargetId?: string | null };
@@ -32,6 +33,8 @@ export class CameraRig {
   private activeMode: ViewMode = 'tactical';
   readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
+  private readonly waterPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private readonly waterHit = new THREE.Vector3();
   private immersion: ImmersionState = { underwater: false, waterHeight: 0, eyeRelative: 0 };
 
   constructor(aspect: number) {
@@ -101,8 +104,9 @@ export class CameraRig {
     presentation?: CameraPresentation,
   ): void {
     const v = sim.vessel;
-    // Frame the hull itself; surface bias was hiding deep boats under the water sheet.
-    const hullY = -v.depth;
+    const visualY = visualKeelY(v.depth, DEFAULT_SUB_HULL_HEIGHT_M);
+    const hullY =
+      this.activeMode === 'periscope' || this.activeMode === 'sonar' ? -v.depth : visualY;
     this.target.set(v.x, hullY + 1.5, v.z);
 
     // Soft look bias toward convoy centroid for cinematic tactical framing
@@ -227,5 +231,15 @@ export class CameraRig {
     );
     this.raycaster.setFromCamera(this.ndc, this.camera);
     return this.raycaster;
+  }
+
+  /**
+   * Intersect the pick ray with the mean sea plane (Y=0).
+   * Reuses setPickRay plus instance Plane / Vector3 — no per-event allocations.
+   * Returns the scratch hit, or null when the ray is parallel or points away.
+   */
+  intersectWaterPlane(clientX: number, clientY: number, canvas: DOMRect): THREE.Vector3 | null {
+    this.setPickRay(clientX, clientY, canvas);
+    return this.raycaster.ray.intersectPlane(this.waterPlane, this.waterHit);
   }
 }

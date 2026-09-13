@@ -60,6 +60,13 @@ export function hullLengthX(root: THREE.Object3D): number {
   return _size.x;
 }
 
+export function hullHeightY(root: THREE.Object3D): number {
+  root.updateMatrixWorld(true);
+  _box.setFromObject(root);
+  _box.getSize(_size);
+  return Math.max(1.5, Number.isFinite(_size.y) ? _size.y : 1.5);
+}
+
 export function hullMinY(root: THREE.Object3D): number {
   root.updateMatrixWorld(true);
   _box.setFromObject(root);

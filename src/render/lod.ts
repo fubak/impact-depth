@@ -1,12 +1,21 @@
 import * as THREE from 'three';
 
 /** Attach multi-level LODs; `detail` becomes the near level (moved into the LOD). */
-/** Near / mid / cull. No box proxy — boxes read as “block ships” inside patrol range. */
+/** Near / mid. Empty far cull is opt-in — it made the patrol vanish inside camera range. */
 export const DEFAULT_LOD_DISTANCES: readonly [number, number, number] = [280, 900, 1600];
+
+export interface LodWrapOptions {
+  /**
+   * Player and contacts stay on a real mesh. An empty far LOD makes the whole
+   * patrol blink/vanish once the camera is ~280 m away (tactical orbit + map).
+   */
+  neverCull?: boolean;
+}
 
 export function wrapWithLod(
   detail: THREE.Object3D,
   distances: readonly [number, number, number] = DEFAULT_LOD_DISTANCES,
+  options?: LodWrapOptions,
 ): THREE.Group {
   const root = new THREE.Group();
   root.name = `${detail.name || 'entity'}-lod-root`;
@@ -16,15 +25,21 @@ export function wrapWithLod(
   const lod = new THREE.LOD();
   lod.name = 'entity-lod';
 
+  const near = distances[0] ?? DEFAULT_LOD_DISTANCES[0];
+  const cullAt = Math.max(distances[2] ?? DEFAULT_LOD_DISTANCES[2], near + 1);
+
   lod.addLevel(detail, 0);
 
   const mid = detail.clone(true);
   pruneForMidLod(mid);
-  lod.addLevel(mid, distances[0]);
+  // Hysteresis stops orbit/zoom from flipping detail/mid every frame.
+  lod.addLevel(mid, near, 0.25);
 
-  const cull = new THREE.Group();
-  cull.name = 'lod-cull';
-  lod.addLevel(cull, distances[1]);
+  if (options?.neverCull === false) {
+    const cull = new THREE.Group();
+    cull.name = 'lod-cull';
+    lod.addLevel(cull, cullAt, 0.2);
+  }
 
   root.add(lod);
   root.userData.lod = lod;
@@ -39,7 +54,7 @@ export function updateEntityLods(root: THREE.Object3D, camera: THREE.Camera): vo
 
 function pruneForMidLod(root: THREE.Object3D): void {
   const hideName =
-    /antenna|radar|ladder|boom|rail|window|searchlight|strap|fin|beacon|wheel|crate|liferaft|corner|nacelle|cockpit/i;
+    /antenna|radar|ladder|boom|searchlight|strap|liferaft|nacelle|cockpit/i;
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     if (hideName.test(object.name) || hideName.test(object.parent?.name ?? '')) {
