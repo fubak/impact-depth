@@ -153,4 +153,4 @@ For the next plan, replace the filename. Use `--continue` only to correct the cu
 
 ## Follow-up visual review — 2026-09-13
 
-[Plan 021: vessel motion corrections and reference parity](021-visual-correction-and-reference-parity.md) records the d75802f review and the A/B machine pass (shared surface evaluator, GPU heave, active-world bed, 10 Hz probes). Phases C–F remain. Do not self-approve GPU/visual ACCEPT.
+[Plan 021: vessel motion corrections and reference parity](021-visual-correction-and-reference-parity.md) machine A–F landed (`docs/release/plan-021-review.md`). Operator GPU/lighting/fleet/soak ACCEPT still pending.

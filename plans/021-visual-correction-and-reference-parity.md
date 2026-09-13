@@ -1,6 +1,6 @@
 # Plan 021 — Correct vessel motion and close the visual gap
 
-Status: **IN PROGRESS** — session 1 (phases A/B) on machine gates. Phases C–F not started. Operator visual/GPU ACCEPT still pending.
+Status: **IN PROGRESS (machine A–F landed)** — operator GPU/lighting/fleet/soak ACCEPT still pending. See `docs/release/plan-021-review.md`.
 Reviewed: 2026-09-13, impact-depth `d75802f` (latest fetched origin/master).
 Reference: [ocean-simulation](https://github.com/iamtechartist/ocean-simulation), pinned `3f756c128f7775f76e9fc7e93ad2f4e825df4354` (no newer origin/main commit at review).
 Visual sources: [reference demo](https://iamtechartist.github.io/ocean-simulation/) and [user video](https://x.com/bradshannon/status/2099202666521919787/video/1).
@@ -129,3 +129,7 @@ Fresh screenshot inspection: artifacts/plan-019/tactical-shallows.png confirms c
 Implemented: shared `oceanDisplacement` in GPU probes, CPU twin + 0.25 m tolerance, probe heave (no CPU/GPU mix), accepted-sample velocity, active-world bed clamp, 10 Hz cadence, spatial rejection keyed to hull origin, look-dev surface diagnostics, `scripts/look-021.mjs`.
 
 Verified: typecheck; `tests/render` 179 passed; production build (955 kB main). Headed capture at `http://127.0.0.1:8082/` wrote `artifacts/plan-021/` with `source: "probe"`, 10 Hz, 13 readbacks. Software-GL probe age was ~0.4 s (not GPU proof). Foam, pale hull, milky shallows remain for phases C–E. Committed as `3f5468c`.
+
+## Session F — 2026-09-13
+
+`npm run verify` green: 389 tests, lint, 958.77 kB main. Importer fixture validate restored by installing `@gltf-transform/functions@4.5.0`. Unused eslint-disable directives removed. Report: `docs/release/plan-021-review.md`. Operator GPU/lighting/fleet/soak still not self-approved.

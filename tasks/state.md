@@ -50,10 +50,10 @@ operator continues.
 | 0 Dirty-tree baseline                        | DONE — inventory + seed 19/77 10k-tick snapshots in `artifacts/plan-018/`        |
 | 1 Three r185 + Gerstner controller           | DONE — PCFShadowMap I1 fix; smoke/E2E green                                      |
 | 2 Versioned world + unit bridge              | DONE (machine) — 24 m depth, packed R32F bed mask                                |
-| 3 Spectral ocean in a real patrol            | DONE (machine) — storm honeycomb + map follow-square closed; opt-in only         |
+| 3 Spectral ocean in a real patrol            | DONE (machine) — empty-URL default spectral; rollback `?ocean=gerstner`          |
 | 4 Optics, cameras, vessel attitude           | DONE (machine) — peri/bridge reflections inspected; chase still peri-depth       |
 | 5 Littoral-v2 shared world                   | DONE (CPU) — `createGame(seed, world)`; opt-in `?world=littoral-v2`              |
-| 6 Terrain / foliage / weather / local assets | PARTIAL — fan palms inspected; no local HDR pack                                 |
+| 6 Terrain / foliage / weather / local assets | DONE (machine) — local HDR + 021 E foliage/rocks; operator lighting PENDING      |
 | 7 GPU bounds, lifecycle, fallback            | PARTIAL — hitch-final CLEAN (~75 FPS); 20× resource cycles; operator GPU PENDING |
 | 8 Operator accept + switch defaults          | PENDING — do not self-approve                                                    |
 
@@ -93,8 +93,8 @@ Recorded 2026-09-11. Do not treat SwiftShader captures as visual PASS.
 
 ## Agent next
 
-1. Plan 021 A/B machine work is in the working tree (uncommitted). Continue C–F only if the operator extends this milestone.
-2. 018 operator ACCEPT (`docs/release/plan-018-operator-accept.md`) still PENDING for GPU/lighting/fleet — do not self-approve; do **not** flip **world** default.
+1. Plan 021 machine A–F is committed. Operator GPU/lighting/fleet/soak ACCEPT still PENDING.
+2. 018 operator ACCEPT (`docs/release/plan-018-operator-accept.md`) still PENDING — do not self-approve; do **not** flip **world** default.
 3. Do not execute 013/016. 012/014/015 remain independent.
 
 ## Human next

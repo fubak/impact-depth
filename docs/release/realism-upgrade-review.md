@@ -9,13 +9,13 @@
 | Gate                                                | Result                                                                       |
 | --------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `npm run typecheck`                                 | PASS                                                                         |
-| `npm test` / `npm run verify`                        | PASS — 322 tests + lint + build (`index-kcmF1Rtl.js` ~934 KB)               |
+| `npm test` / `npm run verify`                       | PASS — 322 tests + lint + build (`index-kcmF1Rtl.js` ~934 KB)                |
 | `npm run assets:validate` / `assets:validate:ocean` | PASS                                                                         |
 | `npm run format:check`                              | PASS                                                                         |
-| Spectral hitch-final (Cursor browser, 12 s Flank) | CLEAN — ~75 FPS, p95 13.5 ms, max 13.7 ms, 0 frames >100 ms; RTX 4070 Ti     |
+| Spectral hitch-final (Cursor browser, 12 s Flank)   | CLEAN — ~75 FPS, p95 13.5 ms, max 13.7 ms, 0 frames >100 ms; RTX 4070 Ti     |
 | GPU ≥55 FPS operator accept                         | **PENDING** (agent probe only; not operator acceptance)                      |
 | Lighting / fleet visual accept                      | **PENDING**                                                                  |
-| Default flip to spectral + littoral-v2              | **NOT DONE** (opt-in only)                                                   |
+| Default flip to spectral + littoral-v2              | Ocean empty-URL is spectral (Plan 019). **World** default still `legacy-v1`. |
 
 ## Post-merge playability fixes
 
@@ -40,13 +40,13 @@
 
 ## Visual evidence
 
-| Capture | Notes |
-| --- | --- |
-| `artifacts/browser-smoke.png` | Default Gerstner patrol smoke |
-| `artifacts/plan-018-finish/*.png` | 46-file four-combo matrix (lead-inspected) |
-| `artifacts/plan-018-finish/matrix-report.md` | Per-image pass/fail |
-| `artifacts/plan-018-finish/hitch-final.json` | GPU hitch CLEAN |
-| `artifacts/plan-018-finish/resource-cycles.json` | 20× cycles bounded |
+| Capture                                          | Notes                                      |
+| ------------------------------------------------ | ------------------------------------------ |
+| `artifacts/browser-smoke.png`                    | Default Gerstner patrol smoke              |
+| `artifacts/plan-018-finish/*.png`                | 46-file four-combo matrix (lead-inspected) |
+| `artifacts/plan-018-finish/matrix-report.md`     | Per-image pass/fail                        |
+| `artifacts/plan-018-finish/hitch-final.json`     | GPU hitch CLEAN                            |
+| `artifacts/plan-018-finish/resource-cycles.json` | 20× cycles bounded                         |
 
 ## Blocking bugs found and fixed in this pass
 
@@ -58,22 +58,22 @@
 
 ## Recommendation status (original review themes)
 
-| Theme                                | Status                                                                        |
-| ------------------------------------ | ----------------------------------------------------------------------------- |
-| Shared world authority (littoral-v2) | Implemented (opt-in); unit parity tests green                                 |
+| Theme                                | Status                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------- |
+| Shared world authority (littoral-v2) | Implemented (opt-in); unit parity tests green                                   |
 | Spectral cascades + coastal field    | Spectral live via `?ocean=spectral`; storm honeycomb + map follow-square closed |
-| Reflection / refraction optics       | Wired; peri/bridge reflections inspected in finish matrix                   |
-| Caustics / surface effects           | Attached + altitude-faded for map; bed pattern not in chase POVs            |
-| Vessel probes / attitude / picking   | Wired; probes no longer steal the canvas RT                                   |
-| Outdoor IBL / vegetation             | Fan palms inspected; no HDR pack                                             |
-| Quality / recovery                   | 20× resource-cycle harness bounded; operator GPU PENDING                      |
-| Importer / audio readiness           | Prior Phase I commit on branch                                                |
-| Defaults / production tag            | Outstanding — operator gates only                                             |
+| Reflection / refraction optics       | Wired; peri/bridge reflections inspected in finish matrix                       |
+| Caustics / surface effects           | Attached + altitude-faded for map; bed pattern not in chase POVs                |
+| Vessel probes / attitude / picking   | Wired; probes no longer steal the canvas RT                                     |
+| Outdoor IBL / vegetation             | Local Kloofendal HDR staged (Plan 019); palms/rocks partitioned (Plan 021 E)    |
+| Quality / recovery                   | 20× resource-cycle harness bounded; operator GPU PENDING                        |
+| Importer / audio readiness           | Prior Phase I commit on branch                                                  |
+| Defaults / production tag            | Outstanding — operator gates only                                               |
 
 ## Intentional alternatives
 
-- Procedural sky PMREM vs licensed HDR (HDR pack not staged; CSP self-only).
-- Default mission remains Gerstner + legacy-v1 until explicit operator activation.
+- Procedural sky PMREM vs local Kloofendal HDR (same-origin; storm/night/low sun stay procedural).
+- Ocean empty-URL default is spectral (Plan 019). World default remains `legacy-v1` until operator activation.
 
 ## Next actions
 

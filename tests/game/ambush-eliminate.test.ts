@@ -78,9 +78,7 @@ describe('ambush full engagement', () => {
 
     const survivor = state.ships.find((s) => s.id === targetId);
     const sunk = !survivor || survivor.sinking !== undefined || (survivor.hp ?? 0) <= 0;
-    // eslint-disable-next-line no-console
     console.log(log.join('\n'));
-    // eslint-disable-next-line no-console
     console.log({
       startHp,
       endHp: survivor?.hp ?? 0,
