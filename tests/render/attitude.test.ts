@@ -101,9 +101,9 @@ describe('vessel attitude smoother', () => {
       dt: 1 / 60,
     });
     expect(first.source).toBe('probe');
-    expect(first.heave).toBeCloseTo(fallback.heave);
+    expect(first.heave).toBeCloseTo(2, 2);
     expect(first.pitch).toBeGreaterThan(0.02);
-    expect(first.presentationY).toBeCloseTo(0.15 + fallback.heave);
+    expect(first.presentationY).toBeCloseTo(2.15, 2);
 
     const mid = smoother.update({
       entityId: 'hull',
@@ -124,7 +124,7 @@ describe('vessel attitude smoother', () => {
       dt: 1 / 60,
     });
     expect(mid.source).toBe('probe');
-    expect(mid.heave).toBeCloseTo(fallback.heave);
+    expect(mid.heave).toBeLessThan(first.heave);
     expect(mid.pitch).toBeGreaterThan(0);
     expect(mid.pitch).toBeLessThan(first.pitch);
     expect(mid.presentationY).toBeCloseTo(0.15 + mid.heave);
@@ -151,7 +151,7 @@ describe('vessel attitude smoother', () => {
       dt: 1 / 60,
     });
     expect(first.source).toBe('probe');
-    expect(first.heave).toBeCloseTo(0.2);
+    expect(first.heave).toBeCloseTo(0.4);
     expect(first.pitch).toBeGreaterThan(0.05);
 
     const held = smoother.update({
@@ -166,7 +166,7 @@ describe('vessel attitude smoother', () => {
       dt: 1 / 60,
     });
     expect(held.source).toBe('probe');
-    expect(held.heave).toBeCloseTo(0.2, 2);
+    expect(held.heave).toBeCloseTo(first.heave, 2);
     expect(held.pitch).toBeCloseTo(first.pitch, 2);
     expect(held.pitch).toBeLessThan(0.18);
   });
@@ -211,6 +211,196 @@ describe('vessel attitude smoother', () => {
     });
     expect(next.source).toBe('fallback');
     expect(next.heave).toBe(1);
+  });
+
+  it('uses probe heave instead of CPU look-dev heave when the footprint is fresh', () => {
+    const smoother = new VesselAttitudeSmoother();
+    const pose = smoother.update({
+      entityId: 'escort',
+      heading: 0,
+      depth: 0,
+      waterlineOffset: 0.15,
+      fallback: { heave: 0.2, pitch: 0.01, roll: -0.02 },
+      footprint: {
+        center: { site: 'center', height: 1.1, x: 0, z: 0 },
+        bow: { site: 'bow', height: 1.4, x: 8, z: 0 },
+        stern: { site: 'stern', height: 0.8, x: -8, z: 0 },
+        port: { site: 'port', height: 1.0, x: 0, z: 5 },
+        starboard: { site: 'starboard', height: 1.2, x: 0, z: -5 },
+      },
+      probeTime: 3,
+      now: 3,
+      dt: 1 / 60,
+    });
+    expect(pose.source).toBe('probe');
+    expect(pose.heave).toBeCloseTo(1.1, 2);
+    expect(pose.presentationY).toBeCloseTo(1.25, 2);
+    expect(pose.pitch).toBeGreaterThan(0.02);
+  });
+
+  it('does not accumulate pitch from delayed samples at 30, 60, or 120 FPS', () => {
+    const footprint = {
+      center: { site: 'center' as const, height: 0.4, x: 0, z: 0 },
+      bow: { site: 'bow' as const, height: 1.2, x: 8, z: 0 },
+      stern: { site: 'stern' as const, height: 0.2, x: -8, z: 0 },
+      port: { site: 'port' as const, height: 0.4, x: 0, z: 5 },
+      starboard: { site: 'starboard' as const, height: 0.4, x: 0, z: -5 },
+    };
+    const target = attitudeFromFootprint({
+      center: 0.4,
+      bow: 1.2,
+      stern: 0.2,
+      port: 0.4,
+      starboard: 0.4,
+      span: 8,
+    });
+    for (const fps of [30, 60, 120]) {
+      const smoother = new VesselAttitudeSmoother();
+      const dt = 1 / fps;
+      let now = 0;
+      smoother.update({
+        entityId: 'hull',
+        heading: 0,
+        depth: 0,
+        waterlineOffset: 0,
+        fallback,
+        footprint,
+        probeTime: 0,
+        now,
+        dt,
+      });
+      let maxPitch = 0;
+      for (let i = 0; i < fps * 2; i++) {
+        now += dt;
+        const pose = smoother.update({
+          entityId: 'hull',
+          heading: 0,
+          depth: 0,
+          waterlineOffset: 0,
+          fallback,
+          footprint,
+          probeTime: now - 0.05,
+          now,
+          dt,
+        });
+        maxPitch = Math.max(maxPitch, Math.abs(pose.pitch));
+        expect(Number.isFinite(pose.pitch)).toBe(true);
+      }
+      expect(maxPitch, `${fps} fps accumulated`).toBeLessThan(Math.abs(target.pitch) + 0.08);
+    }
+  });
+
+  it('converges after an initial pitch perturbation toward a constant flat target', () => {
+    const smoother = new VesselAttitudeSmoother();
+    const steep = {
+      center: { site: 'center' as const, height: 0.2, x: 0, z: 0 },
+      bow: { site: 'bow' as const, height: 2.2, x: 8, z: 0 },
+      stern: { site: 'stern' as const, height: -0.6, x: -8, z: 0 },
+      port: { site: 'port' as const, height: 0.2, x: 0, z: 5 },
+      starboard: { site: 'starboard' as const, height: 0.2, x: 0, z: -5 },
+    };
+    const flat = {
+      center: { site: 'center' as const, height: 0.2, x: 0, z: 0 },
+      bow: { site: 'bow' as const, height: 0.2, x: 8, z: 0 },
+      stern: { site: 'stern' as const, height: 0.2, x: -8, z: 0 },
+      port: { site: 'port' as const, height: 0.2, x: 0, z: 5 },
+      starboard: { site: 'starboard' as const, height: 0.2, x: 0, z: -5 },
+    };
+    smoother.update({
+      entityId: 'hull',
+      heading: 0,
+      depth: 0,
+      waterlineOffset: 0,
+      fallback,
+      footprint: steep,
+      probeTime: 0,
+      now: 0,
+      dt: 1 / 60,
+    });
+    let pose = smoother.update({
+      entityId: 'hull',
+      heading: 0,
+      depth: 0,
+      waterlineOffset: 0,
+      fallback,
+      footprint: flat,
+      probeTime: 0.02,
+      now: 0.02,
+      dt: 1 / 60,
+    });
+    for (let i = 0; i < 180; i++) {
+      const now = 0.02 + (i + 1) / 60;
+      pose = smoother.update({
+        entityId: 'hull',
+        heading: 0,
+        depth: 0,
+        waterlineOffset: 0,
+        fallback,
+        footprint: flat,
+        probeTime: now,
+        now,
+        dt: 1 / 60,
+      });
+    }
+    expect(pose.source).toBe('probe');
+    expect(Math.abs(pose.pitch)).toBeLessThan(0.02);
+    expect(Math.abs(pose.roll)).toBeLessThan(0.02);
+  });
+
+  it('derives velocity from accepted probe samples, not from rendered extrapolation', () => {
+    const smoother = new VesselAttitudeSmoother();
+    const firstFoot = {
+      center: { site: 'center' as const, height: 0.2, x: 0, z: 0 },
+      bow: { site: 'bow' as const, height: 0.4, x: 8, z: 0 },
+      stern: { site: 'stern' as const, height: 0.0, x: -8, z: 0 },
+      port: { site: 'port' as const, height: 0.2, x: 0, z: 5 },
+      starboard: { site: 'starboard' as const, height: 0.2, x: 0, z: -5 },
+    };
+    const secondFoot = {
+      ...firstFoot,
+      bow: { site: 'bow' as const, height: 0.8, x: 8, z: 0 },
+      stern: { site: 'stern' as const, height: -0.4, x: -8, z: 0 },
+    };
+    smoother.update({
+      entityId: 'hull',
+      heading: 0,
+      depth: 0,
+      waterlineOffset: 0,
+      fallback,
+      footprint: firstFoot,
+      probeTime: 1,
+      now: 1,
+      dt: 1 / 60,
+    });
+    const second = smoother.update({
+      entityId: 'hull',
+      heading: 0,
+      depth: 0,
+      waterlineOffset: 0,
+      fallback,
+      footprint: secondFoot,
+      probeTime: 1.1,
+      now: 1.12,
+      dt: 1 / 60,
+    });
+    const firstPitch = attitudeFromFootprint({
+      center: 0.2,
+      bow: 0.4,
+      stern: 0,
+      port: 0.2,
+      starboard: 0.2,
+      span: 8,
+    }).pitch;
+    const secondPitch = attitudeFromFootprint({
+      center: 0.2,
+      bow: 0.8,
+      stern: -0.4,
+      port: 0.2,
+      starboard: 0.2,
+      span: 8,
+    }).pitch;
+    expect(second.pitch).toBeGreaterThan(firstPitch);
+    expect(second.pitch).toBeLessThanOrEqual(secondPitch + 0.05);
   });
 
   it('drops non-finite probe heights instead of poisoning hull Y', () => {

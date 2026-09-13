@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { LookDevSettings, SimState } from '../core/types';
-import { sampleSeabedY } from '../core/terrain';
+
 import type { GameState } from '../game/sim/types';
 import { worldMetersToSim } from '../game/sim/coords';
 import { getWorld, worldHeight } from '../game/world/queries';
@@ -21,14 +21,21 @@ import {
   groupFootprint,
   type VesselAttitudeResult,
 } from './presentation/vessel-attitude';
+import { clampPresentationY, presentationBedY } from './presentation/world-bed';
+import {
+  formatSurfaceDiagnostics,
+  type SurfaceDiagnostics,
+} from './presentation/surface-diagnostics';
 import { immersionFogFactor, updateImmersion } from './presentation/immersion';
 import {
+  PROBE_CADENCE_HZ,
+  PROBE_SPATIAL_TOLERANCE_M,
   SurfaceProbeQueue,
-  buildFootprintRequests,
-  probeSampleId,
+  prioritizeProbeRequests,
+  shouldRequestProbes,
   type SurfaceProbeMaps,
-  type SurfaceProbeRequest,
 } from './ocean/surface-probes';
+import { SHORE_WET_BAND_METRES } from './environment/terrain-texture';
 import { DEFAULT_CASCADES } from './ocean/spectrum';
 import { excludeFromWaterCapture, WaterOptics } from './ocean/optics';
 import {
@@ -117,6 +124,8 @@ export class GameScene {
   private lastBackendName: string | null = null;
   private lastWaterHeight: number | null = null;
   private lastSimTime = 0;
+  private lastProbeIssueTime: number | null = null;
+  private lastSurfaceDiagnostics: SurfaceDiagnostics | null = null;
   private immersionUnder = false;
   private lastProbeSubjects: Array<{
     entityId: string;
@@ -497,6 +506,16 @@ export class GameScene {
     return this.outdoorLighting.getDiagnostics();
   }
 
+  getSurfaceDiagnostics(): SurfaceDiagnostics | null {
+    return this.lastSurfaceDiagnostics;
+  }
+
+  formatSurfaceDiagnostics(): string | null {
+    return this.lastSurfaceDiagnostics
+      ? formatSurfaceDiagnostics(this.lastSurfaceDiagnostics)
+      : null;
+  }
+
   setReducedMotion(value: boolean): void {
     this.reducedMotion = value;
     this.surfaceEffects.setReducedMotion(value);
@@ -527,6 +546,8 @@ export class GameScene {
     this.lastWaterHeight = null;
     this.immersionUnder = false;
     this.lastProbeSubjects = [];
+    this.lastProbeIssueTime = null;
+    this.lastSurfaceDiagnostics = null;
     this.weather.reset();
     this.atmosphere.reset();
     this.outdoorLighting.reset();
@@ -883,16 +904,12 @@ export class GameScene {
     this.noteBackendGeneration();
     const poses = this.consumeVesselAttitudes(sim, dt);
     const playerPose = poses.get('player');
-    const seabedY = sampleSeabedY(v.x, v.z);
-    // Depth sets the waterline. CPU look-dev heave is a few centimetres; GPU
-    // probe height is not applied as altitude (it threw hulls metres off the sea).
+    const seabedY = presentationBedY(this.currentWorldVersion, this.currentTerrainSeed, v.x, v.z);
     const hullHeight =
       (this.sub.userData.hullHeight as number | undefined) ?? DEFAULT_SUB_HULL_HEIGHT_M;
     const lift = playerPose?.presentationY ?? v.heave;
-    const rawSubY =
-      visualKeelY(v.depth, hullHeight) + (Number.isFinite(lift) ? lift : 0);
-    const floor = Number.isFinite(seabedY) ? seabedY + 0.45 : Number.NEGATIVE_INFINITY;
-    const subY = Number.isFinite(rawSubY) ? Math.max(rawSubY, floor) : visualKeelY(v.depth, hullHeight);
+    const rawSubY = visualKeelY(v.depth, hullHeight) + (Number.isFinite(lift) ? lift : 0);
+    const subY = clampPresentationY(rawSubY, seabedY);
     this.sub.position.set(v.x, subY, v.z);
     this.sub.rotation.order = 'YXZ';
     this.sub.rotation.y = -v.heading;
@@ -983,8 +1000,7 @@ export class GameScene {
       const hullHeight =
         (entity.mesh.userData.hullHeight as number | undefined) ?? DEFAULT_SUB_HULL_HEIGHT_M;
       const lift = Number.isFinite(heave) ? heave : 0;
-      const shipY =
-        submerged > 0 ? visualKeelY(submerged, hullHeight) + lift * 0.12 : lift;
+      const shipY = submerged > 0 ? visualKeelY(submerged, hullHeight) + lift * 0.12 : lift;
       entity.mesh.position.set(ship.x, Number.isFinite(shipY) ? shipY : 0, ship.z);
       entity.mesh.rotation.order = 'YXZ';
       const pitch = pose?.pitch ?? ship.pitch;
@@ -1200,16 +1216,22 @@ export class GameScene {
     this.probes.reset();
     this.attitudes.reset();
     this.lastWaterHeight = null;
+    this.lastProbeIssueTime = null;
   }
 
   private consumeVesselAttitudes(sim: SimState, dt: number): Map<string, VesselAttitudeResult> {
     const living = new Set<string>(['player', 'camera', ...sim.ships.map((ship) => ship.id)]);
     this.attitudes.retain(living);
+    const positions = new Map<string, { x: number; z: number }>();
+    positions.set('player', { x: sim.vessel.x, z: sim.vessel.z });
+    for (const ship of sim.ships) positions.set(ship.id, { x: ship.x, z: ship.z });
     const samples = this.probes.consume({
       missionGeneration: this.missionGeneration,
       backendGeneration: this.probeBackendGeneration,
       now: sim.time,
       livingIds: living,
+      positions,
+      maxSpatialError: PROBE_SPATIAL_TOLERANCE_M,
     });
     const cameraSample = samples.find((sample) => sample.entityId === 'camera');
     const playerCenter = samples.find(
@@ -1280,34 +1302,48 @@ export class GameScene {
       );
     }
     this.lastProbeSubjects = subjects;
+    const playerPose = poses.get('player');
+    this.lastSurfaceDiagnostics = {
+      surfaceHeight: this.lastWaterHeight,
+      hullDraft: playerPose?.presentationY ?? 0,
+      requestedX: sim.vessel.x,
+      requestedZ: sim.vessel.z,
+      resolvedX: playerCenter?.queryX ?? sim.vessel.x,
+      resolvedZ: playerCenter?.queryZ ?? sim.vessel.z,
+      source: playerPose?.source ?? 'fallback',
+      missionGeneration: this.missionGeneration,
+      backendGeneration: this.probeBackendGeneration,
+      probeAge:
+        playerCenter && Number.isFinite(sim.time - playerCenter.time)
+          ? Math.max(0, sim.time - playerCenter.time)
+          : Number.POSITIVE_INFINITY,
+      readbackCount: this.probes.readbackCount,
+      cadenceHz: PROBE_CADENCE_HZ,
+    };
     return poses;
   }
 
   private submitSurfaceProbes(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
     const backend = this.environment.current;
     if (!(backend instanceof SpectralBackend)) return;
-    const maps = spectralProbeMaps(backend);
-    if (!maps) return;
-    const requests: SurfaceProbeRequest[] = [];
-    for (const subject of this.lastProbeSubjects) {
-      if (subject.entityId !== 'player' && subject.depth > 8) continue;
-      requests.push(
-        ...buildFootprintRequests(
-          subject.entityId,
-          subject.x,
-          subject.z,
-          subject.heading,
-          subject.span,
-        ),
-      );
+    if (
+      !shouldRequestProbes(
+        this.probes.hasPendingReadback,
+        this.lastProbeIssueTime,
+        this.lastSimTime,
+      )
+    ) {
+      return;
     }
-    requests.push({
-      id: probeSampleId('camera', 'center'),
-      entityId: 'camera',
-      site: 'center',
-      x: camera.position.x,
-      z: camera.position.z,
-    });
+    const maps = spectralProbeMaps(backend, this.ocean, this.lastWaveHeight);
+    if (!maps) return;
+    const requests = prioritizeProbeRequests(
+      this.lastProbeSubjects,
+      { x: camera.position.x, z: camera.position.z },
+      this.probes.capacity,
+    );
+    if (requests.length === 0) return;
+    this.lastProbeIssueTime = this.lastSimTime;
     this.probes.request(renderer, maps, requests, {
       time: this.lastSimTime,
       missionGeneration: this.missionGeneration,
@@ -1428,13 +1464,31 @@ function latestProbeTime(
   return latest;
 }
 
-function spectralProbeMaps(backend: SpectralBackend): SurfaceProbeMaps | null {
+function spectralProbeMaps(
+  backend: SpectralBackend,
+  ocean: Ocean,
+  waveHeight: number,
+): SurfaceProbeMaps | null {
   const displacements = backend.displacementTextures;
   const slopes = backend.slopeTextures;
   if (displacements.length < 3 || slopes.length < 3) return null;
+  const bed = ocean.bedBind();
+  const coastal = ocean.coastalTexture();
+  const coastalOrigin = ocean.coastalOrigin();
+  const swell = ocean.swellDirection();
   return {
     displacements,
     slopes,
     lengths: DEFAULT_CASCADES.map((spec) => spec.length),
+    bed: bed?.texture ?? null,
+    bedOrigin: bed ? { x: bed.origin.x, z: bed.origin.y } : { x: 0, z: 0 },
+    bedExtent: bed?.extent ?? 1,
+    wetBand: SHORE_WET_BAND_METRES,
+    waveHeight,
+    coastal,
+    coastalEnabled: Boolean(coastal),
+    coastalOrigin: { x: coastalOrigin.x, z: coastalOrigin.z },
+    coastalExtent: coastalOrigin.extent,
+    swellDirection: swell,
   };
 }

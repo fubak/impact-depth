@@ -196,6 +196,10 @@ export class App {
     return this.scene.getOutdoorLightingDiagnostics();
   }
 
+  getSurfaceDiagnostics() {
+    return this.scene.getSurfaceDiagnostics();
+  }
+
   getAudioDiagnostics() {
     return this.audio.getDiagnostics();
   }
@@ -215,6 +219,7 @@ export class App {
       },
       environment: this.getEnvironmentDiagnostics(),
       outdoorLighting: this.getOutdoorLightingDiagnostics(),
+      surface: this.getSurfaceDiagnostics(),
       graphics: this.renderer.getPerformanceDiagnostics(),
     };
   }
@@ -505,6 +510,7 @@ export class App {
     }
     if (this.panel.isVisible()) {
       this.panel.setPerf(this.fpsEma, this.frameMsEma, profile);
+      this.panel.setSurfaceDiagnostics(this.scene.formatSurfaceDiagnostics());
     }
 
     this.raf = requestAnimationFrame(this.frame);

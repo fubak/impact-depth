@@ -30,6 +30,7 @@ export class LookDevPanel {
   private readonly cb: PanelCallbacks;
   private visible = false;
   private perfEl: HTMLElement | null = null;
+  private surfaceEl: HTMLElement | null = null;
   private assetCredits: AssetCreditLine[] = [];
 
   constructor(root: HTMLElement, settings: LookDevSettings, cb: PanelCallbacks) {
@@ -73,6 +74,12 @@ export class LookDevPanel {
     this.perfEl.textContent = `${fps.toFixed(0)} FPS · ${frameMs.toFixed(1)} ms · ${quality.toUpperCase()} quality`;
   }
 
+  /** Developer surface/probe line. Hidden from the player HUD. */
+  setSurfaceDiagnostics(line: string | null): void {
+    if (!this.visible || !this.surfaceEl) return;
+    this.surfaceEl.textContent = line ?? 'surface probes idle';
+  }
+
   /** CC-BY / project license ledger for in-game attribution. */
   setAssetCredits(entries: ReadonlyArray<AssetCreditLine>): void {
     this.assetCredits = entries.map((entry) => ({ ...entry }));
@@ -100,6 +107,7 @@ export class LookDevPanel {
           <div class="lookdev-title">LOOK DEV</div>
           <div class="lookdev-sub">SILENT DEPTHS · CARIBBEAN LAB</div>
           <div class="lookdev-perf" data-perf aria-live="polite">— FPS · HIGH quality</div>
+          <div class="lookdev-perf" data-surface-diag aria-live="polite">surface probes idle</div>
         </div>
         <button type="button" class="btn icon" data-action="close" aria-label="Close panel">✕</button>
       </header>
@@ -180,6 +188,7 @@ export class LookDevPanel {
     `;
 
     this.perfEl = this.root.querySelector('[data-perf]');
+    this.surfaceEl = this.root.querySelector('[data-surface-diag]');
     this.bind();
   }
 

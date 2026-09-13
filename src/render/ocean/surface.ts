@@ -164,6 +164,76 @@ export function createCoastalTexture(field: CoastalField): THREE.DataTexture {
   return texture;
 }
 
+/** Documented sampled-vs-rendered height agreement for Plan 021 probes. */
+export const SURFACE_HEIGHT_TOLERANCE_M = 0.25;
+export const SURFACE_INVERSE_STEPS = 3;
+
+export interface SurfaceDisplacement {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface SurfaceEvalContext {
+  sampleCascade: (index: 0 | 1 | 2, worldX: number, worldZ: number) => SurfaceDisplacement;
+  lengths: readonly [number, number, number];
+  bed: number;
+  coastalDelay: number;
+  coastalExposure: number;
+  swellDirection: readonly [number, number];
+  waveHeight: number;
+  wetBand: number;
+}
+
+function saturate(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const span = edge1 - edge0;
+  if (Math.abs(span) < 1e-8) return x >= edge1 ? 1 : 0;
+  const t = saturate((x - edge0) / span);
+  return t * t * (3 - 2 * t);
+}
+
+/** CPU twin of `oceanDisplacement` so probes and tests share the visible surface. */
+export function oceanDisplacementAt(
+  worldX: number,
+  worldZ: number,
+  ctx: SurfaceEvalContext,
+): SurfaceDisplacement {
+  const depth = Math.max(0, -ctx.bed);
+  const exposure = smoothstep(0.12, 0.88, ctx.coastalExposure);
+  const delayedX = worldX - ctx.swellDirection[0] * ctx.coastalDelay * 0.35;
+  const delayedZ = worldZ - ctx.swellDirection[1] * ctx.coastalDelay * 0.35;
+  const swell = ctx.sampleCascade(0, delayedX, delayedZ);
+  const wind = ctx.sampleCascade(1, worldX, worldZ);
+  const chop = ctx.sampleCascade(2, worldX, worldZ);
+  const shallow = smoothstep(0.15, 2.0, depth);
+  const coverage = 1 - smoothstep(-ctx.wetBand, ctx.wetBand * 0.2, ctx.bed);
+  const gain = (0.55 + ctx.waveHeight * 0.55) * (0.92 + 0.08 * exposure) * coverage;
+  return {
+    x: (swell.x + (wind.x * 0.72 + chop.x * 0.42) * shallow) * gain,
+    y: (swell.y + (wind.y * 0.72 + chop.y * 0.42) * shallow) * gain,
+    z: (swell.z + (wind.z * 0.72 + chop.z * 0.42) * shallow) * gain,
+  };
+}
+
+export function oceanInverseDisplacementAt(
+  worldX: number,
+  worldZ: number,
+  ctx: SurfaceEvalContext,
+): { x: number; z: number } {
+  let sourceX = worldX;
+  let sourceZ = worldZ;
+  for (let i = 0; i < SURFACE_INVERSE_STEPS; i++) {
+    const disp = oceanDisplacementAt(sourceX, sourceZ, ctx);
+    sourceX = worldX - disp.x;
+    sourceZ = worldZ - disp.z;
+  }
+  return { x: sourceX, z: sourceZ };
+}
+
 export function updateCoastalUniforms(
   uniforms: SurfaceUniforms,
   field: CoastalField | null,

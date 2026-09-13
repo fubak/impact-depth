@@ -6,9 +6,10 @@
  * Gerstner; only a long gap falls back to look-dev (`adaptToLookDevSim`).
  *
  * Fitted hulls keep their model waterline offset (`fitPresentationHull` sits
- * the keel at y=0). GPU probes drive pitch/roll only. Vertical heave stays on
- * the CPU look-dev sample so a bad FFT texel cannot throw the fleet off the
- * waterline.
+ * the keel at y=0). Fresh GPU probes drive heave, pitch and roll together.
+ * Velocity comes from accepted probe samples, never from extrapolated rendered
+ * poses. Stale probes hold the last accepted GPU pose; only a long gap falls
+ * back to look-dev (`adaptToLookDevSim`).
  */
 
 export type FootprintSite = 'center' | 'bow' | 'stern' | 'port' | 'starboard';
@@ -29,6 +30,10 @@ export const ATTITUDE_HOLD_SECONDS = 1.25;
 export const ATTITUDE_MAX_EXTRAPOLATION = 0.08;
 /** Exponential damping rate (1/s). `1 - exp(-k*dt)` is frame-rate independent. */
 export const ATTITUDE_DAMPING = 5;
+/** Max pitch/roll change (rad/s). Prevents a late sample from snapping the hull. */
+export const ATTITUDE_MAX_ANGULAR_RATE = 1.6;
+/** Max heave change (m/s) after damping. */
+export const ATTITUDE_MAX_HEAVE_RATE = 8;
 /** Clamp spectral probe heave so a bad texel cannot throw the hull. */
 export const ATTITUDE_MAX_HEAVE = 2.5;
 /** Depth (m) at which surface attitude is fully attenuated. */
@@ -80,7 +85,9 @@ export interface VesselAttitudeInput {
 
 interface SmootherState {
   pose: AttitudeSample;
-  velocity: AttitudeSample;
+  accepted: AttitudeSample | null;
+  acceptedTime: number | null;
+  acceptedVelocity: AttitudeSample;
   lastTime: number;
   lastGoodProbeTime: number | null;
   source: AttitudeSource;
@@ -109,7 +116,12 @@ export function submergenceAttenuation(depthMetres: number): number {
   return clamp(1 - depthMetres / ATTITUDE_SUBMERGE_METRES, 0, 1);
 }
 
-export function dampToward(current: number, target: number, dt: number, rate = ATTITUDE_DAMPING): number {
+export function dampToward(
+  current: number,
+  target: number,
+  dt: number,
+  rate = ATTITUDE_DAMPING,
+): number {
   const k = 1 - Math.exp(-rate * Math.max(0, dt));
   return current + (target - current) * k;
 }
@@ -211,7 +223,11 @@ export function isFootprintSite(value: string): value is FootprintSite {
 }
 
 /** Fitted keel/waterline offset plus attenuated surface heave. */
-export function presentationHeave(heave: number, waterlineOffset: number, depthMetres: number): number {
+export function presentationHeave(
+  heave: number,
+  waterlineOffset: number,
+  depthMetres: number,
+): number {
   return waterlineOffset + heave * submergenceAttenuation(depthMetres);
 }
 
@@ -229,7 +245,11 @@ export function probeFreshness(
   return { age, usable: true, extrapolate: Math.min(age, ATTITUDE_MAX_EXTRAPOLATION) };
 }
 
-function extrapolatePose(pose: AttitudeSample, velocity: AttitudeSample, dt: number): AttitudeSample {
+function extrapolatePose(
+  pose: AttitudeSample,
+  velocity: AttitudeSample,
+  dt: number,
+): AttitudeSample {
   const t = clamp(dt, 0, ATTITUDE_MAX_EXTRAPOLATION);
   return {
     heave: pose.heave + velocity.heave * t,
@@ -244,6 +264,17 @@ function poseVelocity(from: AttitudeSample, to: AttitudeSample, dt: number): Att
     heave: (to.heave - from.heave) / dt,
     pitch: (to.pitch - from.pitch) / dt,
     roll: (to.roll - from.roll) / dt,
+  };
+}
+
+function limitAttitudeRate(from: AttitudeSample, to: AttitudeSample, dt: number): AttitudeSample {
+  const step = Math.max(dt, 1e-4);
+  const maxHeave = ATTITUDE_MAX_HEAVE_RATE * step;
+  const maxAngle = ATTITUDE_MAX_ANGULAR_RATE * step;
+  return {
+    heave: clamp(to.heave, from.heave - maxHeave, from.heave + maxHeave),
+    pitch: clamp(to.pitch, from.pitch - maxAngle, from.pitch + maxAngle),
+    roll: clamp(to.roll, from.roll - maxAngle, from.roll + maxAngle),
   };
 }
 
@@ -271,9 +302,13 @@ export class VesselAttitudeSmoother {
   update(input: VesselAttitudeInput): VesselAttitudeResult {
     const blend = submergenceAttenuation(finiteOr(input.depth, 0));
     const fallback = sanitizeAttitude(scaleAttitude(input.fallback, 1));
-    const heights = input.footprint ? footprintFromSamples(input.footprint, footprintSpanFrom(input)) : null;
+    const heights = input.footprint
+      ? footprintFromSamples(input.footprint, footprintSpanFrom(input))
+      : null;
     const freshness = probeFreshness(input.probeTime, input.now);
-    const rawProbe = heights ? sanitizeAttitude(scaleAttitude(attitudeFromFootprint(heights), blend)) : null;
+    const rawProbe = heights
+      ? sanitizeAttitude(scaleAttitude(attitudeFromFootprint(heights), blend))
+      : null;
     const useProbe = Boolean(rawProbe && freshness.usable);
 
     const prev = this.states.get(input.entityId);
@@ -281,16 +316,25 @@ export class VesselAttitudeSmoother {
     let target: AttitudeSample;
     let source: AttitudeSource;
     let lastGoodProbeTime = prev?.lastGoodProbeTime ?? null;
+    let accepted = prev?.accepted ?? null;
+    let acceptedTime = prev?.acceptedTime ?? null;
+    let acceptedVelocity = prev?.acceptedVelocity ?? ZERO_POSE;
     if (useProbe && rawProbe) {
-      target = { heave: fallback.heave, pitch: rawProbe.pitch, roll: rawProbe.roll };
+      const probeTime = input.probeTime ?? input.now;
+      if (accepted && acceptedTime !== null && probeTime - acceptedTime > 1e-3) {
+        acceptedVelocity = poseVelocity(accepted, rawProbe, probeTime - acceptedTime);
+      }
+      accepted = rawProbe;
+      acceptedTime = probeTime;
+      lastGoodProbeTime = probeTime;
+      target = extrapolatePose(rawProbe, acceptedVelocity, freshness.extrapolate);
       source = 'probe';
-      lastGoodProbeTime = input.now;
     } else if (
       prev?.source === 'probe' &&
       lastGoodProbeTime !== null &&
       input.now - lastGoodProbeTime < ATTITUDE_HOLD_SECONDS
     ) {
-      target = { heave: fallback.heave, pitch: prev.pose.pitch, roll: prev.pose.roll };
+      target = accepted ?? prev.pose;
       source = 'probe';
     } else {
       target = fallback;
@@ -300,18 +344,16 @@ export class VesselAttitudeSmoother {
     let current: AttitudeSample;
     if (!prev) {
       current = target;
-    } else if (useProbe && freshness.extrapolate > 0 && source === 'probe') {
-      const held = extrapolatePose(prev.pose, prev.velocity, freshness.extrapolate);
-      current = dampAttitude(held, target, dt);
     } else {
-      current = dampAttitude(prev.pose, target, dt);
+      current = limitAttitudeRate(prev.pose, dampAttitude(prev.pose, target, dt), dt);
     }
 
     current = sanitizeAttitude(current);
-    const velocity = prev ? poseVelocity(prev.pose, current, Math.max(dt, 1 / 120)) : ZERO_POSE;
     this.states.set(input.entityId, {
       pose: current,
-      velocity,
+      accepted,
+      acceptedTime,
+      acceptedVelocity,
       lastTime: input.now,
       lastGoodProbeTime,
       source,
