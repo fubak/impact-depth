@@ -29,20 +29,15 @@ export function wrapWithLod(
   const cullAt = Math.max(distances[2] ?? DEFAULT_LOD_DISTANCES[2], near + 1);
 
   lod.addLevel(detail, 0);
+  detail.visible = true;
 
-  const mid = detail.clone(true);
-  pruneForMidLod(mid);
-  // Hysteresis stops orbit/zoom from flipping detail/mid every frame.
-  lod.addLevel(mid, near, 0.25);
-
+  // A cloned mid hull looks like a second, blockier ship when LOD flips on
+  // the first camera update. Fleet stays on one mesh; optional empty far cull only.
   if (options?.neverCull === false) {
     const cull = new THREE.Group();
     cull.name = 'lod-cull';
     lod.addLevel(cull, cullAt, 0.2);
-  }
-
-  for (let i = 0; i < lod.levels.length; i++) {
-    lod.levels[i]!.object.visible = i === 0;
+    cull.visible = false;
   }
 
   root.add(lod);
@@ -53,15 +48,5 @@ export function wrapWithLod(
 export function updateEntityLods(root: THREE.Object3D, camera: THREE.Camera): void {
   root.traverse((object) => {
     if (object instanceof THREE.LOD) object.update(camera);
-  });
-}
-
-function pruneForMidLod(root: THREE.Object3D): void {
-  const hideName = /antenna|radar|ladder|boom|searchlight|strap|liferaft|nacelle|cockpit/i;
-  root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    if (hideName.test(object.name) || hideName.test(object.parent?.name ?? '')) {
-      object.visible = false;
-    }
   });
 }

@@ -90,12 +90,12 @@ try {
     8000,
     async () => {
       const probe = await readAssetProbe();
-      return Boolean(probe && probe.player?.assetSource === 'procedural' && probe.player.visible);
+      return Boolean(probe && probe.player?.assetSource !== 'gltf');
     },
-    'procedural player while GLBs are delayed',
+    'player has not hot-swapped to glTF while GLBs are delayed',
   ).then(() => true);
 
-  if (!delayed) throw new Error('Expected a visible procedural player while GLBs were held');
+  if (!delayed) throw new Error('Expected player to stay off glTF while GLBs were held');
   const before = await readAssetProbe();
   if (heldGlbs < 1) throw new Error('GLB route never intercepted a models/v2 request');
 

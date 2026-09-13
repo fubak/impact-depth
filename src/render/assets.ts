@@ -18,13 +18,10 @@ export type AssetEntity =
 
 export type AssetMeshSource = 'gltf' | 'procedural' | 'missing' | 'pending';
 
-/** Show procedural hulls only if GLBs have not arrived after this wait. */
-export const PROCEDURAL_FALLBACK_MS = 500;
-
 export function chooseAssetSource(opts: {
   hasGltf: boolean;
   registryReady: boolean;
-  allowProceduralFallback: boolean;
+  allowProceduralFallback?: boolean;
 }): AssetMeshSource {
   if (opts.hasGltf) return 'gltf';
   if (opts.registryReady || opts.allowProceduralFallback) return 'procedural';

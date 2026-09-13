@@ -22,18 +22,9 @@ describe('asset kind mapping', () => {
   });
 
   it('does not flash a procedural hull while GLBs are still loading', () => {
-    expect(
-      chooseAssetSource({ hasGltf: false, registryReady: false, allowProceduralFallback: false }),
-    ).toBe('pending');
-    expect(
-      chooseAssetSource({ hasGltf: true, registryReady: false, allowProceduralFallback: false }),
-    ).toBe('gltf');
-    expect(
-      chooseAssetSource({ hasGltf: false, registryReady: true, allowProceduralFallback: false }),
-    ).toBe('procedural');
-    expect(
-      chooseAssetSource({ hasGltf: false, registryReady: false, allowProceduralFallback: true }),
-    ).toBe('procedural');
+    expect(chooseAssetSource({ hasGltf: false, registryReady: false })).toBe('pending');
+    expect(chooseAssetSource({ hasGltf: true, registryReady: false })).toBe('gltf');
+    expect(chooseAssetSource({ hasGltf: false, registryReady: true })).toBe('procedural');
   });
 
   it('keeps residual class scales slight now that meshes are class-specific', () => {

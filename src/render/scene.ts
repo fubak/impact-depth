@@ -53,7 +53,6 @@ import {
 import { Atmosphere } from './atmosphere';
 import {
   AssetRegistry,
-  PROCEDURAL_FALLBACK_MS,
   chooseAssetSource,
   fleetClassScale,
   simKindToAssetEntity,
@@ -120,7 +119,6 @@ export class GameScene {
   private readonly weather = new WeatherController();
   private currentTerrainSeed = 0;
   private currentWorldVersion: WorldVersion = 'legacy-v1';
-  private allowProceduralFallback = false;
   private readonly probes = new SurfaceProbeQueue(32);
   private readonly attitudes = new VesselAttitudeSmoother();
   private missionGeneration = 0;
@@ -272,13 +270,7 @@ export class GameScene {
     excludeFromWaterCapture(this.vfx.group);
     excludeFromWaterCapture(this.subBeacon);
     excludeFromWaterCapture(this.subHit);
-    const fallbackTimer = setTimeout(() => {
-      this.allowProceduralFallback = true;
-      this.mountPlayerMesh();
-      this.refreshShipMeshesFromAssets();
-    }, PROCEDURAL_FALLBACK_MS);
     void this.assets.preload().then(() => {
-      clearTimeout(fallbackTimer);
       this.mountPlayerMesh();
       this.refreshShipMeshesFromAssets();
     });
@@ -303,7 +295,6 @@ export class GameScene {
     const source = chooseAssetSource({
       hasGltf: Boolean(gltf),
       registryReady: this.assets.isReady,
-      allowProceduralFallback: this.allowProceduralFallback,
     });
     if (source === 'pending') return;
     const detail = gltf ?? createSubmarine();
@@ -335,7 +326,6 @@ export class GameScene {
       const source = chooseAssetSource({
         hasGltf: this.assets.hasGltf(kind),
         registryReady: this.assets.isReady,
-        allowProceduralFallback: this.allowProceduralFallback,
       });
       if (source === 'pending') continue;
       if (source === 'procedural' && entity.mesh.userData.assetSource === 'procedural') continue;
@@ -766,7 +756,6 @@ export class GameScene {
     const source = chooseAssetSource({
       hasGltf: Boolean(gltf),
       registryReady: this.assets.isReady,
-      allowProceduralFallback: this.allowProceduralFallback,
     });
     const detail =
       source === 'gltf' && gltf

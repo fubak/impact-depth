@@ -22,29 +22,28 @@ function hullDetail(): THREE.Group {
 }
 
 describe('entity LOD', () => {
-  it('wraps detail into near/mid LOD and keeps a mesh at patrol range', () => {
+  it('keeps a single hull so the camera cannot swap in a cloned mid mesh', () => {
     const root = wrapWithLod(hullDetail(), [40, 120, 280]);
     expect(root.userData.hasLod).toBe(true);
     const lod = root.userData.lod as THREE.LOD;
     expect(lod).toBeInstanceOf(THREE.LOD);
-    expect(lod.levels).toHaveLength(2);
+    expect(lod.levels).toHaveLength(1);
     expect(lod.levels[0]!.distance).toBe(0);
-    expect(lod.levels[1]!.distance).toBe(40);
     expect(lod.levels[0]!.object.visible).toBe(true);
-    expect(lod.levels[1]!.object.visible).toBe(false);
 
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
     camera.position.set(0, 5, 10);
     camera.updateMatrixWorld(true);
     root.updateMatrixWorld(true);
     updateEntityLods(root, camera);
-    expect(lod.getCurrentLevel()).toBeGreaterThanOrEqual(0);
+    expect(lod.getCurrentLevel()).toBe(0);
+    expect(lod.levels[0]!.object.children.length).toBeGreaterThan(0);
   });
 
   it('keeps a real mesh when the camera is hundreds of metres away', () => {
     const root = wrapWithLod(hullDetail(), [40, 120, 280], { neverCull: true });
     const lod = root.userData.lod as THREE.LOD;
-    expect(lod.levels).toHaveLength(2);
+    expect(lod.levels).toHaveLength(1);
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
     camera.position.set(0, 150, 400);
     camera.updateMatrixWorld(true);
@@ -57,8 +56,8 @@ describe('entity LOD', () => {
   it('only inserts an empty far level when cull is requested', () => {
     const root = wrapWithLod(hullDetail(), [40, 120, 280], { neverCull: false });
     const lod = root.userData.lod as THREE.LOD;
-    expect(lod.levels).toHaveLength(3);
-    expect(lod.levels[2]!.distance).toBe(280);
-    expect(lod.levels[2]!.object.children).toHaveLength(0);
+    expect(lod.levels).toHaveLength(2);
+    expect(lod.levels[1]!.distance).toBe(280);
+    expect(lod.levels[1]!.object.children).toHaveLength(0);
   });
 });
