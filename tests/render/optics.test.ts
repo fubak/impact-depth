@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { applyOpticsUniforms } from '../../src/render/ocean';
-import { excludeFromWaterCapture, reflectedCamera, WaterOptics } from '../../src/render/ocean/optics';
+import {
+  applyCaptureOverscan,
+  excludeFromWaterCapture,
+  OPTICS_OVERSCAN,
+  reflectedCamera,
+  WaterOptics,
+} from '../../src/render/ocean/optics';
 
 function dummyColor(): THREE.DataTexture {
   const texture = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
@@ -196,5 +202,12 @@ describe('reflectedCamera', () => {
     expect(optics.refraction.depthTexture?.minFilter).toBe(THREE.NearestFilter);
     expect(optics.refraction.depthTexture?.magFilter).toBe(THREE.NearestFilter);
     optics.dispose();
+  });
+
+  it('widens perspective capture FOV by the reference overscan', () => {
+    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 2000);
+    applyCaptureOverscan(camera);
+    expect(OPTICS_OVERSCAN).toBeCloseTo(1.26, 2);
+    expect(camera.fov).toBeCloseTo(50 * OPTICS_OVERSCAN, 5);
   });
 });

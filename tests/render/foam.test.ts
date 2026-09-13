@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { clearFoamTargets, FOAM_DERIVE_GLSL } from '../../src/render/ocean/foam';
+import { stepFoamHistory } from '../../src/render/ocean/foam-history';
 import { SPECTRUM_DERIVE_GLSL } from '../../src/render/ocean/spectrum';
 import { SURFACE_FUNCTIONS_GLSL } from '../../src/render/ocean/surface';
 
@@ -46,6 +47,17 @@ describe('foam backend contract', () => {
 
   it('decay is faster in calm and slower in storm via uFoamStorm mix', () => {
     expect(FOAM_DERIVE_GLSL).toContain('mix(1.35, .55, clamp(uFoamStorm');
+  });
+});
+
+describe('world-space foam history', () => {
+  it('advects, decays, and drains instead of sticking as a uniform ring', () => {
+    let cell = stepFoamHistory({ previous: 0, inject: 1, decay: 0.7, drain: 0.15 });
+    expect(cell).toBeGreaterThan(0.5);
+    cell = stepFoamHistory({ previous: cell, inject: 0, decay: 0.7, drain: 0.15 });
+    const later = stepFoamHistory({ previous: cell, inject: 0, decay: 0.7, drain: 0.15 });
+    expect(later).toBeLessThan(cell);
+    expect(stepFoamHistory({ previous: 1, inject: 0, decay: 0.2, drain: 0.9 })).toBeLessThan(0.1);
   });
 });
 

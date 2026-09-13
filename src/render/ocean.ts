@@ -700,7 +700,7 @@ void main() {
   float ragged = uSpectral > 0.5 ? smoothstep(0.32, 0.78, fField) : 1.0;
   float foamMask = clamp(max(shoreFoam, crestFoam * ragged), 0.0, 1.0) * vCoverage;
   vec3 foamCol = vec3(0.92, 0.96, 0.97) * (0.9 + 0.12 * fField);
-  float foamMix = uSpectral > 0.5 ? 0.05 : 0.9;
+  float foamMix = uSpectral > 0.5 ? 0.028 : 0.9;
   water = mix(water, foamCol, foamMask * foamMix);
 
   float alphaDown = mix(0.34, 0.24, clarity);
@@ -915,9 +915,9 @@ export class Ocean {
     u.uShallowColor.value.copy(hexToVec3(ocean.shallowColor));
     u.uSandColor.value.copy(hexToVec3(sandColorHex));
     const spectral = (u.uSpectral?.value as number) > 0.5;
-    u.uFoamAmount.value = ocean.foamAmount * this.foamScale * (spectral ? 0.28 : 1);
-    // Map look-dev foam slider into shore foam without losing the shoreline stack.
-    u.uShoreFoam.value = (0.45 + ocean.foamAmount * 2.8) * this.foamScale * (spectral ? 0.28 : 1);
+    u.uFoamAmount.value = ocean.foamAmount * this.foamScale * (spectral ? 0.22 : 1);
+    // Spectral shore foam is a thin lip, not a milky island ring.
+    u.uShoreFoam.value = (0.45 + ocean.foamAmount * 2.8) * this.foamScale * (spectral ? 0.12 : 1);
     this.setReadability(ocean.clarity, ocean.absorption);
     u.uFogDensity.value = fogDensity;
     u.uFogColor.value.set(fogColor.r, fogColor.g, fogColor.b);

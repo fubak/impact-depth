@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SURFACE_FUNCTIONS_GLSL,
   SURFACE_HEIGHT_TOLERANCE_M,
   oceanDisplacementAt,
   oceanInverseDisplacementAt,
@@ -34,6 +35,10 @@ describe('shared ocean displacement evaluator', () => {
     const atSource = oceanDisplacementAt(source.x, source.z, ctx);
     expect(Math.abs(displaced.y - amp * Math.sin(k * x))).toBeLessThan(SURFACE_HEIGHT_TOLERANCE_M);
     expect(Math.abs(atSource.y - displaced.y)).toBeLessThan(SURFACE_HEIGHT_TOLERANCE_M);
+  });
+
+  it('uses coastal travel direction instead of only the global swell', () => {
+    expect(SURFACE_FUNCTIONS_GLSL).toContain('normalize(coast.yz)');
   });
 
   it('applies bed coverage so land samples do not lift like open water', () => {

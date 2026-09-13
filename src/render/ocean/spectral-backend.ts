@@ -41,6 +41,10 @@ import {
   type CascadeSpec,
 } from './spectrum';
 
+export function coastalJobOwnsBind(jobGeneration: number, liveGeneration: number): boolean {
+  return jobGeneration === liveGeneration;
+}
+
 export type SpectralInitCode =
   'aborted' | 'missing-renderer' | 'missing-ocean' | 'no-float-targets' | 'fft-init-failed';
 
@@ -226,13 +230,15 @@ export class SpectralBackend implements EnvironmentBackend {
   private resourceFailure: string | null = null;
   private coastalRequested = false;
   private coastalBuilding = false;
+  private coastalGeneration = 0;
   private lastCoastalSnapX = Number.NaN;
   private lastCoastalSnapZ = Number.NaN;
 
   /** Snap cell for coastal fields — rebuild only when the follow region moves. */
   static readonly COASTAL_SNAP_M = 256;
-  static readonly COASTAL_EXTENT_M = 2048;
-  static readonly COASTAL_RESOLUTION = 32;
+  /** Sector-sized field: 128 samples across 640 m (~5 m cells). */
+  static readonly COASTAL_EXTENT_M = 640;
+  static readonly COASTAL_RESOLUTION = 128;
 
   constructor(options: SpectralBackendOptions) {
     this.renderer = options.renderer;
@@ -355,6 +361,7 @@ export class SpectralBackend implements EnvironmentBackend {
       swellDirection,
     };
 
+    const generation = ++this.coastalGeneration;
     this.coastalBuilding = true;
     // Build asynchronously and handle errors
     this.coastalCache
@@ -365,7 +372,7 @@ export class SpectralBackend implements EnvironmentBackend {
         fetchRayCount: 3,
       })
       .then((field) => {
-        if (this.disposed) return;
+        if (this.disposed || !coastalJobOwnsBind(generation, this.coastalGeneration)) return;
         if (field && field !== this.currentCoastalField) {
           // Dispose old texture
           if (this.coastalTexture && this.currentCoastalField !== this.coastal) {
@@ -386,7 +393,7 @@ export class SpectralBackend implements EnvironmentBackend {
         console.warn('Failed to build coastal field:', error);
       })
       .finally(() => {
-        this.coastalBuilding = false;
+        if (coastalJobOwnsBind(generation, this.coastalGeneration)) this.coastalBuilding = false;
       });
   }
 
@@ -553,6 +560,7 @@ export class SpectralBackend implements EnvironmentBackend {
       this.coastalCache.reset();
       this.coastalRequested = false;
       this.coastalBuilding = false;
+      this.coastalGeneration += 1;
       this.lastCoastalSnapX = Number.NaN;
       this.lastCoastalSnapZ = Number.NaN;
       if (this.coastalTexture && this.currentCoastalField !== this.coastal) {

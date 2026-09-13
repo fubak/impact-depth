@@ -29,7 +29,8 @@ vec3 oceanDisplacement(vec2 p) {
   vec4 coast = coastAt(p);
   // Soften delay/exposure so low-res coastal cells do not paint blocky green plates.
   float exposure = smoothstep(0.12, 0.88, coast.w);
-  vec2 delayed = p - uSwellDirection * coast.x * 0.35;
+  vec2 travelDir = length(coast.yz) > 0.12 ? normalize(coast.yz) : uSwellDirection;
+  vec2 delayed = p - travelDir * coast.x * 0.35;
   vec3 swell = texture2D(uDisplacement0, cascadeUv(delayed, uCascadeLength.x)).xyz;
   vec3 wind = texture2D(uDisplacement1, cascadeUv(p, uCascadeLength.y)).xyz;
   vec3 chop = texture2D(uDisplacement2, cascadeUv(p, uCascadeLength.z)).xyz;
@@ -48,7 +49,8 @@ vec3 oceanNormal(vec2 p) {
 
 float oceanFoam(vec2 p) {
   vec4 coast = coastAt(p);
-  vec2 delayed = p - uSwellDirection * coast.x * 0.35;
+  vec2 travelDir = length(coast.yz) > 0.12 ? normalize(coast.yz) : uSwellDirection;
+  vec2 delayed = p - travelDir * coast.x * 0.35;
   // Chop/wind dominate; swell jacobian plates are the honeycomb lattice.
   float swell = texture2D(uSlope0, cascadeUv(delayed, uCascadeLength.x)).b;
   float wind = texture2D(uSlope1, cascadeUv(p, uCascadeLength.y)).b;
@@ -180,6 +182,7 @@ export interface SurfaceEvalContext {
   bed: number;
   coastalDelay: number;
   coastalExposure: number;
+  coastalDirection?: readonly [number, number];
   swellDirection: readonly [number, number];
   waveHeight: number;
   wetBand: number;
@@ -204,8 +207,9 @@ export function oceanDisplacementAt(
 ): SurfaceDisplacement {
   const depth = Math.max(0, -ctx.bed);
   const exposure = smoothstep(0.12, 0.88, ctx.coastalExposure);
-  const delayedX = worldX - ctx.swellDirection[0] * ctx.coastalDelay * 0.35;
-  const delayedZ = worldZ - ctx.swellDirection[1] * ctx.coastalDelay * 0.35;
+  const dir = ctx.coastalDirection ?? ctx.swellDirection;
+  const delayedX = worldX - dir[0] * ctx.coastalDelay * 0.35;
+  const delayedZ = worldZ - dir[1] * ctx.coastalDelay * 0.35;
   const swell = ctx.sampleCascade(0, delayedX, delayedZ);
   const wind = ctx.sampleCascade(1, worldX, worldZ);
   const chop = ctx.sampleCascade(2, worldX, worldZ);
