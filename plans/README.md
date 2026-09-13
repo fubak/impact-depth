@@ -150,3 +150,7 @@ For the next plan, replace the filename. Use `--continue` only to correct the cu
 - **Start with multiplayer:** rejected. The user explicitly made co-op non-blocking, and deterministic solo gameplay is the prerequisite for trustworthy replication.
 - **Ship the procedural placeholder fleet:** rejected for final quality. It is suitable for gameplay development but not the PRD's vessel-recognition and realism bar.
 - **Target mobile parity before desktop launch:** rejected for the current scope. Maintain responsive UI and avoid desktop-only APIs, but prioritize the explicit Chromium/GPU target.
+
+## Follow-up visual review — 2026-09-13
+
+[Plan 021: vessel motion corrections and reference parity](021-visual-correction-and-reference-parity.md) records the d75802f review, video observations, ranked findings, implementation sequence and acceptance checks. Proposed for a future session; no engine fixes implemented in the review.
