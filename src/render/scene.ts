@@ -61,7 +61,7 @@ import {
 } from './assets';
 import { IslandField } from './islands';
 import { OutdoorLighting } from './environment/outdoor-lighting';
-import { updateEntityLods, wrapWithLod } from './lod';
+import { updateEntityLods } from './lod';
 import { EnvironmentController } from './environment/controller';
 import type { WorldVersion } from './environment/types';
 import { WeatherController, presentationOcean } from './environment/weather';
@@ -291,6 +291,7 @@ export class GameScene {
   }
 
   private mountPlayerMesh(): void {
+    if (this.sub.userData.assetSource === 'gltf' && this.sub.children.length > 0) return;
     const gltf = this.assets.clone('sub_nautilus');
     const source = chooseAssetSource({
       hasGltf: Boolean(gltf),
@@ -304,7 +305,7 @@ export class GameScene {
     }
     detail.scale.setScalar(1);
     presentHullObject(detail, { peri: false, depthMetres: 0 });
-    const playerSub = wrapWithLod(detail, this.assets.getLodDistances(), { neverCull: true });
+    const playerSub = detail;
     playerSub.userData.pickId = 'player';
     this.sub.clear();
     this.sub.add(playerSub);
@@ -321,6 +322,8 @@ export class GameScene {
   private refreshShipMeshesFromAssets(): void {
     for (const [id, entity] of this.shipEntities) {
       if (entity.mesh.userData.assetSource === 'gltf') continue;
+      if (entity.mesh.children.length > 0 && entity.mesh.userData.assetSource !== 'pending')
+        continue;
       const kind = entity.mesh.userData.assetKind as AssetEntity | undefined;
       if (!kind) continue;
       const source = chooseAssetSource({
@@ -645,6 +648,7 @@ export class GameScene {
       active.add(id);
       let entity = this.entities.get(id);
       if (!entity) {
+        if (!this.assets.hasGltf(kind) && !this.assets.isReady) return;
         entity = this.resolveEntityMesh(kind);
         this.entities.set(id, entity);
         this.scene.add(entity);
@@ -767,7 +771,7 @@ export class GameScene {
       detail.userData.assetKind = kind;
       detail.userData.assetSource = 'pending';
     }
-    const mesh = wrapWithLod(detail, this.assets.getLodDistances(), { neverCull: true });
+    const mesh = detail;
     mesh.scale.setScalar(classScale);
     mesh.userData.classScale = classScale;
     mesh.userData.assetKind = kind;
@@ -953,6 +957,7 @@ export class GameScene {
       let entity = this.shipEntities.get(ship.id);
       if (!entity) {
         const assetKind = simKindToAssetEntity(ship.kind);
+        if (!this.assets.hasGltf(assetKind) && !this.assets.isReady) continue;
         const scale = fleetClassScale(ship.kind);
         const mesh = this.resolveEntityMesh(assetKind, scale);
         this.tagPickId(mesh, ship.id);
