@@ -41,6 +41,10 @@ export function wrapWithLod(
     lod.addLevel(cull, cullAt, 0.2);
   }
 
+  for (let i = 0; i < lod.levels.length; i++) {
+    lod.levels[i]!.object.visible = i === 0;
+  }
+
   root.add(lod);
   root.userData.lod = lod;
   return root;
@@ -53,8 +57,7 @@ export function updateEntityLods(root: THREE.Object3D, camera: THREE.Camera): vo
 }
 
 function pruneForMidLod(root: THREE.Object3D): void {
-  const hideName =
-    /antenna|radar|ladder|boom|searchlight|strap|liferaft|nacelle|cockpit/i;
+  const hideName = /antenna|radar|ladder|boom|searchlight|strap|liferaft|nacelle|cockpit/i;
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     if (hideName.test(object.name) || hideName.test(object.parent?.name ?? '')) {

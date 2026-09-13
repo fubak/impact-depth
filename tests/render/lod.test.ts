@@ -30,6 +30,8 @@ describe('entity LOD', () => {
     expect(lod.levels).toHaveLength(2);
     expect(lod.levels[0]!.distance).toBe(0);
     expect(lod.levels[1]!.distance).toBe(40);
+    expect(lod.levels[0]!.object.visible).toBe(true);
+    expect(lod.levels[1]!.object.visible).toBe(false);
 
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
     camera.position.set(0, 5, 10);

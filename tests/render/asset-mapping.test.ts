@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fleetClassScale, simKindToAssetEntity } from '../../src/render/assets';
+import { chooseAssetSource, fleetClassScale, simKindToAssetEntity } from '../../src/render/assets';
 import type { ShipKind } from '../../src/game/sim/types';
 
 describe('asset kind mapping', () => {
@@ -19,6 +19,21 @@ describe('asset kind mapping', () => {
 
   it('maps look-dev uboat kind to the Akula registry entity', () => {
     expect(simKindToAssetEntity('uboat')).toBe('uboat');
+  });
+
+  it('does not flash a procedural hull while GLBs are still loading', () => {
+    expect(
+      chooseAssetSource({ hasGltf: false, registryReady: false, allowProceduralFallback: false }),
+    ).toBe('pending');
+    expect(
+      chooseAssetSource({ hasGltf: true, registryReady: false, allowProceduralFallback: false }),
+    ).toBe('gltf');
+    expect(
+      chooseAssetSource({ hasGltf: false, registryReady: true, allowProceduralFallback: false }),
+    ).toBe('procedural');
+    expect(
+      chooseAssetSource({ hasGltf: false, registryReady: false, allowProceduralFallback: true }),
+    ).toBe('procedural');
   });
 
   it('keeps residual class scales slight now that meshes are class-specific', () => {

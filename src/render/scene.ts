@@ -53,6 +53,8 @@ import {
 import { Atmosphere } from './atmosphere';
 import {
   AssetRegistry,
+  PROCEDURAL_FALLBACK_MS,
+  chooseAssetSource,
   fleetClassScale,
   simKindToAssetEntity,
   type AssetEntity,
@@ -118,6 +120,7 @@ export class GameScene {
   private readonly weather = new WeatherController();
   private currentTerrainSeed = 0;
   private currentWorldVersion: WorldVersion = 'legacy-v1';
+  private allowProceduralFallback = false;
   private readonly probes = new SurfaceProbeQueue(32);
   private readonly attitudes = new VesselAttitudeSmoother();
   private missionGeneration = 0;
@@ -189,7 +192,6 @@ export class GameScene {
     this.scene.add(this.surfaceEffects.group);
     this.caustics.attachToObject(this.seabed.mesh, 'seabed');
     this.caustics.attachToObject(this.islands.group, 'rock');
-    this.mountPlayerMesh();
     excludeFromWaterCapture(this.surfaceEffects.group);
     const gerstner = new GerstnerBackend(this.ocean);
     this.environment = new EnvironmentController({
@@ -270,7 +272,13 @@ export class GameScene {
     excludeFromWaterCapture(this.vfx.group);
     excludeFromWaterCapture(this.subBeacon);
     excludeFromWaterCapture(this.subHit);
+    const fallbackTimer = setTimeout(() => {
+      this.allowProceduralFallback = true;
+      this.mountPlayerMesh();
+      this.refreshShipMeshesFromAssets();
+    }, PROCEDURAL_FALLBACK_MS);
     void this.assets.preload().then(() => {
+      clearTimeout(fallbackTimer);
       this.mountPlayerMesh();
       this.refreshShipMeshesFromAssets();
     });
@@ -292,6 +300,12 @@ export class GameScene {
 
   private mountPlayerMesh(): void {
     const gltf = this.assets.clone('sub_nautilus');
+    const source = chooseAssetSource({
+      hasGltf: Boolean(gltf),
+      registryReady: this.assets.isReady,
+      allowProceduralFallback: this.allowProceduralFallback,
+    });
+    if (source === 'pending') return;
     const detail = gltf ?? createSubmarine();
     if (!gltf) {
       detail.userData.assetKind = 'sub_nautilus';
@@ -317,7 +331,15 @@ export class GameScene {
     for (const [id, entity] of this.shipEntities) {
       if (entity.mesh.userData.assetSource === 'gltf') continue;
       const kind = entity.mesh.userData.assetKind as AssetEntity | undefined;
-      if (!kind || !this.assets.hasGltf(kind)) continue;
+      if (!kind) continue;
+      const source = chooseAssetSource({
+        hasGltf: this.assets.hasGltf(kind),
+        registryReady: this.assets.isReady,
+        allowProceduralFallback: this.allowProceduralFallback,
+      });
+      if (source === 'pending') continue;
+      if (source === 'procedural' && entity.mesh.userData.assetSource === 'procedural') continue;
+      if (source === 'gltf' && !this.assets.hasGltf(kind)) continue;
       const scale = (entity.mesh.userData.classScale as number) || 1;
       const next = this.resolveEntityMesh(kind, scale);
       this.tagPickId(next, id);
@@ -741,13 +763,28 @@ export class GameScene {
 
   private resolveEntityMesh(kind: AssetEntity, classScale = 1): THREE.Group {
     const gltf = this.assets.clone(kind);
-    const detail = gltf ?? this.createFallback(kind);
+    const source = chooseAssetSource({
+      hasGltf: Boolean(gltf),
+      registryReady: this.assets.isReady,
+      allowProceduralFallback: this.allowProceduralFallback,
+    });
+    const detail =
+      source === 'gltf' && gltf
+        ? gltf
+        : source === 'procedural'
+          ? this.createFallback(kind)
+          : new THREE.Group();
+    if (source === 'pending') {
+      detail.userData.assetKind = kind;
+      detail.userData.assetSource = 'pending';
+    }
     const mesh = wrapWithLod(detail, this.assets.getLodDistances(), { neverCull: true });
     mesh.scale.setScalar(classScale);
     mesh.userData.classScale = classScale;
     mesh.userData.assetKind = kind;
-    mesh.userData.assetSource = gltf ? 'gltf' : 'procedural';
-    mesh.userData.hullHeight = hullHeightY(mesh);
+    mesh.userData.assetSource = source;
+    mesh.userData.hullHeight = source === 'pending' ? DEFAULT_SUB_HULL_HEIGHT_M : hullHeightY(mesh);
+    mesh.visible = source !== 'pending';
     return mesh;
   }
 
@@ -960,7 +997,7 @@ export class GameScene {
         -ship.heading,
         Number.isFinite(roll) ? roll : 0,
       );
-      entity.mesh.visible = true;
+      entity.mesh.visible = entity.mesh.userData.assetSource !== 'pending';
       presentHullObject(entity.mesh, { peri: false, depthMetres: submerged });
       entity.hit.position.copy(entity.mesh.position);
       // Keep pick volume tall enough to catch clicks from submerged cameras.

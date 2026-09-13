@@ -16,7 +16,20 @@ export type AssetEntity =
   | 'torpedo'
   | 'crate';
 
-export type AssetMeshSource = 'gltf' | 'procedural' | 'missing';
+export type AssetMeshSource = 'gltf' | 'procedural' | 'missing' | 'pending';
+
+/** Show procedural hulls only if GLBs have not arrived after this wait. */
+export const PROCEDURAL_FALLBACK_MS = 500;
+
+export function chooseAssetSource(opts: {
+  hasGltf: boolean;
+  registryReady: boolean;
+  allowProceduralFallback: boolean;
+}): AssetMeshSource {
+  if (opts.hasGltf) return 'gltf';
+  if (opts.registryReady || opts.allowProceduralFallback) return 'procedural';
+  return 'pending';
+}
 
 type ManifestEntry = { gltf: string | null; fallback: string };
 type AssetManifest = {
@@ -104,6 +117,10 @@ export class AssetRegistry {
     this.readyResolve = resolve;
   });
   private readySettled = false;
+
+  get isReady(): boolean {
+    return this.readySettled;
+  }
 
   async preload(): Promise<void> {
     try {
