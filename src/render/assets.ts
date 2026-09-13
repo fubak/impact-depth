@@ -18,12 +18,20 @@ export type AssetEntity =
 
 export type AssetMeshSource = 'gltf' | 'procedural' | 'missing' | 'pending';
 
+/** Sketchfab hero meshes. Kenney kit hulls stay procedural — they read as oversized voxels. */
+export function prefersAuthoredGltf(kind: AssetEntity): boolean {
+  return kind === 'sub_nautilus' || kind === 'uboat' || kind === 'destroyer';
+}
+
 export function chooseAssetSource(opts: {
   hasGltf: boolean;
   registryReady: boolean;
+  preferGltf?: boolean;
   allowProceduralFallback?: boolean;
 }): AssetMeshSource {
-  if (opts.hasGltf) return 'gltf';
+  const wantGltf = opts.preferGltf ?? true;
+  if (wantGltf && opts.hasGltf) return 'gltf';
+  if (!wantGltf) return 'procedural';
   if (opts.registryReady || opts.allowProceduralFallback) return 'procedural';
   return 'pending';
 }

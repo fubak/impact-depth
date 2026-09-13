@@ -55,6 +55,7 @@ import {
   AssetRegistry,
   chooseAssetSource,
   fleetClassScale,
+  prefersAuthoredGltf,
   simKindToAssetEntity,
   type AssetEntity,
   type AssetMeshSource,
@@ -296,6 +297,7 @@ export class GameScene {
     const source = chooseAssetSource({
       hasGltf: Boolean(gltf),
       registryReady: this.assets.isReady,
+      preferGltf: prefersAuthoredGltf('sub_nautilus'),
     });
     if (source === 'pending') return;
     const detail = gltf ?? createSubmarine();
@@ -648,7 +650,7 @@ export class GameScene {
       active.add(id);
       let entity = this.entities.get(id);
       if (!entity) {
-        if (!this.assets.hasGltf(kind) && !this.assets.isReady) return;
+        if (prefersAuthoredGltf(kind) && !this.assets.hasGltf(kind) && !this.assets.isReady) return;
         entity = this.resolveEntityMesh(kind);
         this.entities.set(id, entity);
         this.scene.add(entity);
@@ -756,10 +758,11 @@ export class GameScene {
   }
 
   private resolveEntityMesh(kind: AssetEntity, classScale = 1): THREE.Group {
-    const gltf = this.assets.clone(kind);
+    const gltf = prefersAuthoredGltf(kind) ? this.assets.clone(kind) : undefined;
     const source = chooseAssetSource({
       hasGltf: Boolean(gltf),
       registryReady: this.assets.isReady,
+      preferGltf: prefersAuthoredGltf(kind),
     });
     const detail =
       source === 'gltf' && gltf
@@ -957,7 +960,12 @@ export class GameScene {
       let entity = this.shipEntities.get(ship.id);
       if (!entity) {
         const assetKind = simKindToAssetEntity(ship.kind);
-        if (!this.assets.hasGltf(assetKind) && !this.assets.isReady) continue;
+        if (
+          prefersAuthoredGltf(assetKind) &&
+          !this.assets.hasGltf(assetKind) &&
+          !this.assets.isReady
+        )
+          continue;
         const scale = fleetClassScale(ship.kind);
         const mesh = this.resolveEntityMesh(assetKind, scale);
         this.tagPickId(mesh, ship.id);
