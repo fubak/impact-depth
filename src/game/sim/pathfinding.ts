@@ -227,3 +227,43 @@ export function steerAvoid(
   // Soft lateral peel instead of ~108° snap-turn.
   return heading + Math.sign(bestHeading - heading || 1) * (Math.PI * 0.35);
 }
+
+/**
+ * When the forward step is on land, pick a nearby clear cell that stays as
+ * aligned with `heading` as possible so hulls do not crab sideways.
+ */
+export function resolveClearStep(
+  fromX: number,
+  fromY: number,
+  heading: number,
+  blockedX: number,
+  blockedY: number,
+  clear: ClearFn,
+  clampPos: (x: number, y: number) => { x: number; y: number },
+): { x: number; y: number; heading: number } {
+  const hx = Math.cos(heading);
+  const hy = Math.sin(heading);
+  for (let radius = 1; radius <= 10; radius++) {
+    let pick: { x: number; y: number; dot: number } | undefined;
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+        const next = clampPos(fromX + dx, fromY + dy);
+        if (!clear(next.x, next.y)) continue;
+        const vx = next.x - fromX;
+        const vy = next.y - fromY;
+        const len = Math.hypot(vx, vy) || 1;
+        const dot = (vx * hx + vy * hy) / len;
+        if (!pick || dot > pick.dot) pick = { x: next.x, y: next.y, dot };
+      }
+    }
+    if (pick) {
+      return {
+        x: pick.x,
+        y: pick.y,
+        heading: Math.atan2(pick.y - fromY, pick.x - fromX),
+      };
+    }
+  }
+  return { x: blockedX, y: blockedY, heading };
+}

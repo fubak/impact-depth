@@ -1,5 +1,18 @@
 import * as THREE from 'three';
 
+/**
+ * Extra yaw after AABB fit so the authored nose/bow points +X (motion).
+ * Kenney watercraft were imported with rotationY(-90), mapping kit +Z bow to −X.
+ * The light plane's longest axis is wingspan, not the fuselage.
+ */
+export const FORWARD_YAW: Record<string, number> = {
+  patrol: Math.PI,
+  cruiser: Math.PI,
+  battleship: Math.PI,
+  freighter: Math.PI,
+  aircraft: Math.PI / 2,
+};
+
 /** Presentation length along +X after fit. Sized for the 640 m sector. */
 export const HULL_LENGTH_M: Record<string, number> = {
   sub_nautilus: 22,
@@ -9,6 +22,7 @@ export const HULL_LENGTH_M: Record<string, number> = {
   cruiser: 30,
   battleship: 38,
   freighter: 26,
+  aircraft: 9.5,
 };
 
 const _size = new THREE.Vector3();
@@ -32,8 +46,24 @@ export function fitPresentationHull(root: THREE.Object3D, kind: string): void {
     _box.setFromObject(root);
     _box.getSize(_size);
   }
-  if (_size.z > _size.x * 1.08) {
+  if (kind === 'aircraft') {
+    // Wingspan is the longest horizontal. Put fuselage on +X, wings on Z.
+    if (_size.x > _size.z * 1.05) {
+      root.rotateY(Math.PI / 2);
+      root.updateMatrixWorld(true);
+      _box.setFromObject(root);
+      _box.getSize(_size);
+    }
+  } else if (_size.z > _size.x * 1.08) {
     root.rotateY(Math.PI / 2);
+    root.updateMatrixWorld(true);
+    _box.setFromObject(root);
+    _box.getSize(_size);
+  }
+
+  const yaw = FORWARD_YAW[kind];
+  if (yaw && kind !== 'aircraft') {
+    root.rotateY(yaw);
     root.updateMatrixWorld(true);
     _box.setFromObject(root);
     _box.getSize(_size);

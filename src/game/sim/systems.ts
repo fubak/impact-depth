@@ -35,7 +35,7 @@ import {
 } from './constants';
 import { getTerrain, isCrushedBySeamount, isLand, snapToNavigable } from './world';
 import { updateAutopilot } from './autopilot';
-import { makeClear, steerAvoid, shipClearRadius } from './pathfinding';
+import { makeClear, resolveClearStep, steerAvoid, shipClearRadius } from './pathfinding';
 import { passiveRange, updateSonar } from './sonar';
 import { integrateV2Horizontal, resolveV2WorldCollision } from '../world/collision';
 import { getWorld } from '../world/queries';
@@ -785,7 +785,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         pursuit = ship.heading + Math.sin((state.time + ship.patrolIndex) * 0.15) * 0.12;
       }
       const lookAhead = Math.max(2.8, ship.speed * 1.8);
-      const heading = turnToward(
+      let heading = turnToward(
         ship.heading,
         steerAvoid(ship.x, ship.y, pursuit, lookAhead, clear),
         shipTurnRate[ship.kind] * (alert > 0.25 ? 1 : 0.72),
@@ -797,23 +797,15 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       let y = clampSim(ship.y + Math.sin(heading) * moveSpeed * dt);
       // Hard land clamp — soft steering alone still overshoots into islands.
       if (!clear(x, y)) {
-        let resolved = false;
-        for (let radius = 1; radius <= 10 && !resolved; radius++) {
-          for (let dy = -radius; dy <= radius && !resolved; dy++) {
-            for (let dx = -radius; dx <= radius; dx++) {
-              if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
-              const px = clampSim(ship.x + dx);
-              const py = clampSim(ship.y + dy);
-              if (clear(px, py)) {
-                x = px;
-                y = py;
-                resolved = true;
-                break;
-              }
-            }
-          }
-        }
-        if (!resolved) {
+        const stepped = resolveClearStep(ship.x, ship.y, heading, x, y, clear, (px, py) => ({
+          x: clampSim(px),
+          y: clampSim(py),
+        }));
+        if (clear(stepped.x, stepped.y)) {
+          x = stepped.x;
+          y = stepped.y;
+          heading = stepped.heading;
+        } else {
           const safe = snapToNavigable(terrain, x, y, 0.05);
           x = safe.x;
           y = safe.y;
