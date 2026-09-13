@@ -21,6 +21,7 @@ import {
   groupFootprint,
   type VesselAttitudeResult,
 } from './presentation/vessel-attitude';
+import { presentHullObject } from './presentation/hull-materials';
 import { clampPresentationY, presentationBedY } from './presentation/world-bed';
 import {
   formatSurfaceDiagnostics,
@@ -297,22 +298,7 @@ export class GameScene {
       detail.userData.assetSource = 'procedural';
     }
     detail.scale.setScalar(1);
-    detail.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      object.frustumCulled = false;
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      materials.forEach((material) => {
-        if (material instanceof THREE.MeshStandardMaterial) {
-          material.metalness = Math.min(material.metalness, 0.2);
-          material.roughness = Math.max(material.roughness, 0.55);
-          material.envMapIntensity = 0.7;
-          if (material.emissiveIntensity < 0.2) {
-            material.emissive.copy(material.color).multiplyScalar(0.4);
-            material.emissiveIntensity = 0.28;
-          }
-        }
-      });
-    });
+    presentHullObject(detail, { peri: false, depthMetres: 0 });
     const playerSub = wrapWithLod(detail, this.assets.getLodDistances(), { neverCull: true });
     playerSub.userData.pickId = 'player';
     this.sub.clear();
@@ -425,22 +411,7 @@ export class GameScene {
     root.userData.pickId = pickId;
     root.traverse((object) => {
       object.userData.pickId = pickId;
-      if (object instanceof THREE.Mesh) {
-        object.frustumCulled = false;
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        for (const material of materials) {
-          if (
-            material instanceof THREE.MeshStandardMaterial ||
-            material instanceof THREE.MeshPhysicalMaterial
-          ) {
-            // Soft underlight so surface hulls still read through water from depth.
-            if (material.emissiveIntensity < 0.2) {
-              material.emissive.setHex(0x1c3038);
-              material.emissiveIntensity = 0.28;
-            }
-          }
-        }
-      }
+      if (object instanceof THREE.Mesh) object.frustumCulled = false;
     });
   }
 
@@ -603,6 +574,7 @@ export class GameScene {
       seaState: this.lastSeaState,
       storm: this.lastSeaState >= 0.6 ? 1 : 0,
       maps,
+      sampledWaterHeight: this.lastWaterHeight ?? 0,
       bed: this.ocean.bedBind(),
       coastal,
       coastalOrigin: coastal ? { x: coastalOrigin.x, z: coastalOrigin.z } : undefined,
@@ -881,6 +853,7 @@ export class GameScene {
       cloudCoverage: weather.gains.cloudCoverage,
       lightning: weather.lightning,
       nowSeconds: sim.time,
+      weatherPreset: weather.preset,
     });
     this.presentationTime = sim.time;
     this.presentationPaused = sim.paused;
@@ -922,30 +895,7 @@ export class GameScene {
     const peri = sim.viewMode === 'periscope';
     // Procedural hull stays visible until glTF hot-swaps after preload.
     this.sub.visible = this.sub.userData.assetSource !== 'pending';
-    this.sub.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      object.frustumCulled = false;
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      for (const material of materials) {
-        if (
-          material instanceof THREE.MeshStandardMaterial ||
-          material instanceof THREE.MeshBasicMaterial
-        ) {
-          // Only the periscope camera ghosts the hull. Tactical depth > 4 used to
-          // flip transparent every order change and the boat vanished against water.
-          material.transparent = peri;
-          material.opacity = peri ? 0.35 : 1;
-          material.depthWrite = !peri;
-          if ('emissiveIntensity' in material) {
-            const depthGlow = 0.4 + Math.min(0.9, Math.max(0, v.depth - 1) * 0.055);
-            material.emissiveIntensity = Math.max(material.emissiveIntensity, depthGlow);
-            if (material instanceof THREE.MeshStandardMaterial && v.depth > 6) {
-              material.emissive.setHex(0x2a6a78);
-            }
-          }
-        }
-      }
-    });
+    presentHullObject(this.sub, { peri, depthMetres: v.depth });
     this.subHit.position.copy(this.sub.position);
     // Dual cue: surface ring always, plus a hull-tied ring so deep boats stay locatable.
     this.subBeacon.position.set(v.x, Math.max(subY + 3.5, 1.2), v.z);
@@ -1011,17 +961,7 @@ export class GameScene {
         Number.isFinite(roll) ? roll : 0,
       );
       entity.mesh.visible = true;
-      entity.mesh.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.frustumCulled = false;
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        for (const material of materials) {
-          if (material instanceof THREE.MeshStandardMaterial && submerged > 0) {
-            material.emissiveIntensity = Math.max(material.emissiveIntensity, 0.45);
-            material.emissive.setHex(0x3a6a78);
-          }
-        }
-      });
+      presentHullObject(entity.mesh, { peri: false, depthMetres: submerged });
       entity.hit.position.copy(entity.mesh.position);
       // Keep pick volume tall enough to catch clicks from submerged cameras.
       entity.hit.scale.set(1, 1 + Math.min(2.5, deep * 0.12 + submerged * 0.04), 1);

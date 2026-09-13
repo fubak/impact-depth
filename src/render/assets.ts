@@ -77,10 +77,6 @@ export function configureSurfaceMaterial(
   material.metalness = Math.min(material.metalness, 0.22);
   material.roughness = Math.max(material.roughness, 0.4);
   material.envMapIntensity = material.envMapIntensity || 0.55;
-  if (material.emissiveIntensity < 0.15) {
-    material.emissive.copy(material.color).multiplyScalar(0.35);
-    material.emissiveIntensity = 0.2;
-  }
   if (material.map) material.map.colorSpace = THREE.SRGBColorSpace;
   if (material instanceof THREE.MeshPhysicalMaterial) {
     material.transmission = 0;

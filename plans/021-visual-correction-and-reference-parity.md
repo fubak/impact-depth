@@ -128,4 +128,4 @@ Fresh screenshot inspection: artifacts/plan-019/tactical-shallows.png confirms c
 
 Implemented: shared `oceanDisplacement` in GPU probes, CPU twin + 0.25 m tolerance, probe heave (no CPU/GPU mix), accepted-sample velocity, active-world bed clamp, 10 Hz cadence, spatial rejection keyed to hull origin, look-dev surface diagnostics, `scripts/look-021.mjs`.
 
-Verified: typecheck; `tests/render` 179 passed; production build (955 kB main). Headed capture at `http://127.0.0.1:8082/` wrote `artifacts/plan-021/` with `source: "probe"`, 10 Hz, 13 readbacks. Software-GL probe age was ~0.4 s (not GPU proof). Foam, pale hull, milky shallows remain for phases C–E. Not committed.
+Verified: typecheck; `tests/render` 179 passed; production build (955 kB main). Headed capture at `http://127.0.0.1:8082/` wrote `artifacts/plan-021/` with `source: "probe"`, 10 Hz, 13 readbacks. Software-GL probe age was ~0.4 s (not GPU proof). Foam, pale hull, milky shallows remain for phases C–E. Committed as `3f5468c`.

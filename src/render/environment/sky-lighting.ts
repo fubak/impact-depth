@@ -9,6 +9,7 @@ export interface SkyLightingState {
   cloudCoverage: number;
   lightning: number;
   isNight: boolean;
+  weatherPreset?: 'calm' | 'breeze' | 'storm';
 }
 
 export interface SkyLightingDiagnostics {
@@ -34,6 +35,7 @@ export function skyLightingSignature(state: SkyLightingState): string {
     quantize(state.sunDir.z, 16),
     quantize(state.cloudCoverage, 8),
     state.isNight ? 1 : 0,
+    state.weatherPreset === 'storm' ? 2 : state.weatherPreset === 'calm' ? 0 : 1,
     quantize(state.lightning, 4),
   ].join(':');
 }
@@ -52,6 +54,8 @@ export class SkyLighting {
   private hdrReady = false;
   private hdrFailed = false;
   private isNight = false;
+  private weatherPreset: 'calm' | 'breeze' | 'storm' = 'breeze';
+  private sunY = 1;
   private signature: string | null = null;
   private lastRefreshSeconds: number | null = null;
   private generation = 0;
@@ -140,6 +144,8 @@ export class SkyLighting {
       hdrReady: this.hdrReady,
       hdrFailed: this.hdrFailed,
       isNight: this.isNight,
+      weatherPreset: this.weatherPreset,
+      sunY: this.sunY,
     });
   }
 
@@ -155,6 +161,8 @@ export class SkyLighting {
   update(state: SkyLightingState, nowSeconds: number, force = false): boolean {
     if (this.disposed) return false;
     this.isNight = state.isNight;
+    this.weatherPreset = state.weatherPreset ?? 'breeze';
+    this.sunY = state.sunDir.y;
     const source = this.currentSource();
     if (source === 'hdr-pmrem') {
       this.applyActiveEnvironment();

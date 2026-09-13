@@ -7,6 +7,26 @@ export type SeabedHeightSampler = (worldX: number, worldZ: number) => number;
 /** Rebuild only after a large world drift so the floor does not crawl under the hull. */
 export const SEABED_FOLLOW_FRACTION = 0.22;
 
+/** Height/slope albedo only. Dynamic caustics own moving light. */
+export function seabedAlbedoColor(
+  wx: number,
+  wz: number,
+  y: number,
+  sand: THREE.Color,
+  dark: THREE.Color,
+  reef: THREE.Color,
+  deepTeal: THREE.Color,
+): THREE.Color {
+  const tone = classifySeabedTone(wx, wz);
+  const c = sand.clone().lerp(dark, tone * 0.4);
+  if (tone > 0.72 && y > -9) c.lerp(reef, 0.22);
+  const depth = Math.max(0, -y);
+  const atten = Math.min(1, Math.max(0, (depth - 2.5) / 15));
+  c.lerp(deepTeal, atten * 0.4);
+  c.multiplyScalar(0.9 - atten * 0.12);
+  return c;
+}
+
 export function shouldRebuildSeabedFollow(
   originX: number,
   originZ: number,
@@ -118,15 +138,7 @@ export class Seabed {
       const y = this.heightSampler(wx, wz);
       pos.setY(i, y);
 
-      const tone = classifySeabedTone(wx, wz);
-      const c = sand.clone().lerp(dark, tone * 0.4);
-      if (tone > 0.72 && y > -9) c.lerp(reef, 0.22);
-      const depth = Math.max(0, -y);
-      const atten = Math.min(1, Math.max(0, (depth - 2.5) / 15));
-      c.lerp(deepTeal, atten * 0.4);
-      c.multiplyScalar(0.9 - atten * 0.12);
-      const caustic = 0.95 + 0.07 * Math.sin(wx * 0.32) * Math.sin(wz * 0.26);
-      c.multiplyScalar(caustic);
+      const c = seabedAlbedoColor(wx, wz, y, sand, dark, reef, deepTeal);
       col.setXYZ(i, c.r, c.g, c.b);
     }
     pos.needsUpdate = true;

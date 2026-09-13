@@ -52,4 +52,23 @@ describe('pickSkyLightingSource', () => {
       'procedural-sky-pmrem',
     );
   });
+
+  it('drops the noon HDR in storm and at low sun', () => {
+    expect(
+      pickSkyLightingSource({
+        hdrReady: true,
+        hdrFailed: false,
+        isNight: false,
+        weatherPreset: 'storm',
+      }),
+    ).toBe('procedural-sky-pmrem');
+    expect(
+      pickSkyLightingSource({
+        hdrReady: true,
+        hdrFailed: false,
+        isNight: false,
+        sunY: 0.12,
+      }),
+    ).toBe('procedural-sky-pmrem');
+  });
 });
