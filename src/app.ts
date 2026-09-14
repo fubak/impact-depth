@@ -204,6 +204,22 @@ export class App {
     return this.audio.getDiagnostics();
   }
 
+  getPresentationGauntlet() {
+    return {
+      audio: this.audio.getDiagnostics(),
+      vfx: this.scene.getVfxDiagnostics(),
+      surface: this.scene.surfaceEffects.getDiagnostics(),
+      assets: this.scene.getAssetProbe(
+        this.game.ships.map((ship) => ({ id: ship.id, kind: ship.kind })),
+      ),
+    };
+  }
+
+  debugBurstPresentationFx() {
+    this.audio.unlock();
+    return this.scene.debugBurstPresentationFx();
+  }
+
   getPerformanceProbe() {
     return {
       quality: this.activeQuality,

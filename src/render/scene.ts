@@ -494,6 +494,29 @@ export class GameScene {
     return this.outdoorLighting.getDiagnostics();
   }
 
+  getVfxDiagnostics() {
+    return this.vfx.getDiagnostics();
+  }
+
+  /** Test/gauntlet: spawn visible combat VFX + splash without advancing GameState. */
+  debugBurstPresentationFx(): { vfx: ReturnType<VfxPool['getDiagnostics']>; splash: number } {
+    const origin = this.sub.position;
+    this.vfx.emit('explosion', origin.clone().add(new THREE.Vector3(4, 1, 2)), this.lastSimTime);
+    this.vfx.emit('plume', origin.clone().add(new THREE.Vector3(-3, 0.5, 1)), this.lastSimTime);
+    this.vfx.emit('pickup', origin.clone().add(new THREE.Vector3(1, 2, -2)), this.lastSimTime);
+    this.surfaceEffects.emitImpact({
+      x: origin.x + 6,
+      y: origin.y,
+      z: origin.z,
+      strength: 1.4,
+      kind: 'burst',
+    });
+    return {
+      vfx: this.vfx.getDiagnostics(),
+      splash: this.surfaceEffects.getDiagnostics().splashAlive,
+    };
+  }
+
   getSurfaceDiagnostics(): SurfaceDiagnostics | null {
     return this.lastSurfaceDiagnostics;
   }

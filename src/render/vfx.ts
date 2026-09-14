@@ -22,14 +22,37 @@ export class VfxPool {
 
   emit(kind: EffectKind, position: THREE.Vector3, now: number): void {
     if (this.particles.length >= this.cap) this.remove(this.particles[0]!);
-    const color = kind === 'explosion' ? 0xffa33b : kind === 'plume' ? 0x9dd9df : kind === 'pickup' ? 0x9ce9c0 : 0xe8fbff;
+    const color =
+      kind === 'explosion'
+        ? 0xffa33b
+        : kind === 'plume'
+          ? 0x9dd9df
+          : kind === 'pickup'
+            ? 0x9ce9c0
+            : 0xe8fbff;
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(kind === 'wake' ? 0.2 : 0.55, 8, 6),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: kind === 'wake' ? 0.36 : 0.82, depthWrite: false }),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: kind === 'wake' ? 0.36 : 0.82,
+        depthWrite: false,
+      }),
     );
     mesh.position.copy(position);
     this.group.add(mesh);
-    this.particles.push({ mesh, kind, born: now, ttl: kind === 'wake' ? 1.2 : kind === 'pickup' ? 1.8 : 0.9 });
+    this.particles.push({
+      mesh,
+      kind,
+      born: now,
+      ttl: kind === 'wake' ? 1.2 : kind === 'pickup' ? 1.8 : 0.9,
+    });
+  }
+
+  getDiagnostics(): { alive: number; cap: number; byKind: Record<EffectKind, number> } {
+    const byKind: Record<EffectKind, number> = { wake: 0, explosion: 0, plume: 0, pickup: 0 };
+    for (const particle of this.particles) byKind[particle.kind] += 1;
+    return { alive: this.particles.length, cap: this.cap, byKind };
   }
 
   setCap(cap: number): void {
