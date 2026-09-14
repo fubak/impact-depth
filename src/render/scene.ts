@@ -506,7 +506,7 @@ export class GameScene {
     this.vfx.emit('pickup', origin.clone().add(new THREE.Vector3(1, 2, -2)), this.lastSimTime);
     this.surfaceEffects.emitImpact({
       x: origin.x + 6,
-      y: origin.y,
+      y: 0.2,
       z: origin.z,
       strength: 1.4,
       kind: 'burst',

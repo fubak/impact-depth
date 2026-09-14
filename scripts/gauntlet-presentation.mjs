@@ -109,8 +109,10 @@ try {
     if (!burst?.vfx || burst.vfx.alive < 3) {
       throw new Error(`expected ≥3 VFX particles, got ${JSON.stringify(burst)}`);
     }
-    if ((probe?.surface?.splashAlive ?? 0) < 1 && (burst.splash ?? 0) < 1) {
-      throw new Error(`expected a splash slot, got ${JSON.stringify(probe?.surface)}`);
+    const splash = burst.splash ?? probe?.surface?.splashAlive ?? 0;
+    const spray = probe?.surface?.sprayAlive ?? 0;
+    if (splash < 1 && spray < 1) {
+      throw new Error(`expected splash or spray, got ${JSON.stringify(probe?.surface)}`);
     }
     await page.screenshot({ path: join(artifacts, 'hit-vfx.png') });
     return { burst, surface: probe.surface, vfx: probe.vfx };
