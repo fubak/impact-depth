@@ -56,4 +56,30 @@ describe('hull material baselines', () => {
     expect(material.emissiveIntensity).toBeLessThan(0.05);
     expect(material.emissive.getHex()).toBe(0);
   });
+
+  it('clamps station lighting after restore without cyan emissive', () => {
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x4a5560,
+      metalness: 0.9,
+      roughness: 0.2,
+      emissive: 0x000000,
+      emissiveIntensity: 0,
+      envMapIntensity: 1,
+    });
+    captureMaterialBaseline(material);
+    applyHullPresentation(material, { peri: false, depthMetres: 0 });
+    expect(material.metalness).toBeLessThanOrEqual(0.18);
+    expect(material.roughness).toBeGreaterThanOrEqual(0.5);
+    expect(material.envMapIntensity).toBeCloseTo(0.85);
+    expect(material.emissive.getHex()).toBe(0);
+    expect(material.emissiveIntensity).toBe(0);
+  });
+
+  it('applies depth fade on top of the 0.85 envMapIntensity scale', () => {
+    const material = standard();
+    captureMaterialBaseline(material);
+    applyHullPresentation(material, { peri: false, depthMetres: 14 });
+    const depthFade = 1 - Math.min(0.45, 14 / 28);
+    expect(material.envMapIntensity).toBeCloseTo(0.7 * depthFade * 0.85);
+  });
 });

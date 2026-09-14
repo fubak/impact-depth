@@ -62,7 +62,7 @@ export function restoreMaterialBaseline(
   material.envMapIntensity = baseline.envMapIntensity;
 }
 
-/** Periscope ghosting only. Depth never writes cyan emission. */
+/** Periscope ghosting + station lighting clamps. Depth never writes cyan emission. */
 export function applyHullPresentation(
   material: THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial,
   presentation: HullPresentation,
@@ -72,9 +72,11 @@ export function applyHullPresentation(
   material.transparent = peri;
   material.opacity = peri ? 0.35 : 1;
   material.depthWrite = !peri;
+  material.metalness = Math.min(material.metalness, 0.18);
+  material.roughness = Math.max(material.roughness, 0.5);
   const depth = Math.max(0, presentation.depthMetres);
   material.envMapIntensity =
-    captureMaterialBaseline(material).envMapIntensity * (1 - Math.min(0.45, depth / 28));
+    captureMaterialBaseline(material).envMapIntensity * (1 - Math.min(0.45, depth / 28)) * 0.85;
 }
 
 export function ensureUniqueStandardMaterials(root: THREE.Object3D): void {

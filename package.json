@@ -31,6 +31,8 @@
     "test:e2e:assets": "node scripts/e2e-delayed-assets.mjs",
     "test:gauntlet:unit": "vitest run tests/render/vfx.test.ts tests/render/surface-effects.test.ts tests/game/audio.test.ts tests/game/combat-impact.test.ts",
     "test:gauntlet": "npm run test:gauntlet:unit && node scripts/gauntlet-presentation.mjs",
+    "test:gauntlet:visual": "node scripts/gauntlet-visual-upgrade.mjs",
+    "test:gauntlet:visual:browser": "node scripts/gauntlet-visual-upgrade.mjs --browser",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {

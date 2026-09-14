@@ -69,21 +69,26 @@ void main() {
   vec2 p = uRegion.xy + (uv - 0.5) * uRegion.z;
   float bed = texture2D(uBedTex, clamp((p - uBedOrigin) / max(uBedExtent, 1.0), 0.0, 1.0)).r;
   float depth = max(0.05, -bed);
-  if (bed > 0.85 || depth > 40.0) { gl_FragColor = vec4(0.0); return; }
+  if (bed > 0.4 || depth > 16.0) { gl_FragColor = vec4(0.0); return; }
   vec4 coast = coastAt(p);
   vec2 travel = length(coast.yz) > 0.12 ? normalize(coast.yz) : uSwellDirection;
   vec2 flow = travel * (0.35 + uStorm * 0.45) + uWind * 0.14;
   vec4 old = previousAt(p - flow * uDelta);
   float life = mix(2.4, 6.8, coast.w) * mix(1.0, 1.35, uStorm);
-  float foam = old.r * exp(-uDelta / life);
+  // Foam dies faster on land (bed > 0) while water retains previousAt drain.
+  float land = max(bed, 0.0);
+  life /= 1.0 + land * 6.0;
+  float foam = old.r * exp(-uDelta / max(life, 0.08));
+  foam *= exp(-uDelta * land * 10.0);
   vec3 wave = oceanDisplacement(p);
   vec3 n = oceanNormal(p);
   float breaking = smoothstep(0.28, 0.82, length(n.xz)) * smoothstep(0.04, 0.42, wave.y);
-  float surf = 1.0 - smoothstep(1.6, 18.0, depth);
+  // Deposit mainly in the surf band (depth 0.2–12 m).
+  float surf = smoothstep(0.2, 0.9, depth) * (1.0 - smoothstep(8.0, 12.0, depth));
   float source = (breaking * 0.52 + oceanFoam(p) * 0.22) * surf;
   float deposited = 1.0 - exp(-uDelta * source * 1.7);
   foam = clamp(foam + (1.0 - foam) * deposited, 0.0, 1.0);
-  foam *= 1.0 - smoothstep(-0.15, 1.1, bed);
+  foam *= 1.0 - smoothstep(0.0, 0.35, bed);
   gl_FragColor = vec4(foam, deposited, 0.0, 1.0);
 }
 `;

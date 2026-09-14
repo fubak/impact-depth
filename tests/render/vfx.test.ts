@@ -29,4 +29,21 @@ describe('combat VFX pool', () => {
     expect(diag.byKind.plume).toBe(1);
     pool.dispose();
   });
+
+  it('reuses one additive radial sprite texture across hits', () => {
+    const pool = new VfxPool(4);
+    pool.emit('explosion', new THREE.Vector3(), 0);
+    pool.emit('wake', new THREE.Vector3(), 0);
+    const a = pool.group.children[0] as THREE.Sprite;
+    const b = pool.group.children[1] as THREE.Sprite;
+    expect(a).toBeInstanceOf(THREE.Sprite);
+    expect(b).toBeInstanceOf(THREE.Sprite);
+    const matA = a.material as THREE.SpriteMaterial;
+    const matB = b.material as THREE.SpriteMaterial;
+    expect(matA.blending).toBe(THREE.AdditiveBlending);
+    expect(matB.blending).toBe(THREE.AdditiveBlending);
+    expect(matA.map).toBeTruthy();
+    expect(matA.map).toBe(matB.map);
+    pool.dispose();
+  });
 });

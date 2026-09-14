@@ -1439,6 +1439,10 @@ export class GameScene {
       coastalExtent: coastalOrigin.extent,
       swellDirection: swell,
       storm: this.lastSeaState >= 0.6 ? 1 : 0,
+      wind: {
+        x: 0.25 + this.presentationWindDetail * 0.7,
+        z: 0.55 + this.presentationWindDetail * 0.4,
+      },
     };
   }
 

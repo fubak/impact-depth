@@ -55,7 +55,8 @@ void main() {
   vec3 wave = oceanDisplacement(p);
   vec3 n = oceanNormal(p);
   float compression = smoothstep(0.32, 0.7, length(n.xz)) * smoothstep(0.08, 0.55, wave.y);
-  float surf = 1.0 - smoothstep(1.2, 14.0, max(0.05, -bed));
+  float depth = max(0.05, -bed);
+  float surf = smoothstep(0.2, 0.9, depth) * (1.0 - smoothstep(8.0, 12.0, depth));
   float impact = smoothstep(-1.2, 0.15, bed) * compression * 0.7;
   float energy = clamp(compression * 0.7 * surf + impact + compression * uStorm * 0.45, 0.0, 1.0);
   float probability = energy * uDelta * mix(0.9, 2.2, uStorm);

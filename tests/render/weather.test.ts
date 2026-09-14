@@ -4,6 +4,7 @@ import {
   WeatherController,
   presentationOcean,
   sampleLightning,
+  stormFoamLife,
   weatherPresetFromSeaState,
 } from '../../src/render/environment/weather';
 
@@ -22,6 +23,18 @@ describe('presentation weather', () => {
     const storm = presentationOcean(ocean, 'storm');
     expect(storm.foamAmount).toBeGreaterThan(ocean.foamAmount);
     expect(ocean.foamAmount).toBe(DEFAULT_SETTINGS.ocean.foamAmount);
+  });
+
+  it('exposes storm foam life matching presentationOcean foamScale', () => {
+    expect(stormFoamLife('storm')).toBe(1.35);
+    expect(stormFoamLife('breeze')).toBe(1);
+    expect(stormFoamLife('calm')).toBe(0.72);
+    expect(presentationOcean(ocean, 'storm').foamAmount).toBe(
+      ocean.foamAmount * stormFoamLife('storm'),
+    );
+    expect(presentationOcean(ocean, 'calm').foamAmount).toBe(
+      ocean.foamAmount * stormFoamLife('calm'),
+    );
   });
 
   it('freezes history and lightning on pause', () => {

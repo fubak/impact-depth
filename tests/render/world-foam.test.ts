@@ -11,10 +11,17 @@ import { CREST_SPRAY_UPDATE_GLSL } from '../../src/render/ocean/crest-spray';
 describe('world-space shoreline foam', () => {
   it('advects, deposits, and drains instead of summing cascade foam', () => {
     expect(WORLD_FOAM_DERIVE_GLSL).toContain('previousAt');
-    expect(WORLD_FOAM_DERIVE_GLSL).toContain('exp(-uDelta / life)');
+    expect(WORLD_FOAM_DERIVE_GLSL).toContain('exp(-uDelta / max(life, 0.08))');
     expect(WORLD_FOAM_DERIVE_GLSL).toContain('deposited');
     expect(WORLD_FOAM_WIDE_EXTENT_M).toBe(760);
     expect(WORLD_FOAM_NEAR_EXTENT_M).toBe(128);
+  });
+
+  it('dies faster on land and deposits mainly in the 0.2–12 m surf band', () => {
+    expect(WORLD_FOAM_DERIVE_GLSL).toContain('bed > 0');
+    expect(WORLD_FOAM_DERIVE_GLSL).toContain('land * 10.0');
+    expect(WORLD_FOAM_DERIVE_GLSL).toContain('smoothstep(0.2, 0.9, depth)');
+    expect(WORLD_FOAM_DERIVE_GLSL).toContain('smoothstep(8.0, 12.0, depth)');
   });
 
   it('samples a wide plus near field in the ocean shader', () => {

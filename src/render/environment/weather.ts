@@ -43,8 +43,13 @@ export function weatherPresetFromSeaState(seaState: number): WeatherPresetId {
   return 'breeze';
 }
 
+/** Foam lifetime scale for station/weather coupling; matches presentationOcean foamScale. */
+export function stormFoamLife(preset: WeatherPresetId): number {
+  return preset === 'storm' ? 1.35 : preset === 'calm' ? 0.72 : 1;
+}
+
 export function presentationOcean(ocean: OceanSettings, preset: WeatherPresetId): OceanSettings {
-  const foamScale = preset === 'storm' ? 1.35 : preset === 'calm' ? 0.72 : 1;
+  const foamScale = stormFoamLife(preset);
   const chopScale = preset === 'storm' ? 1.12 : preset === 'calm' ? 0.85 : 1;
   return {
     ...ocean,
