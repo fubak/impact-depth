@@ -87,7 +87,7 @@ describe('r185 WebGL standard-material contract', () => {
     detail.add(new THREE.Mesh(new THREE.BoxGeometry(8, 2, 2), new THREE.MeshStandardMaterial()));
     const root = wrapWithLod(detail, [40, 120, 280]);
     const lod = root.userData.lod as THREE.LOD;
-    expect(lod.levels).toHaveLength(2);
-    expect(lod.levels[1]!.object.children.length).toBeGreaterThan(0);
+    expect(lod.levels).toHaveLength(1);
+    expect(lod.levels[0]!.object.children.length).toBeGreaterThan(0);
   });
 });

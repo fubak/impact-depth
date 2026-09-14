@@ -318,8 +318,8 @@ export class VegetationField {
     this.islandBounds = specs.map(islandBoundsFromSpec);
 
     specs.forEach((spec, islandIndex) => {
-      const palms = generatePalmPlacements(spec, 3.1).map((item) => ({ spec, item }));
-      const ground = generateShrubPlacements(spec, 2.35).map((item) => ({ spec, item }));
+      const palms = generatePalmPlacements(spec, 2.45).map((item) => ({ spec, item }));
+      const ground = generateShrubPlacements(spec, 1.85).map((item) => ({ spec, item }));
       const rocks = generateRockPlacements(spec).map((item) => ({ spec, item }));
       const trunks = makeInstances(
         new THREE.CylinderGeometry(0.1, 0.22, 5, 7, 4).translate(0, 2.5, 0),

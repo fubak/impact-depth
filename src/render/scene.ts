@@ -39,6 +39,8 @@ import {
 import { SHORE_WET_BAND_METRES } from './environment/terrain-texture';
 import { DEFAULT_CASCADES } from './ocean/spectrum';
 import { excludeFromWaterCapture, WaterOptics } from './ocean/optics';
+import { WorldFoamSystem } from './ocean/world-foam';
+import { CrestSpraySystem } from './ocean/crest-spray';
 import {
   UnderwaterCaustics,
   type CausticReceiverRole,
@@ -97,6 +99,8 @@ export class GameScene {
   readonly optics: WaterOptics;
   readonly caustics: UnderwaterCaustics;
   readonly surfaceEffects: SurfaceEffects;
+  private readonly worldFoam = new WorldFoamSystem();
+  private readonly crestSpray = new CrestSpraySystem();
   readonly environment: EnvironmentController;
   readonly seabed: Seabed;
   readonly atmosphere: Atmosphere;
@@ -189,6 +193,8 @@ export class GameScene {
     this.caustics = new UnderwaterCaustics(this.envQuality);
     this.surfaceEffects = new SurfaceEffects({ quality: this.envQuality });
     this.scene.add(this.surfaceEffects.group);
+    this.scene.add(this.crestSpray.points);
+    excludeFromWaterCapture(this.crestSpray.points);
     this.caustics.attachToObject(this.seabed.mesh, 'seabed');
     this.caustics.attachToObject(this.islands.group, 'rock');
     excludeFromWaterCapture(this.surfaceEffects.group);
@@ -623,6 +629,17 @@ export class GameScene {
     });
     this.optics.render(renderer, this.scene, camera, this.ocean.mesh, this.lastWaterHeight ?? 0);
     this.ocean.bindOptics(this.optics);
+    const foamMaps = this.worldFoamMaps();
+    this.worldFoam.update(
+      renderer,
+      camera,
+      { x: this.ocean.mesh.position.x, z: this.ocean.mesh.position.z },
+      this.presentationTime,
+      this.lastHistoryDt,
+      foamMaps,
+    );
+    this.worldFoam.applyTo(this.ocean.material.uniforms);
+    this.crestSpray.update(renderer, camera, this.presentationTime, this.lastHistoryDt, foamMaps);
     this.surfaceEffects.update({
       time: this.presentationTime,
       dt: this.lastHistoryDt,
@@ -1402,6 +1419,29 @@ export class GameScene {
     };
   }
 
+  private worldFoamMaps() {
+    const maps = this.spectralSurfaceMaps();
+    if (!maps) return null;
+    const bed = this.ocean.bedBind();
+    const coastal = this.ocean.coastalTexture();
+    const coastalOrigin = this.ocean.coastalOrigin();
+    const swell = this.ocean.swellDirection();
+    return {
+      ...maps,
+      bed: bed?.texture ?? null,
+      bedOrigin: bed ? { x: bed.origin.x, z: bed.origin.y } : { x: 0, z: 0 },
+      bedExtent: bed?.extent ?? 1,
+      wetBand: SHORE_WET_BAND_METRES,
+      waveHeight: this.lastWaveHeight,
+      coastal,
+      coastalEnabled: Boolean(coastal),
+      coastalOrigin: { x: coastalOrigin.x, z: coastalOrigin.z },
+      coastalExtent: coastalOrigin.extent,
+      swellDirection: swell,
+      storm: this.lastSeaState >= 0.6 ? 1 : 0,
+    };
+  }
+
   dispose(): void {
     this.ocean.bindOptics(null);
     this.probes.dispose();
@@ -1429,6 +1469,8 @@ export class GameScene {
     }
     for (const entity of this.entities.values()) this.disposeGroup(entity);
     this.vfx.dispose();
+    this.worldFoam.dispose();
+    this.crestSpray.dispose();
     this.rangeRings.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();

@@ -10,9 +10,13 @@ import {
 import { SHORE_WET_BAND_METRES, type PackedHeightField } from './environment/terrain-texture';
 import { SPECTRUM_SAMPLE_GLSL } from './ocean/spectrum';
 import { SURFACE_FUNCTIONS_GLSL } from './ocean/surface';
+import { SAMPLE_WORLD_FOAM_GLSL } from './ocean/world-foam';
 import type { WaterOptics } from './ocean/optics';
 import type { QualityProfile } from './quality';
 import { WaterRipplePass } from './water-ripples';
+
+/** Nadir mix toward shelf color. Keep low so tactical view does not milk. */
+export const SPECTRAL_LOOKDOWN_BLEND = 0.22;
 
 export interface SpectralMapBind {
   displacements: readonly THREE.Texture[];
@@ -530,6 +534,7 @@ uniform mat4 uReflectionMatrix;
 uniform mat4 uRefractionMatrix;
 uniform mat4 uInverseProjection;
 uniform mat4 uCameraWorld;
+${SAMPLE_WORLD_FOAM_GLSL}
 
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
@@ -670,8 +675,10 @@ void main() {
   float glitter = pow(max(dot(reflect(-L, normalize(vWorldNormal + N * 0.35)), V), 0.0), 36.0);
   water += uSunColor * glitter * (uSpectral > 0.5 ? 0.10 * (1.0 - overhead * 0.75) : 0.14);
   if (uSpectral > 0.5) {
-    vec3 nadirTeal = mix(water, vec3(0.04, 0.36, 0.48), 0.38);
-    water = mix(nadirTeal, water, fresnel);
+    vec3 deepBody = mix(uDeepColor, vec3(0.015, 0.10, 0.20), 0.62);
+    vec3 shelfBody = mix(uShallowColor, vec3(0.07, 0.40, 0.46), 0.40);
+    float localShelf = seeFloor * (1.0 - smoothstep(3.2, 9.5, depth));
+    water = mix(deepBody, mix(water, shelfBody, localShelf * 0.55), 0.42 + fresnel * 0.35);
   }
 
   // ---- Shore foam (ragged lip + wash) + crest whitecaps + wake foam ----
@@ -694,13 +701,18 @@ void main() {
   float caps = smoothstep(0.70, 0.93, vCrest) * smoothstep(3.0, 9.0, depth);
   caps *= smoothstep(0.45, 0.85, fField) * smoothstep(0.45, 0.75, capMask);
 
-  float shoreFoam = clamp((lip * 1.15 + wash * 0.7 + caps * 0.85) * uShoreFoam, 0.0, 1.0);
+  float shoreFoam = uSpectral > 0.5
+    ? 0.0
+    : clamp((lip * 1.15 + wash * 0.7 + caps * 0.85) * uShoreFoam, 0.0, 1.0);
   float crestFoam = vFoam * uFoamAmount * (0.35 + 0.35 * sin(vWorldPos.x * 2.2 + uTime * 2.5));
   crestFoam += length(ripple.xy) * 0.08 * uRippleStrength;
   float ragged = uSpectral > 0.5 ? smoothstep(0.32, 0.78, fField) : 1.0;
-  float foamMask = clamp(max(shoreFoam, crestFoam * ragged), 0.0, 1.0) * vCoverage;
+  float worldFoam = sampleWorldFoam(vFlat);
+  float foamMask = uSpectral > 0.5
+    ? clamp(worldFoam * 0.92 + crestFoam * ragged * 0.16, 0.0, 1.0) * vCoverage
+    : clamp(max(shoreFoam, crestFoam * ragged), 0.0, 1.0) * vCoverage;
   vec3 foamCol = vec3(0.92, 0.96, 0.97) * (0.9 + 0.12 * fField);
-  float foamMix = uSpectral > 0.5 ? 0.028 : 0.9;
+  float foamMix = uSpectral > 0.5 ? mix(0.12, 0.78, worldFoam) : 0.9;
   water = mix(water, foamCol, foamMask * foamMix);
 
   float alphaDown = mix(0.34, 0.24, clarity);
@@ -722,8 +734,9 @@ void main() {
   float lookDown = smoothstep(0.15, 0.85, overhead);
   if (uSpectral > 0.5) {
     // Nadir used to punch through to the HDR sky (milky tactical). Keep a dense Caribbean body.
-    vec3 shelf = mix(vec3(0.03, 0.48, 0.56), mix(uSandColor * 0.55, vec3(0.14, 0.62, 0.52), 0.55), seeFloor);
-    water = mix(water, shelf, lookDown * 0.55 * (1.0 - under));
+    vec3 shelf = mix(vec3(0.02, 0.18, 0.28), mix(uSandColor * 0.42, vec3(0.10, 0.48, 0.44), 0.5), seeFloor);
+    float localShelf = seeFloor * (1.0 - smoothstep(3.2, 9.5, depth));
+    water = mix(water, shelf, lookDown * ${SPECTRAL_LOOKDOWN_BLEND} * localShelf * (1.0 - under));
     float lid = mix(0.58, 0.74, absorb);
     alpha = mix(alpha, lid, lookDown * (1.0 - under));
     alpha *= mix(1.0, 0.36, hullLidPunch * lookDown * (1.0 - under));
@@ -832,6 +845,11 @@ export class Ocean {
         uCoastalOrigin: { value: new THREE.Vector2(0, 0) },
         uCoastalExtent: { value: 2048 },
         uSwellDirection: { value: new THREE.Vector2(Math.cos(0.48), Math.sin(0.48)) },
+        uWorldFoamWide: { value: this.dummyWave },
+        uWorldFoamNear: { value: this.dummyWave },
+        uWorldFoamRegion: { value: new THREE.Vector3(0, 0, 128) },
+        uWorldFoamDetail: { value: 0 },
+        uWorldFoamEnabled: { value: 0 },
         uDeepColor: { value: hexToVec3('#0b88c4') },
         uShallowColor: { value: hexToVec3('#42dde0') },
         uSandColor: { value: hexToVec3('#d9c39a') },
