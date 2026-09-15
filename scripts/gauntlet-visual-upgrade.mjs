@@ -24,6 +24,7 @@ const unitStations = [
   { name: 'sub-motion', files: 'tests/game/submarine-motion.test.ts tests/game/lookdev-attitude.test.ts' },
   { name: 'camera-under', files: 'tests/render/camera-underwater.test.ts tests/render/immersion.test.ts' },
   { name: 'waterline', files: 'tests/render/attitude.test.ts' },
+  { name: 'fleet-models', files: 'tests/render/fleet-waterline.test.ts' },
 ];
 
 function run(name, command, args) {

@@ -28,8 +28,11 @@ export function entityDepthY(simDepth: number): number {
  * Keel Y so a short fitted hull still reads on the water at surface/peri.
  * Attack and deep keep true −depth (the ocean shader must punch the lid).
  */
-/** Fraction of fitted hull height that sits below the sampled waterline. */
-export const SURFACE_DRAFT_FRACTION = 0.42;
+/**
+ * Fallback when a hull-body mesh is missing. Kept low so superstructure
+ * stays above the sheet (0.42 of AABB buried decks).
+ */
+export const SURFACE_DRAFT_FRACTION = 0.14;
 
 export function surfaceDraftMetres(hullHeightMetres = DEFAULT_SUB_HULL_HEIGHT_M): number {
   const height = Math.max(

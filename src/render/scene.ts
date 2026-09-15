@@ -15,7 +15,7 @@ import {
   surfaceDraftMetres,
   visualKeelY,
 } from './presentation/coordinates';
-import { hullHeightY } from './hull-fit';
+import { analyzeHullWaterline, hullHeightY } from './hull-fit';
 import {
   VesselAttitudeSmoother,
   attitudeSpanForKind,
@@ -324,6 +324,7 @@ export class GameScene {
     this.sub.userData.hasLod = true;
     this.sub.visible = true;
     this.sub.userData.hullHeight = hullHeightY(this.sub);
+    this.sub.userData.waterlineDraft = analyzeHullWaterline(this.sub).draft;
     this.caustics.attachToObject(this.sub, 'hull');
   }
 
@@ -833,6 +834,10 @@ export class GameScene {
     mesh.userData.assetKind = kind;
     mesh.userData.assetSource = source;
     mesh.userData.hullHeight = source === 'pending' ? DEFAULT_SUB_HULL_HEIGHT_M : hullHeightY(mesh);
+    mesh.userData.waterlineDraft =
+      source === 'pending'
+        ? surfaceDraftMetres(mesh.userData.hullHeight)
+        : analyzeHullWaterline(mesh).draft;
     mesh.visible = source !== 'pending';
     return mesh;
   }
@@ -1313,7 +1318,10 @@ export class GameScene {
       const hullHeight =
         (this.shipEntities.get(ship.id)?.mesh.userData.hullHeight as number | undefined) ??
         DEFAULT_SUB_HULL_HEIGHT_M;
-      const waterlineOffset = depth > 2.5 ? 0 : -surfaceDraftMetres(hullHeight);
+      const storedDraft = this.shipEntities.get(ship.id)?.mesh.userData.waterlineDraft as
+        number | undefined;
+      const draft = Number.isFinite(storedDraft) ? storedDraft! : surfaceDraftMetres(hullHeight);
+      const waterlineOffset = depth > 2.5 ? 0 : -draft;
       subjects.push({
         entityId: ship.id,
         x: ship.x,

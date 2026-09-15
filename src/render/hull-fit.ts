@@ -102,3 +102,28 @@ export function hullMinY(root: THREE.Object3D): number {
   _box.setFromObject(root);
   return _box.min.y;
 }
+
+/**
+ * Draft so the hull body sits in the water and superstructure stays dry.
+ * Prefers a mesh named `hull-body`; otherwise ~14% of full AABB (not 42%).
+ */
+export function analyzeHullWaterline(root: THREE.Object3D): {
+  height: number;
+  hullBodyHeight: number;
+  draft: number;
+} {
+  root.updateMatrixWorld(true);
+  _box.setFromObject(root);
+  _box.getSize(_size);
+  const height = Math.max(1.5, _size.y);
+  let hullBodyHeight = 0;
+  root.traverse((object) => {
+    if (object instanceof THREE.Mesh && object.name === 'hull-body') {
+      const local = new THREE.Box3().setFromObject(object);
+      hullBodyHeight = Math.max(hullBodyHeight, local.max.y - local.min.y);
+    }
+  });
+  const body = hullBodyHeight > 0.4 ? hullBodyHeight : height * 0.35;
+  const draft = Math.max(0.22, Math.min(body * 0.28, height * 0.18));
+  return { height, hullBodyHeight: body, draft };
+}
