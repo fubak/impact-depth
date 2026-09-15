@@ -32,6 +32,7 @@ import type { GameState, Point } from './game/sim/types';
 import { InputController } from './input/controls';
 import { canPlotFromView, resolveWorldClick } from './input/world-click';
 import { CameraRig } from './render/cameras';
+import { presentationBedY } from './render/presentation/world-bed';
 import { RendererHost } from './render/renderer';
 import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-selection';
 import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
@@ -511,6 +512,8 @@ export class App {
       lightning: this.scene.weatherLightning,
       reducedMotion: this.reducedMotion,
       waterHeight: this.scene.sampledWaterHeight,
+      sampleTerrainY: (x, z) =>
+        presentationBedY(this.game.worldVersion, this.game.terrainSeed, x, z),
     });
     this.scene.applyImmersion(this.cameras.camera);
     this.renderer.setExposure(this.settings.atmosphere.exposure);

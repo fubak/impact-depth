@@ -58,4 +58,18 @@ describe('POV cameras can enter the water', () => {
     snap(rig, state(0.5), 'tactical');
     expect(rig.camera.position.y).toBeLessThan(0.2);
   });
+
+  it('will not sink the eye through a raised cay', () => {
+    const rig = new CameraRig(16 / 9);
+    rig.orbitPhi = 1.75;
+    rig.orbitRadius = 40;
+    rig.setMode('tactical');
+    for (let i = 0; i < 90; i++) {
+      rig.update(state(0.4), 1 / 30, {
+        waterHeight: 0.2,
+        sampleTerrainY: () => 6,
+      });
+    }
+    expect(rig.camera.position.y).toBeGreaterThanOrEqual(7);
+  });
 });

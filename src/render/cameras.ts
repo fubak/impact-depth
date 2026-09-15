@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { SimState, ViewMode } from '../core/types';
 import { updateImmersion, type ImmersionState } from './presentation/immersion';
 import { DEFAULT_SUB_HULL_HEIGHT_M, visualKeelY } from './presentation/coordinates';
+import { clampCameraAboveTerrain } from './presentation/world-bed';
 
 /** Optional lock id is presentation-only; picking/commands stay on the mean sea plane. */
 export type CameraSimState = SimState & { selectedTargetId?: string | null };
@@ -11,6 +12,8 @@ export type CameraPresentation = {
   reducedMotion?: boolean;
   /** Latest GPU / fallback surface height at the camera xz. */
   waterHeight?: number | null;
+  /** Presentation bed at a world XZ. Water is allowed; terrain is not. */
+  sampleTerrainY?: (worldX: number, worldZ: number) => number;
 };
 
 export class CameraRig {
@@ -178,11 +181,20 @@ export class CameraRig {
       this.lookAt.set(v.x, 0, v.z);
     }
 
+    if (this.activeMode !== 'map' && presentation?.sampleTerrainY) {
+      const bed = presentation.sampleTerrainY(this.desiredPos.x, this.desiredPos.z);
+      this.desiredPos.y = clampCameraAboveTerrain(this.desiredPos.y, bed);
+    }
+
     const k = 1 - Math.exp(-5.5 * dt);
     this.currentPos.lerp(
       this.desiredPos,
       this.activeMode === 'periscope' ? Math.min(1, k * 1.8) : k,
     );
+    if (this.activeMode !== 'map' && presentation?.sampleTerrainY) {
+      const bed = presentation.sampleTerrainY(this.currentPos.x, this.currentPos.z);
+      this.currentPos.y = clampCameraAboveTerrain(this.currentPos.y, bed);
+    }
     this.camera.position.copy(this.currentPos);
     const lightning = presentation?.lightning ?? 0;
     if (lightning > 0 && !presentation?.reducedMotion) {

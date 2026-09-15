@@ -3,7 +3,9 @@ import { ISLAND_SPECS, sampleSeabedY } from '../../src/core/terrain';
 import { sampleLittoralBedMetres } from '../../src/game/world/littoral';
 import { getWorld } from '../../src/game/world/queries';
 import {
+  CAMERA_TERRAIN_CLEARANCE_M,
   PRESENTATION_BED_CLEARANCE_M,
+  clampCameraAboveTerrain,
   clampPresentationY,
   presentationBedY,
 } from '../../src/render/presentation/world-bed';
@@ -28,5 +30,11 @@ describe('presentation bed authority', () => {
     expect(clampPresentationY(-2, 1)).toBeCloseTo(1 + PRESENTATION_BED_CLEARANCE_M);
     expect(clampPresentationY(4, 1)).toBe(4);
     expect(Number.isFinite(clampPresentationY(Number.NaN, 1))).toBe(true);
+  });
+
+  it('keeps the camera eye above the cay or seafloor with clearance', () => {
+    expect(clampCameraAboveTerrain(-8, 2)).toBeCloseTo(2 + CAMERA_TERRAIN_CLEARANCE_M);
+    expect(clampCameraAboveTerrain(12, 2)).toBe(12);
+    expect(clampCameraAboveTerrain(-4, -20)).toBe(-4);
   });
 });

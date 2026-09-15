@@ -5,6 +5,18 @@ import { getWorld } from '../../game/world/queries';
 
 /** Visual keel clearance above the sampled bed. */
 export const PRESENTATION_BED_CLEARANCE_M = 0.45;
+/** Eye clearance so the near plane does not clip the cay or seafloor. */
+export const CAMERA_TERRAIN_CLEARANCE_M = 1.15;
+
+export function clampCameraAboveTerrain(
+  eyeY: number,
+  bedY: number,
+  clearance = CAMERA_TERRAIN_CLEARANCE_M,
+): number {
+  if (!Number.isFinite(eyeY)) return Number.isFinite(bedY) ? bedY + clearance : 0;
+  if (!Number.isFinite(bedY)) return eyeY;
+  return Math.max(eyeY, bedY + clearance);
+}
 
 /** Canonical presentation bed for the active world. Does not write GameState. */
 export function presentationBedY(
