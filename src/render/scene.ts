@@ -12,6 +12,7 @@ import {
   entityDepthY,
   simToWorldMeters,
   SURFACE_SPLASH_Y,
+  surfaceDraftMetres,
   visualKeelY,
 } from './presentation/coordinates';
 import { hullHeightY } from './hull-fit';
@@ -502,6 +503,18 @@ export class GameScene {
 
   getVfxDiagnostics() {
     return this.vfx.getDiagnostics();
+  }
+
+  getContactHeights(): Array<{ id: string; y: number; kind: string }> {
+    const rows: Array<{ id: string; y: number; kind: string }> = [];
+    for (const [id, entity] of this.shipEntities) {
+      rows.push({
+        id,
+        y: entity.mesh.position.y,
+        kind: String(entity.mesh.userData.assetKind ?? ''),
+      });
+    }
+    return rows;
   }
 
   /** Test/gauntlet: spawn visible combat VFX + splash without advancing GameState. */
@@ -1297,6 +1310,10 @@ export class GameScene {
     );
     for (const ship of sim.ships) {
       const depth = ship.kind === 'uboat' ? Math.max(ship.depth, 8) : 0;
+      const hullHeight =
+        (this.shipEntities.get(ship.id)?.mesh.userData.hullHeight as number | undefined) ??
+        DEFAULT_SUB_HULL_HEIGHT_M;
+      const waterlineOffset = depth > 2.5 ? 0 : -surfaceDraftMetres(hullHeight);
       subjects.push({
         entityId: ship.id,
         x: ship.x,
@@ -1311,7 +1328,7 @@ export class GameScene {
           entityId: ship.id,
           heading: ship.heading,
           depth,
-          waterlineOffset: 0,
+          waterlineOffset,
           fallback: { heave: ship.heave, pitch: ship.pitch, roll: ship.roll },
           footprint: groupFootprint(samples, ship.id),
           probeTime: latestProbeTime(samples, ship.id),

@@ -213,6 +213,29 @@ describe('vessel attitude smoother', () => {
     expect(next.heave).toBe(1);
   });
 
+  it('applies a negative waterline offset so the keel sits in the water', () => {
+    const smoother = new VesselAttitudeSmoother();
+    const pose = smoother.update({
+      entityId: 'freighter',
+      heading: 0,
+      depth: 0,
+      waterlineOffset: -1.2,
+      fallback,
+      footprint: {
+        center: { site: 'center', height: 0.4, x: 0, z: 0 },
+        bow: { site: 'bow', height: 0.4, x: 8, z: 0 },
+        stern: { site: 'stern', height: 0.4, x: -8, z: 0 },
+        port: { site: 'port', height: 0.4, x: 0, z: 5 },
+        starboard: { site: 'starboard', height: 0.4, x: 0, z: -5 },
+      },
+      probeTime: 1,
+      now: 1,
+      dt: 1 / 60,
+    });
+    expect(pose.presentationY).toBeCloseTo(-1.2 + 0.4, 2);
+    expect(pose.presentationY).toBeLessThan(0);
+  });
+
   it('uses probe heave instead of CPU look-dev heave when the footprint is fresh', () => {
     const smoother = new VesselAttitudeSmoother();
     const pose = smoother.update({

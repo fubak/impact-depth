@@ -136,6 +136,43 @@ try {
     return audio;
   });
 
+  await station('waterline', async () => {
+    const probe = await page.evaluate(() => window.__silentDepths.getPresentationGauntlet());
+    const contacts = probe?.contacts ?? [];
+    if (!contacts.length) throw new Error('no contact hulls spawned');
+    const flying = contacts.filter((c) => c.y > 4);
+    if (flying.length) throw new Error(`hulls above the water: ${JSON.stringify(flying)}`);
+    return { count: contacts.length, minY: Math.min(...contacts.map((c) => c.y)) };
+  });
+
+  await station('sub-depth', async () => {
+    const ordered = await page.evaluate(() => {
+      const app = window.__silentDepths;
+      if (typeof app.debugSetDepth !== 'function') throw new Error('debugSetDepth missing');
+      return app.debugSetDepth('deep');
+    });
+    if (ordered.target < 0.7) throw new Error(`deep order not applied: ${JSON.stringify(ordered)}`);
+    await page.waitForFunction(
+      (startZ) => {
+        const probe = window.__silentDepths.getPresentationGauntlet();
+        return probe.vesselDepth >= startZ + 0.035 && probe.vesselDepth < probe.targetDepth - 0.05;
+      },
+      ordered.z,
+      { timeout: 10000 },
+    );
+    const after = await page.evaluate(() => window.__silentDepths.getPresentationGauntlet());
+    return { from: ordered.z, to: after.vesselDepth, target: after.targetDepth };
+  });
+
+  await station('camera-under', async () => {
+    await setMode(page, 'chase');
+    await page.waitForTimeout(400);
+    const probe = await page.evaluate(() => window.__silentDepths.getPresentationGauntlet());
+    if (!probe) throw new Error('gauntlet probe missing');
+    await page.screenshot({ path: join(artifacts, 'chase-under.png') });
+    return { cameraY: probe.cameraY, underwater: probe.immersion?.underwater, depth: probe.vesselDepth };
+  });
+
   await station('clean-console', async () => {
     if (pageErrors.length) throw new Error(pageErrors.slice(0, 3).join(' | '));
     const fatal = consoleErrors.filter((line) => !/THREE\.WebGLRenderer: Context Lost/i.test(line));

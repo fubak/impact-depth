@@ -39,6 +39,7 @@ import { makeClear, resolveClearStep, steerAvoid, shipClearRadius } from './path
 import { passiveRange, updateSonar } from './sonar';
 import { integrateV2Horizontal, resolveV2WorldCollision } from '../world/collision';
 import { getWorld } from '../world/queries';
+import { integrateSubmarineDepth } from './submarine-motion';
 
 type System = (state: GameState, commands: GameCommand[], dt: number) => GameState;
 export const SYSTEM_ORDER = [
@@ -654,8 +655,9 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       sub.battery <= 0 && !sub.snorkel && sub.z > 0.12 ? 0.35 : Infinity,
       sub.maxSpeed * (0.45 + sub.sysPropulsion * 0.55),
     );
-    sub.speed += (wanted - sub.speed) * Math.min(1, 1.8 * dt);
-    sub.z = clampDepth(sub.z + (sub.targetDepth - sub.z) * Math.min(1, 1.8 * dt));
+    const diving = Math.abs(sub.targetDepth - sub.z) > 0.04;
+    sub.speed += (wanted * (diving ? 0.82 : 1) - sub.speed) * Math.min(1, 1.8 * dt);
+    sub.z = integrateSubmarineDepth(sub.z, sub.targetDepth, dt);
     const nx = sub.x + Math.cos(sub.heading) * sub.speed * dt;
     const ny = sub.y + Math.sin(sub.heading) * sub.speed * dt;
     if (state.worldVersion === 'littoral-v2') {

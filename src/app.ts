@@ -212,12 +212,22 @@ export class App {
       assets: this.scene.getAssetProbe(
         this.game.ships.map((ship) => ({ id: ship.id, kind: ship.kind })),
       ),
+      vesselDepth: this.game.submarine.z,
+      targetDepth: this.game.submarine.targetDepth,
+      immersion: this.cameras.getImmersion(),
+      cameraY: this.cameras.camera.position.y,
+      contacts: this.scene.getContactHeights(),
     };
   }
 
   debugBurstPresentationFx() {
     this.audio.unlock();
     return this.scene.debugBurstPresentationFx();
+  }
+
+  debugSetDepth(order: 'surface' | 'periscope' | 'attack' | 'deep') {
+    this.game = setDepthOrder(this.game, order);
+    return { z: this.game.submarine.z, target: this.game.submarine.targetDepth };
   }
 
   getPerformanceProbe() {

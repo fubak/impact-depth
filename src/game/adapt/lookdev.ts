@@ -2,6 +2,7 @@ import { DEFAULT_SETTINGS } from '../../core/settings';
 import type { SimState } from '../../core/types';
 import { sampleAttitude, scaledWaves } from '../../core/waves';
 import { depthToMeters, simToWorldMeters } from '../sim/coords';
+import { submarineDivePitch } from '../sim/submarine-motion';
 import type { GameState, ShipKind } from '../sim/types';
 
 function clamp(value: number, lo: number, hi: number): number {
@@ -62,7 +63,12 @@ export function adaptToLookDevSim(game: GameState): LookDevSim {
       battery: game.submarine.battery,
       noise: game.submarine.noise,
       heave: own.heave * surfaceBlend,
-      pitch: clamp(own.pitch * surfaceBlend * 0.9, -0.4, 0.4),
+      pitch: clamp(
+        own.pitch * surfaceBlend * 0.55 +
+          submarineDivePitch(game.submarine.z, game.submarine.targetDepth),
+        -0.4,
+        0.4,
+      ),
       roll: clamp(game.submarine.bank * 0.35 + own.roll * surfaceBlend * 0.75, -0.45, 0.45),
     },
     ships: game.ships.map((ship) => {

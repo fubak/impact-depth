@@ -68,12 +68,12 @@ export class CameraRig {
 
   orbit(dx: number, dy: number): void {
     this.orbitTheta -= dx * 0.005;
-    this.orbitPhi = THREE.MathUtils.clamp(this.orbitPhi - dy * 0.0035, 0.55, 1.38);
+    this.orbitPhi = THREE.MathUtils.clamp(this.orbitPhi - dy * 0.0035, 0.35, 1.82);
   }
 
   periLook(dx: number, dy: number): void {
     this.periYaw = THREE.MathUtils.clamp(this.periYaw - dx * 0.0025, -1.1, 1.1);
-    this.periPitch = THREE.MathUtils.clamp(this.periPitch - dy * 0.002, -0.25, 0.35);
+    this.periPitch = THREE.MathUtils.clamp(this.periPitch - dy * 0.002, -0.78, 0.42);
   }
 
   zoom(delta: number): void {
@@ -98,11 +98,7 @@ export class CameraRig {
     return { x: this.ndc.x, y: this.ndc.y };
   }
 
-  update(
-    sim: CameraSimState,
-    dt: number,
-    presentation?: CameraPresentation,
-  ): void {
+  update(sim: CameraSimState, dt: number, presentation?: CameraPresentation): void {
     const v = sim.vessel;
     const visualY = visualKeelY(v.depth, DEFAULT_SUB_HULL_HEIGHT_M);
     const hullY =
@@ -122,14 +118,13 @@ export class CameraRig {
     if (this.activeMode === 'tactical' || this.activeMode === 'free') {
       const x =
         this.target.x + Math.sin(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
-      const y = this.target.y + Math.cos(this.orbitPhi) * this.orbitRadius + 6;
+      const y = this.target.y + Math.cos(this.orbitPhi) * this.orbitRadius + 2;
       const z =
         this.target.z + Math.cos(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
-      // Stay above water, but allow the look to drop so the hull is in frame when deep.
-      const floorY = 6 + Math.min(14, Math.max(0, v.depth - 4) * 0.35);
-      this.desiredPos.set(x, Math.max(y, floorY), z);
+      // Orbit may pass through the water sheet so POV can inspect submerged hulls.
+      this.desiredPos.set(x, y, z);
       this.lookAt.lerpVectors(this.target, this.convoyFocus, 0.22);
-      this.lookAt.y = THREE.MathUtils.lerp(hullY + 2, 3.5, Math.min(1, 4 / Math.max(4, v.depth)));
+      this.lookAt.y = hullY + 1.6;
     } else if (this.activeMode === 'chase') {
       // Follow the hull underwater at attack depth — do not pin the eye to the surface.
       const stern = -12;
@@ -143,14 +138,10 @@ export class CameraRig {
     } else if (this.activeMode === 'bridge') {
       this.desiredPos.set(
         v.x + Math.cos(v.heading) * 0.9,
-        Math.max(1.2, -v.depth + 4.2),
+        hullY + 3.2,
         v.z + Math.sin(v.heading) * 0.9,
       );
-      this.lookAt.set(
-        v.x + Math.cos(v.heading) * 90,
-        this.desiredPos.y + 2,
-        v.z + Math.sin(v.heading) * 90,
-      );
+      this.lookAt.set(v.x + Math.cos(v.heading) * 90, hullY + 1.4, v.z + Math.sin(v.heading) * 90);
     } else if (this.activeMode === 'periscope') {
       // Mast/optic tracks the hull + mast reach. Sampled water is for immersion
       // hysteresis only — do not pin the eye above crests.
@@ -206,8 +197,15 @@ export class CameraRig {
       this.camera.lookAt(this.lookAt);
     }
     this.camera.updateMatrixWorld();
-    const waterHeight =
-      presentation?.waterHeight === undefined ? null : presentation.waterHeight;
+    if (this.camera === this.perspective) {
+      const wantNear =
+        this.currentPos.y < 1.2 ? 0.12 : this.activeMode === 'periscope' ? 0.15 : 0.5;
+      if (Math.abs(this.perspective.near - wantNear) > 0.01) {
+        this.perspective.near = wantNear;
+        this.perspective.updateProjectionMatrix();
+      }
+    }
+    const waterHeight = presentation?.waterHeight === undefined ? null : presentation.waterHeight;
     this.immersion = updateImmersion({
       eyeY: this.camera.position.y,
       sampledWaterHeight: waterHeight,

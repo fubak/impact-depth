@@ -28,7 +28,21 @@ export function entityDepthY(simDepth: number): number {
  * Keel Y so a short fitted hull still reads on the water at surface/peri.
  * Attack and deep keep true −depth (the ocean shader must punch the lid).
  */
-export function visualKeelY(depthMetres: number, hullHeightMetres = DEFAULT_SUB_HULL_HEIGHT_M): number {
+/** Fraction of fitted hull height that sits below the sampled waterline. */
+export const SURFACE_DRAFT_FRACTION = 0.42;
+
+export function surfaceDraftMetres(hullHeightMetres = DEFAULT_SUB_HULL_HEIGHT_M): number {
+  const height = Math.max(
+    1.5,
+    Number.isFinite(hullHeightMetres) ? hullHeightMetres : DEFAULT_SUB_HULL_HEIGHT_M,
+  );
+  return height * SURFACE_DRAFT_FRACTION;
+}
+
+export function visualKeelY(
+  depthMetres: number,
+  hullHeightMetres = DEFAULT_SUB_HULL_HEIGHT_M,
+): number {
   const height = Math.max(
     1.5,
     Number.isFinite(hullHeightMetres) ? hullHeightMetres : DEFAULT_SUB_HULL_HEIGHT_M,

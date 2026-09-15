@@ -21,6 +21,9 @@ const unitStations = [
   { name: 'foam-spray', files: 'tests/render/world-foam.test.ts tests/render/foam.test.ts' },
   { name: 'lighting', files: 'tests/render/hull-materials.test.ts tests/render/sky-lighting.test.ts' },
   { name: 'weather', files: 'tests/render/weather.test.ts tests/render/surface-effects.test.ts' },
+  { name: 'sub-motion', files: 'tests/game/submarine-motion.test.ts tests/game/lookdev-attitude.test.ts' },
+  { name: 'camera-under', files: 'tests/render/camera-underwater.test.ts tests/render/immersion.test.ts' },
+  { name: 'waterline', files: 'tests/render/attitude.test.ts' },
 ];
 
 function run(name, command, args) {
