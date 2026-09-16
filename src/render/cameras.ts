@@ -18,6 +18,9 @@ export type CameraPresentation = {
   sampleTerrainY?: (worldX: number, worldZ: number) => number;
 };
 
+/** Metres above keel for orbit/chase pivot (hull geometric centre). */
+export const HULL_PIVOT_ABOVE_KEEL_M = 1.15;
+
 export class CameraRig {
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private readonly perspective: THREE.PerspectiveCamera;
@@ -107,35 +110,32 @@ export class CameraRig {
     const visualY = visualKeelY(v.depth, DEFAULT_SUB_HULL_HEIGHT_M);
     const hullY =
       this.activeMode === 'periscope' || this.activeMode === 'sonar' ? -v.depth : visualY;
-    this.target.set(v.x, hullY + 1.5, v.z);
+    const pivotY = hullY + HULL_PIVOT_ABOVE_KEEL_M;
+    this.target.set(v.x, pivotY, v.z);
 
     if (this.activeMode === 'tactical' || this.activeMode === 'free') {
       const x =
         this.target.x + Math.sin(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
-      const y = this.target.y + Math.cos(this.orbitPhi) * this.orbitRadius + 2;
+      const y = this.target.y + Math.cos(this.orbitPhi) * this.orbitRadius;
       const z =
         this.target.z + Math.cos(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
-      // Orbit may pass through the water sheet so POV can inspect submerged hulls.
       this.desiredPos.set(x, y, z);
       this.lookAt.copy(this.target);
-      this.lookAt.y = hullY + 1.6;
     } else if (this.activeMode === 'chase') {
-      // Follow the hull underwater at attack depth — do not pin the eye to the surface.
       const stern = -12;
-      const heightAboveHull = 3.8;
       this.desiredPos.set(
         v.x + Math.cos(v.heading) * stern,
-        hullY + heightAboveHull,
+        pivotY + 2.6,
         v.z + Math.sin(v.heading) * stern,
       );
-      this.lookAt.set(v.x + Math.cos(v.heading) * 6, hullY + 1.2, v.z + Math.sin(v.heading) * 6);
+      this.lookAt.copy(this.target);
       const locked = sim.selectedTargetId
         ? sim.ships.find((ship) => ship.id === sim.selectedTargetId)
         : undefined;
       if (locked) {
-        this.lookAt.x = v.x * 0.55 + locked.x * 0.45;
-        this.lookAt.z = v.z * 0.55 + locked.z * 0.45;
-        this.lookAt.y = hullY + 1.2;
+        this.lookAt.x = v.x * 0.7 + locked.x * 0.3;
+        this.lookAt.z = v.z * 0.7 + locked.z * 0.3;
+        this.lookAt.y = pivotY;
       }
     } else if (this.activeMode === 'bridge') {
       this.desiredPos.set(

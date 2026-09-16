@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CameraRig, type CameraSimState } from '../../src/render/cameras';
+import * as THREE from 'three';
+import { CameraRig, HULL_PIVOT_ABOVE_KEEL_M, type CameraSimState } from '../../src/render/cameras';
+import { visualKeelY } from '../../src/render/presentation/coordinates';
 import type { ViewMode } from '../../src/core/types';
 
 function vessel(depth: number) {
@@ -49,6 +51,20 @@ describe('POV cameras can enter the water', () => {
     snap(rig, state(14), 'bridge');
     expect(rig.camera.position.y).toBeLessThan(-4);
     expect(rig.getImmersion().underwater).toBe(true);
+  });
+
+  it('tactical orbit radius is measured from the hull pivot', () => {
+    const rig = new CameraRig(16 / 9);
+    rig.orbitPhi = 1.1;
+    rig.orbitRadius = 72;
+    rig.setMode('tactical');
+    const sim = state(0.4);
+    for (let i = 0; i < 120; i++) rig.update(sim, 1 / 30, { waterHeight: 0.2 });
+    const keel = visualKeelY(0.4);
+    const pivotY = keel + HULL_PIVOT_ABOVE_KEEL_M;
+    const dist = rig.camera.position.distanceTo(new THREE.Vector3(0, pivotY, 0));
+    expect(dist).toBeGreaterThan(rig.orbitRadius * 0.85);
+    expect(dist).toBeLessThan(rig.orbitRadius * 1.2);
   });
 
   it('tactical orbit can pitch through the waterline', () => {

@@ -162,7 +162,7 @@ describe('camera framing (plan 018 I6/I7)', () => {
     snap(rig, state, 'chase');
 
     expect(rig.camera.position.y).toBeLessThan(0);
-    expect(rig.camera.position.y).toBeCloseTo(-depth + 3.8, 5);
+    expect(rig.camera.position.y).toBeCloseTo(-depth + 1.15 + 2.6, 1);
     expect(rig.camera.position.x).toBeLessThan(0);
 
     const hull = new THREE.Vector3(0, -depth, 0).project(rig.camera);

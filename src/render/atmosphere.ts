@@ -65,7 +65,7 @@ export function evaluateAtmosphere(settings: AtmosphereSettings): AtmosphereStat
   const moonDir = sunDir.clone().multiplyScalar(-1);
   // Brighter overall exposure envelope: night floor raised, day ramps higher
   // with sun elevation so noon reads bright without blowing out dawn/dusk.
-  const ambient = isNight ? 0.38 : 0.78 + Math.max(0, sunDir.y) * 0.35;
+  const ambient = isNight ? 0.22 : 0.36 + Math.max(0, sunDir.y) * 0.22;
 
   return { sunDir, sunColor, moonDir, fogColor, skyTop, skyHorizon, ambient, isNight };
 }
@@ -275,7 +275,7 @@ export class Atmosphere {
     const fogDensity = presentation?.fogDensity ?? settings.fogDensity;
     scene.background = state.skyHorizon.clone();
     scene.fog = new THREE.FogExp2(state.fogColor.getHex(), fogDensity);
-    scene.environmentIntensity = state.isNight ? 0.35 : 0.95;
+    scene.environmentIntensity = state.isNight ? 0.28 : 0.62;
 
     const flash = Math.max(0, presentation?.lightning ?? 0);
     this.hemi.intensity = state.ambient + flash * 0.85;
@@ -293,8 +293,8 @@ export class Atmosphere {
       this.followZ + state.sunDir.z * 140,
     );
     this.sun.intensity = state.isNight
-      ? 0.16 * intensityScale
-      : (0.95 + Math.max(0, state.sunDir.y) * 1.35) * intensityScale;
+      ? 0.22 * intensityScale
+      : (1.35 + Math.max(0, state.sunDir.y) * 1.8) * intensityScale;
     this.sun.color.copy(state.sunColor);
     this.sun.castShadow = !state.isNight && state.sunDir.y > 0.1;
     this.sun.target.position.set(this.followX, 0, this.followZ);
@@ -314,7 +314,7 @@ export class Atmosphere {
     );
     this.fill.target.position.set(this.followX, 0, this.followZ);
     this.fill.target.updateMatrixWorld();
-    this.fill.intensity = state.isNight ? 0.12 : 0.3 + Math.max(0, state.sunDir.y) * 0.18;
+    this.fill.intensity = state.isNight ? 0.08 : 0.14 + Math.max(0, state.sunDir.y) * 0.1;
     this.fill.color.copy(state.skyTop);
 
     this.bounce.position.set(this.followX, -20, this.followZ);

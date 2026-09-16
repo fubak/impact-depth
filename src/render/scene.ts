@@ -12,6 +12,7 @@ import {
   entityDepthY,
   simToWorldMeters,
   SURFACE_SPLASH_Y,
+  clampSurfaceHullY,
   surfaceDraftMetres,
   visualKeelY,
 } from './presentation/coordinates';
@@ -716,12 +717,14 @@ export class GameScene {
     };
     for (const torpedo of game.torpedoes) {
       const p = simToWorldMeters(torpedo.x, torpedo.y);
-      add(`torpedo:${torpedo.id}`, 'torpedo', p.x, entityDepthY(torpedo.z), p.z, torpedo.heading);
+      const fishY = entityDepthY(torpedo.z);
+      add(`torpedo:${torpedo.id}`, 'torpedo', p.x, fishY, p.z, torpedo.heading);
+      const trailKind = fishY > -1.5 ? 'wake' : 'plume';
       this.vfx.emit(
-        'wake',
+        trailKind,
         new THREE.Vector3(
           p.x - Math.cos(torpedo.heading),
-          SURFACE_SPLASH_Y,
+          fishY > -1.5 ? Math.max(SURFACE_SPLASH_Y, fishY) : fishY,
           p.z - Math.sin(torpedo.heading),
         ),
         game.time,
@@ -1047,8 +1050,23 @@ export class GameScene {
       const hullHeight =
         (entity.mesh.userData.hullHeight as number | undefined) ?? DEFAULT_SUB_HULL_HEIGHT_M;
       const lift = Number.isFinite(heave) ? heave : 0;
-      const shipY = submerged > 0 ? visualKeelY(submerged, hullHeight) + lift * 0.12 : lift;
-      entity.mesh.position.set(ship.x, Number.isFinite(shipY) ? shipY : 0, ship.z);
+      let shipY = submerged > 0 ? visualKeelY(submerged, hullHeight) + lift * 0.12 : lift;
+      const waterY = this.lastWaterHeight ?? 0;
+      const bedY = presentationBedY(
+        this.currentWorldVersion,
+        this.currentTerrainSeed,
+        ship.x,
+        ship.z,
+      );
+      const draft =
+        (entity.mesh.userData.waterlineDraft as number | undefined) ??
+        surfaceDraftMetres(hullHeight);
+      if (submerged <= 0) {
+        shipY = clampSurfaceHullY(shipY, waterY, draft, bedY);
+      } else {
+        shipY = clampPresentationY(Number.isFinite(shipY) ? shipY : 0, bedY);
+      }
+      entity.mesh.position.set(ship.x, shipY, ship.z);
       entity.mesh.rotation.order = 'YXZ';
       const pitch = pose?.pitch ?? ship.pitch;
       const roll = pose?.roll ?? ship.roll;
