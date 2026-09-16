@@ -1,4 +1,5 @@
 import { DEFAULT_CRUISE, FOB_RADIUS, WORLD_CENTER } from './constants';
+import { WAVE1_SPAWN_RADIUS, WAVE1_SPAWN_SPREAD } from './action-feel';
 import type { FormationRole, GameState, Point, Powerup, Ship, ShipKind, Submarine } from './types';
 import { createTerrain, snapToNavigable, type Terrain } from './world';
 import type { WorldVersion } from '../world/definition';
@@ -148,7 +149,8 @@ export function seedWave(
   const ships = kinds.map((kind, index) => {
     const angle = ((seed + wave * 29 + index * 47) % 360) * (Math.PI / 180);
     // Scaled for 128 map — stay outside ~17u passive detection envelope.
-    const radius = 34 + (index % 3) * 8;
+    const radius =
+      wave === 1 ? WAVE1_SPAWN_RADIUS + (index % 3) * WAVE1_SPAWN_SPREAD : 34 + (index % 3) * 8;
     const spawnX = WORLD_CENTER + 2 + Math.cos(angle) * radius;
     const spawnY = WORLD_CENTER + Math.sin(angle) * radius;
     const point =
@@ -157,8 +159,9 @@ export function seedWave(
         : snapWorld(getWorld(worldVersion, seed), spawnX, spawnY, shipProfile(kind));
     const stats = shipStats[kind];
     // Wave-1 weapon grace: escorts/subs cannot fire in the first seconds.
-    const weaponCooldown = wave === 1 ? 6 + (index % 4) * 1.5 : 0;
-    const patrolRadius = kind === 'merchant' ? 14 : kind === 'sub' ? 11 : 16;
+    const weaponCooldown = wave === 1 ? 5 + (index % 4) * 0.8 : 0;
+    const patrolRadius =
+      wave === 1 && kind !== 'merchant' ? 8 : kind === 'merchant' ? 14 : kind === 'sub' ? 11 : 16;
     const path = seedPatrolPath(
       terrain,
       point.x,
@@ -342,7 +345,7 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     },
     weaponMode: 'torpedo',
     torpedoSpread: false,
-    viewMode: 'tactical',
+    viewMode: 'chase',
     selectedTargetId: null,
     aimPoint: null,
     missionFlavor: 'SHADOW CONVOY · REMAIN UNDETECTED',

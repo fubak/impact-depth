@@ -821,6 +821,13 @@ svg.map .land { pointer-events: none; }
   transform: translateY(-50%);
 }
 
+.peri-reticle {
+  /* lead pip offset in px from arcade gyro */
+}
+#periscope-overlay .peri-reticle {
+  box-shadow: calc(var(--lead, 0) * 1px) 0 0 0 rgba(189, 139, 78, 0.9);
+}
+
 .peri-bearing {
   position: absolute;
   top: 28px;

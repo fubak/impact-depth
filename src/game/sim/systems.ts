@@ -39,6 +39,7 @@ import { makeClear, resolveClearStep, steerAvoid, shipClearRadius } from './path
 import { passiveRange, updateSonar } from './sonar';
 import { integrateV2Horizontal, resolveV2WorldCollision } from '../world/collision';
 import { getWorld } from '../world/queries';
+import { emergencySurface } from './action-feel';
 import { integrateSubmarineDepth } from './submarine-motion';
 
 type System = (state: GameState, commands: GameCommand[], dt: number) => GameState;
@@ -408,7 +409,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             }),
           };
         }
-      } else if (command.type === 'toggleSilentRunning')
+      } else if (command.type === 'emergencySurface') next = emergencySurface(next);
+      else if (command.type === 'toggleSilentRunning')
         next = {
           ...next,
           submarine: { ...next.submarine, silentRunning: !next.submarine.silentRunning },
@@ -490,7 +492,41 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         }
         const aim = fireTarget ?? target;
         const pointAim = usePointAim ? next.aimPoint : null;
-        if (next.weaponMode === 'decoy' && sub.decoys > 0) {
+        const deckRange =
+          fireTarget && sub.z < 0.14
+            ? Math.hypot(fireTarget.x - sub.x, fireTarget.y - sub.y)
+            : Infinity;
+        if (
+          next.weaponMode === 'torpedo' &&
+          fireTarget &&
+          sub.z < 0.14 &&
+          deckRange < 8.5 &&
+          sub.sysTubes >= 0.2
+        ) {
+          const hp = Math.max(0, fireTarget.hp - 22);
+          next = {
+            ...next,
+            submarine: { ...sub, noise: clamp(sub.noise + 0.42, 0, 1) },
+            ships: next.ships.map((ship) =>
+              ship.id === fireTarget.id
+                ? {
+                    ...ship,
+                    hp,
+                    sinking: hp <= 0 ? Math.max(ship.sinking ?? 0, 0.2) : ship.sinking,
+                  }
+                : ship,
+            ),
+            stats: {
+              ...next.stats,
+              damageDealt: next.stats.damageDealt + 22,
+              shipsSunk: next.stats.shipsSunk + (hp <= 0 && fireTarget.hp > 0 ? 1 : 0),
+            },
+            messages: [
+              ...next.messages,
+              { id: `deck-${next.tick}`, text: `DECK GUN → ${fireTarget.name}`, ttl: 1.8 },
+            ],
+          };
+        } else if (next.weaponMode === 'decoy' && sub.decoys > 0) {
           const cm: Countermeasure = {
             id: `foxer-${next.tick}`,
             kind: 'foxer',
@@ -823,7 +859,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         path,
         weaponCooldown: Math.max(0, ship.weaponCooldown - dt),
       };
-      if (next.weaponCooldown > 0 || !detected || inFob(state)) return next;
+      if (next.weaponCooldown > 0 || !detected || inFob(state) || state.submarine.invuln > 0)
+        return next;
       const shallow = sub.z < 0.18;
       if (ship.kind === 'sub' && distance >= 2.5 && distance <= 14 && alert > 0.45) {
         const threat = makeThreat(state, 'torpedo', ship.id);
@@ -835,18 +872,18 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         !shallow &&
         sub.z > 0.12 &&
         distance <= DC_ENGAGE_RANGE &&
-        alert > 0.45
+        alert > 0.38
       ) {
         const threat = makeThreat(state, 'depthCharge', ship.id);
         if (threat?.charge) depthCharges.push(threat.charge);
-        return { ...next, weaponCooldown: 4.5 };
+        return { ...next, weaponCooldown: 2.6 };
       }
       if (
         (ship.kind === 'destroyer' || ship.kind === 'patrol' || ship.kind === 'cruiser') &&
         sub.z > 0.12 &&
-        distance < 5.5 &&
-        alert > 0.6 &&
-        holdContact > 1.5
+        distance < 7 &&
+        alert > 0.38 &&
+        holdContact > 0.35
       ) {
         for (let index = 0; index < 6; index++) {
           const threat = makeThreat(state, 'hedgehog', ship.id, 'player', index);
@@ -857,7 +894,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
               y: threat.charge.y + Math.sin((index * Math.PI) / 3) * 0.45,
             });
         }
-        return { ...next, weaponCooldown: 5.5 + ((state.seed + ship.patrolIndex) % 2) };
+        return { ...next, weaponCooldown: 2.8 + ((state.seed + ship.patrolIndex) % 2) * 0.4 };
       }
       if (shallow && distance < (ship.kind === 'battleship' ? 10 : 7) && ship.kind !== 'merchant') {
         const threat = makeThreat(state, 'shell', ship.id);

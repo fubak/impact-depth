@@ -5,6 +5,7 @@ import type { LookDevSettings, SimState, ViewMode } from './core/types';
 import { adaptToLookDevSim } from './game/adapt/lookdev';
 import type { GameCommand } from './game/commands/types';
 import {
+  blowTanks,
   cancelAutopilot,
   clearEngagement,
   createGame,
@@ -26,6 +27,7 @@ import {
   toggleTorpedoSpread,
   updateGame,
 } from './game/sim/api';
+import { actionTimeScale } from './game/sim/action-feel';
 import { worldMetersToSim } from './game/sim/coords';
 import { GameAudio } from './game/audio/audio';
 import type { GameState, Point } from './game/sim/types';
@@ -79,6 +81,8 @@ export class App {
   private readonly runtime: RuntimeSelection;
   private missionGeneration = 0;
   private activeQuality: RuntimeSelection['quality'];
+  private hitFreeze = 0;
+  private cameraShake = 0;
 
   constructor() {
     this.runtime = parseRuntimeSelection(window.location.search);
@@ -254,7 +258,8 @@ export class App {
   private beginPatrol(): void {
     this.missionGeneration += 1;
     this.scene.resetEnvironment(this.missionGeneration);
-    this.game = { ...startMission(this.game), settings: this.settings };
+    this.game = { ...startMission(this.game), settings: this.settings, viewMode: 'chase' };
+    this.cameras.setMode('chase');
     const freighter = this.game.ships[0];
     if (freighter) this.game = selectTarget(this.game, freighter.id);
     this.sim = adaptToLookDevSim(this.game);
@@ -283,6 +288,10 @@ export class App {
     }
     if (e.code === 'KeyR' && this.game.phase === 'playing') {
       this.game = toggleSilentRunning(this.game);
+      this.sim = adaptToLookDevSim(this.game);
+    }
+    if (e.code === 'KeyG' && this.game.phase === 'playing') {
+      this.game = blowTanks(this.game);
       this.sim = adaptToLookDevSim(this.game);
     }
     if (e.code === 'KeyC' && this.game.phase === 'playing') {
@@ -347,6 +356,7 @@ export class App {
       );
     if (action === 'stop-ai') this.game = cancelAutopilot(this.game);
     if (action === 'clear') this.game = clearEngagement(this.game);
+    if (action === 'blow') this.game = blowTanks(this.game);
     if (action === 'depth' && value)
       this.game = setDepthOrder(this.game, value as 'surface' | 'periscope' | 'attack' | 'deep');
     if (action === 'speed' && value)
@@ -495,14 +505,24 @@ export class App {
 
     this.input.update();
 
-    const tick = advanceAccumulator(this.accum, elapsed);
+    this.hitFreeze = Math.max(0, this.hitFreeze - elapsed);
+    this.cameraShake *= Math.max(0, 1 - elapsed * 3.2);
+    const scaled = this.hitFreeze > 0 ? 0 : elapsed * actionTimeScale(this.game);
+    const tick = advanceAccumulator(this.accum, scaled);
     this.accum = tick.accum;
     const renderDt = tick.elapsedUsed;
 
     if (this.game.phase === 'playing') {
+      const sunkBefore = this.game.stats.shipsSunk;
+      const chargesBefore = this.game.depthCharges.length;
       for (let i = 0; i < tick.steps; i++) {
         const command: GameCommand = { type: 'helm', ...this.input.intent };
         this.game = updateGame(this.game, [command], FIXED_DT);
+      }
+      if (this.game.stats.shipsSunk > sunkBefore) this.hitFreeze = 0.4;
+      if (chargesBefore > this.game.depthCharges.length) {
+        this.cameraShake = Math.max(this.cameraShake, 0.85);
+        this.scene.debugBurstPresentationFx();
       }
       this.sim = adaptToLookDevSim(this.game);
     }
@@ -510,13 +530,20 @@ export class App {
     this.scene.syncGame(this.game, this.sim, this.settings, renderDt);
     this.cameras.update(this.sim, renderDt, {
       lightning: this.scene.weatherLightning,
+      shake: this.cameraShake,
       reducedMotion: this.reducedMotion,
       waterHeight: this.scene.sampledWaterHeight,
       sampleTerrainY: (x, z) =>
         presentationBedY(this.game.worldVersion, this.game.terrainSeed, x, z),
     });
+    const batteryFrac =
+      this.game.submarine.maxBattery > 0
+        ? this.game.submarine.battery / this.game.submarine.maxBattery
+        : 1;
+    this.renderer.setExposure(
+      this.settings.atmosphere.exposure * (0.52 + 0.48 * Math.max(0, Math.min(1, batteryFrac))),
+    );
     this.scene.applyImmersion(this.cameras.camera);
-    this.renderer.setExposure(this.settings.atmosphere.exposure);
     if (this.renderer.canSubmit) {
       this.scene.preRenderWater(this.renderer.renderer, this.cameras.camera);
       this.renderer.render(this.scene.scene, this.cameras.camera);

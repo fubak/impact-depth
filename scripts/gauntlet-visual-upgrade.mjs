@@ -25,6 +25,7 @@ const unitStations = [
   { name: 'camera-under', files: 'tests/render/camera-underwater.test.ts tests/render/immersion.test.ts' },
   { name: 'waterline', files: 'tests/render/attitude.test.ts' },
   { name: 'fleet-models', files: 'tests/render/fleet-waterline.test.ts' },
+  { name: 'action-feel', files: 'tests/game/action-feel.test.ts' },
 ];
 
 function run(name, command, args) {

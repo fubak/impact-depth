@@ -237,7 +237,7 @@ export class Hud {
     this.help = help;
     this.help.innerHTML = `
       <span class="help-group"><kbd>WASD</kbd> steer</span>
-      <span class="help-group"><kbd>Q</kbd>/<kbd>E</kbd> trim · <kbd>Z</kbd><kbd>X</kbd><kbd>B</kbd><kbd>V</kbd> depth</span>
+      <span class="help-group"><kbd>Q</kbd>/<kbd>E</kbd> trim · <kbd>Z</kbd><kbd>X</kbd><kbd>B</kbd><kbd>V</kbd> depth · <kbd>G</kbd> blow tanks</span>
       <span class="help-group"><kbd>0</kbd><kbd>I</kbd><kbd>O</kbd><kbd>P</kbd> speed</span>
       <span class="help-group"><kbd>F</kbd>/<kbd>RMB</kbd> fire · <kbd>T</kbd> target</span>
       <span class="help-group"><kbd>R</kbd> quiet · <kbd>C</kbd> bubbles</span>
@@ -551,6 +551,7 @@ export class Hud {
             tip,
           ),
         ).join('')}</div>
+        <div class="control-row">${button('blow', 'Blow tanks', false, undefined, false, false, 'Emergency surface — loud, fast, costly (G)')}</div>
       </section>
       <section class="hud-block hud-speed" aria-label="Speed order">
         <div class="panel-label">SPEED <span data-field="speed-label">${formatSpeed(v.speed)} → ${formatSpeed(sub.maxSpeed * SPEED_FRACTION[sub.speedOrder] * 5)}</span></div>

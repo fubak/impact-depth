@@ -65,7 +65,7 @@ export function createInitialSim(): SimState {
   return {
     paused: false,
     time: 0,
-    viewMode: 'tactical',
+    viewMode: 'chase',
     mission: 'SHADOW CONVOY · REMAIN UNDETECTED',
     vessel: {
       // Clearly submerged under transparent Caribbean water, above sandy floor

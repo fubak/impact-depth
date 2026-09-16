@@ -21,6 +21,7 @@ export const createGame = (seed?: number, worldVersion?: WorldVersion): GameStat
 export const startMission = (state: GameState): GameState => ({
   ...state,
   phase: 'playing',
+  viewMode: 'chase',
   ships: seedWave(state.seed, 1, state.ships[0], state.worldVersion),
   powerups: seedPowerups(state.seed, 7, state.worldVersion),
   submarine: { ...state.submarine, invuln: 8 },
@@ -92,6 +93,8 @@ export const fireWeapon = (state: GameState, aimPoint?: Point): GameState =>
     : stepGame(state, [{ type: 'fireWeapon' }], 0);
 export const sonarPulse = (state: GameState): GameState =>
   stepGame(state, [{ type: 'sonarPulse' }], 0);
+export const blowTanks = (state: GameState): GameState =>
+  stepGame(state, [{ type: 'emergencySurface' }], 0);
 export const updateGame = (
   state: GameState,
   commands: GameCommand[] = [],

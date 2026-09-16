@@ -9,6 +9,8 @@ export type CameraSimState = SimState & { selectedTargetId?: string | null };
 
 export type CameraPresentation = {
   lightning?: number;
+  /** Extra eye jitter (depth-charge near miss). */
+  shake?: number;
   reducedMotion?: boolean;
   /** Latest GPU / fallback surface height at the camera xz. */
   waterHeight?: number | null;
@@ -23,7 +25,7 @@ export class CameraRig {
   /** Orbit: higher phi = more oblique / horizon-forward */
   orbitTheta = 2.45;
   orbitPhi = 1.12;
-  orbitRadius = 108;
+  orbitRadius = 72;
   periYaw = 0;
   periPitch = 0.02;
 
@@ -127,6 +129,14 @@ export class CameraRig {
         v.z + Math.sin(v.heading) * stern,
       );
       this.lookAt.set(v.x + Math.cos(v.heading) * 6, hullY + 1.2, v.z + Math.sin(v.heading) * 6);
+      const locked = sim.selectedTargetId
+        ? sim.ships.find((ship) => ship.id === sim.selectedTargetId)
+        : undefined;
+      if (locked) {
+        this.lookAt.x = v.x * 0.55 + locked.x * 0.45;
+        this.lookAt.z = v.z * 0.55 + locked.z * 0.45;
+        this.lookAt.y = hullY + 1.2;
+      }
     } else if (this.activeMode === 'bridge') {
       this.desiredPos.set(
         v.x + Math.cos(v.heading) * 0.9,
@@ -189,6 +199,11 @@ export class CameraRig {
     if (lightning > 0 && !presentation?.reducedMotion) {
       this.camera.position.x += lightning * 0.18;
       this.camera.position.y += lightning * 0.1;
+    }
+    const shake = presentation?.shake ?? 0;
+    if (shake > 0 && !presentation?.reducedMotion) {
+      this.camera.position.x += Math.sin(sim.time * 47) * shake * 0.55;
+      this.camera.position.y += Math.cos(sim.time * 31) * shake * 0.35;
     }
     this.camera.up.set(0, 1, 0);
     if (this.activeMode === 'periscope') {

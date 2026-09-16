@@ -144,7 +144,7 @@ describe('all tactics functional', () => {
       selectedTargetId: escort.id,
       submarine: {
         ...state.submarine,
-        x: escort.x - 5,
+        x: escort.x - 12,
         y: escort.y,
         heading: 0,
         invuln: 200,
