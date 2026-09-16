@@ -31,7 +31,6 @@ export class CameraRig {
   private readonly desiredPos = new THREE.Vector3();
   private readonly currentPos = new THREE.Vector3();
   private readonly lookAt = new THREE.Vector3();
-  private readonly convoyFocus = new THREE.Vector3();
   private readonly projectScratch = new THREE.Vector3();
   private activeMode: ViewMode = 'tactical';
   readonly raycaster = new THREE.Raycaster();
@@ -108,16 +107,6 @@ export class CameraRig {
       this.activeMode === 'periscope' || this.activeMode === 'sonar' ? -v.depth : visualY;
     this.target.set(v.x, hullY + 1.5, v.z);
 
-    // Soft look bias toward convoy centroid for cinematic tactical framing
-    let cx = 0;
-    let cz = 0;
-    for (const s of sim.ships) {
-      cx += s.x;
-      cz += s.z;
-    }
-    const n = Math.max(1, sim.ships.length);
-    this.convoyFocus.set(cx / n, 1.2, cz / n);
-
     if (this.activeMode === 'tactical' || this.activeMode === 'free') {
       const x =
         this.target.x + Math.sin(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
@@ -126,7 +115,7 @@ export class CameraRig {
         this.target.z + Math.cos(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
       // Orbit may pass through the water sheet so POV can inspect submerged hulls.
       this.desiredPos.set(x, y, z);
-      this.lookAt.lerpVectors(this.target, this.convoyFocus, 0.22);
+      this.lookAt.copy(this.target);
       this.lookAt.y = hullY + 1.6;
     } else if (this.activeMode === 'chase') {
       // Follow the hull underwater at attack depth — do not pin the eye to the surface.

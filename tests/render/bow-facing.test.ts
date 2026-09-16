@@ -142,6 +142,19 @@ describe('camera framing (plan 018 I6/I7)', () => {
     }
   });
 
+  it('tactical look-at stays on the player boat, not the convoy centroid', () => {
+    const rig = new CameraRig(16 / 9);
+    const state = sim({
+      vessel: vessel({ x: 0, z: 0 }),
+      ships: [ship({ id: 'far', x: 400, z: 0 })],
+    });
+    snap(rig, state, 'tactical');
+    const look = new THREE.Vector3();
+    rig.camera.getWorldDirection(look);
+    const toPlayer = new THREE.Vector3(0, 0, 0).sub(rig.camera.position).normalize();
+    expect(look.dot(toPlayer)).toBeGreaterThan(0.92);
+  });
+
   it('chase at attack depth follows the hull instead of pinning above empty water', () => {
     const rig = new CameraRig(16 / 9);
     const depth = 12;
