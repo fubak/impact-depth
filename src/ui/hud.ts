@@ -65,23 +65,45 @@ const DEPTH_LABEL: Record<DepthOrder, string> = {
 
 const HUD_PANEL_KEY = 'silent-depths-hud-panels-v1';
 
-type PanelPrefs = { gear: boolean; doctrine: boolean };
+export type HudPanelPrefs = {
+  gear: boolean;
+  doctrine: boolean;
+  contacts: boolean;
+  legend: boolean;
+};
 
-function loadPanelPrefs(): PanelPrefs {
+const FOLDED_PANELS: HudPanelPrefs = {
+  gear: false,
+  doctrine: false,
+  contacts: false,
+  legend: false,
+};
+
+/** Missing keys stay folded. Only an explicit `true` opens a section. */
+export function resolveHudPanelPrefs(raw: string | null): HudPanelPrefs {
+  if (!raw) return { ...FOLDED_PANELS };
   try {
-    const raw = localStorage.getItem(HUD_PANEL_KEY);
-    if (!raw) return { gear: true, doctrine: true };
-    const parsed = JSON.parse(raw) as Partial<PanelPrefs>;
+    const parsed = JSON.parse(raw) as Partial<HudPanelPrefs>;
     return {
-      gear: parsed.gear !== false,
-      doctrine: parsed.doctrine !== false,
+      gear: parsed.gear === true,
+      doctrine: parsed.doctrine === true,
+      contacts: parsed.contacts === true,
+      legend: parsed.legend === true,
     };
   } catch {
-    return { gear: true, doctrine: true };
+    return { ...FOLDED_PANELS };
   }
 }
 
-function savePanelPrefs(prefs: PanelPrefs): void {
+function loadPanelPrefs(): HudPanelPrefs {
+  try {
+    return resolveHudPanelPrefs(localStorage.getItem(HUD_PANEL_KEY));
+  } catch {
+    return resolveHudPanelPrefs(null);
+  }
+}
+
+function savePanelPrefs(prefs: HudPanelPrefs): void {
   try {
     localStorage.setItem(HUD_PANEL_KEY, JSON.stringify(prefs));
   } catch {
@@ -226,7 +248,7 @@ export class Hud {
   private landSeed: number | null = null;
   private chromeKey = '';
   private lastActionAt = 0;
-  private panels: PanelPrefs = loadPanelPrefs();
+  private panels: HudPanelPrefs = loadPanelPrefs();
 
   constructor(
     root: HTMLElement,
@@ -324,6 +346,8 @@ export class Hud {
       this.cb.isMuted() ? 1 : 0,
       this.panels.gear ? 1 : 0,
       this.panels.doctrine ? 1 : 0,
+      this.panels.contacts ? 1 : 0,
+      this.panels.legend ? 1 : 0,
       game.selectedTargetId ?? '',
       contacts.map((c) => c.id).join('|'),
       sub.torpedoes,
@@ -410,13 +434,37 @@ export class Hud {
         <span>Time <b data-field="time">${Math.floor(game.stats.timeSurvived / 60)}:${String(Math.floor(game.stats.timeSurvived % 60)).padStart(2, '0')}</b></span>
       </section>
       <section class="hud-block hud-contacts" data-tutorial="contacts" aria-label="Hydrophone contacts">
-        <div class="panel-label" ${tipAttr('Same contacts as the sonar plot — select to aim')}>CONTACTS <span data-field="contact-count">${contacts.length}/6</span></div>
-        <div data-field="contacts">
+        <div class="panel-label" ${tipAttr('Same contacts as the sonar plot — select to aim')}>
+          <span class="panel-label-text">CONTACTS <span data-field="contact-count">${contacts.length}/6</span></span>
+          ${button(
+            'toggle-contacts',
+            this.panels.contacts ? 'List ▴' : 'List ▾',
+            this.panels.contacts,
+            undefined,
+            false,
+            false,
+            this.panels.contacts ? 'Hide the contact list' : 'Show bearing and range for each contact',
+          )}
+        </div>
+        <div class="contacts-detail${this.panels.contacts ? '' : ' is-collapsed'}" data-field="contacts">
         ${contactsMarkup(contacts, game.selectedTargetId)}
         </div>
       </section>
       <section class="hud-block hud-magazine" data-tutorial="magazine" aria-label="Weapons">
-        <div class="panel-label">WEAPONS <span data-field="mag-status" class="${tubes.ready ? 'ready' : 'locked'}"${tipAttr(tubes.tip)}>${tubes.label}</span></div>
+        <div class="panel-label">
+          <span class="panel-label-text">WEAPONS <span data-field="mag-status" class="${tubes.ready ? 'ready' : 'locked'}"${tipAttr(tubes.tip)}>${tubes.label}</span></span>
+          ${button(
+            'toggle-gear',
+            this.panels.gear ? 'Gear ▴' : 'Gear ▾',
+            this.panels.gear,
+            undefined,
+            false,
+            false,
+            this.panels.gear
+              ? 'Hide decoys, bubbles, spread, and sonar'
+              : 'Show decoys, bubbles, spread, and sonar',
+          )}
+        </div>
         <div class="mag-grid mag-primary">
           ${button(
             'weapon',
@@ -441,19 +489,6 @@ export class Hud {
               : 'Acoustic Mk-18 seeker — tracks noisy contacts',
           )}
           ${button('fire', tubes.ready ? 'FIRE' : tubes.label, false, undefined, fireDisabled, false, tubes.tip)}
-        </div>
-        <div class="control-row fold-row">
-          ${button(
-            'toggle-gear',
-            this.panels.gear ? 'Gear ▴' : 'Gear ▾',
-            this.panels.gear,
-            undefined,
-            false,
-            false,
-            this.panels.gear
-              ? 'Hide decoys, bubbles, spread, and sonar'
-              : 'Show decoys, bubbles, spread, and sonar',
-          )}
         </div>
         <div class="mag-grid mag-secondary${this.panels.gear ? '' : ' is-collapsed'}" data-panel="gear">
           ${button(
@@ -499,17 +534,12 @@ export class Hud {
         </div>
       </section>
       <section class="hud-block hud-tactics" data-tutorial="tactics" aria-label="Tactical controls">
-        <div class="panel-label">HELM <span data-field="tactic-status">${
-          game.autopilot.enabled
-            ? `${game.autopilot.tactic === 'exfil' ? 'HOME' : game.autopilot.tactic.toUpperCase()} · ${game.autopilot.phase.toUpperCase()}`
-            : 'MANUAL'
-        }</span></div>
-        <div class="control-row">
-          ${button('silent', 'Quiet', sub.silentRunning, undefined, false, false, 'Silent running — lower noise, slower battery use when careful')}
-          ${button('scope', 'Scope', sub.scopeUp, undefined, false, false, 'Raise periscope — useful at peri depth, exposes you')}
-          ${button('snorkel', 'Snorkel', sub.snorkel, undefined, false, false, 'Snorkel — recharge battery shallow, leaves a plume')}
-        </div>
-        <div class="control-row fold-row">
+        <div class="panel-label">
+          <span class="panel-label-text">HELM <span data-field="tactic-status">${
+            game.autopilot.enabled
+              ? `${game.autopilot.tactic === 'exfil' ? 'HOME' : game.autopilot.tactic.toUpperCase()} · ${game.autopilot.phase.toUpperCase()}`
+              : 'MANUAL'
+          }</span></span>
           ${button(
             'toggle-doctrine',
             this.panels.doctrine ? 'Doctrine ▴' : 'Doctrine ▾',
@@ -519,6 +549,11 @@ export class Hud {
             false,
             this.panels.doctrine ? 'Hide ambush/stalk AI modes' : 'Show combat AI modes',
           )}
+        </div>
+        <div class="control-row">
+          ${button('silent', 'Quiet', sub.silentRunning, undefined, false, false, 'Silent running — lower noise, slower battery use when careful')}
+          ${button('scope', 'Scope', sub.scopeUp, undefined, false, false, 'Raise periscope — useful at peri depth, exposes you')}
+          ${button('snorkel', 'Snorkel', sub.snorkel, undefined, false, false, 'Snorkel — recharge battery shallow, leaves a plume')}
         </div>
         <div class="control-row doctrine-row${this.panels.doctrine ? '' : ' is-collapsed'}" data-panel="doctrine">
           ${TACTICS.map(([tactic, label, tip]) =>
@@ -568,7 +603,18 @@ export class Hud {
         ).join('')}</div>
       </section>
       <section class="hud-block hud-minimap" data-tutorial="minimap" aria-label="Minimap; click to plot course">
-        <div class="panel-label" ${tipAttr('Click water to plot a course · click a contact to select it')}>PLOT <span data-field="view-mode">${MODE_LABEL[sim.viewMode]}</span></div>
+        <div class="panel-label" ${tipAttr('Click water to plot a course · click a contact to select it')}>
+          <span class="panel-label-text">PLOT <span data-field="view-mode">${MODE_LABEL[sim.viewMode]}</span></span>
+          ${button(
+            'toggle-legend',
+            this.panels.legend ? 'Key ▴' : 'Key ▾',
+            this.panels.legend,
+            undefined,
+            false,
+            false,
+            this.panels.legend ? 'Hide the map key' : 'Show the map key',
+          )}
+        </div>
         <svg class="map" viewBox="0 0 ${WORLD_SIZE} ${WORLD_SIZE}" role="img" aria-label="Sector map">
           <g data-field="land">${this.landSvg}</g>
           <circle class="fob" cx="${game.base.x}" cy="${game.base.y}" r="${game.base.radius}"/><circle class="player" data-field="player" cx="${sub.x}" cy="${sub.y}" r="2"/>
@@ -585,7 +631,7 @@ export class Hud {
               : ''
           }</g>
         </svg>
-        <ul class="map-legend" aria-label="Map legend">
+        <ul class="map-legend${this.panels.legend ? '' : ' is-collapsed'}" aria-label="Map legend">
           <li><i class="lg player"></i> You</li>
           <li><i class="lg ship"></i> Contact</li>
           <li><i class="lg fob"></i> FOB</li>
@@ -742,7 +788,7 @@ export class Hud {
     }
   }
 
-  private togglePanel(which: 'gear' | 'doctrine'): void {
+  private togglePanel(which: keyof HudPanelPrefs): void {
     this.panels = {
       ...this.panels,
       [which]: !this.panels[which],
@@ -767,6 +813,14 @@ export class Hud {
     }
     if (action === 'toggle-doctrine') {
       this.togglePanel('doctrine');
+      return;
+    }
+    if (action === 'toggle-contacts') {
+      this.togglePanel('contacts');
+      return;
+    }
+    if (action === 'toggle-legend') {
+      this.togglePanel('legend');
       return;
     }
     this.cb.command(action, target.dataset.value);
