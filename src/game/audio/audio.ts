@@ -31,6 +31,66 @@ const AMBIENT_LAYER_GAIN = 0.25;
 const AMBIENT_FALLBACK_GAIN = 0.025;
 const ENGINE_MIX_RAMP_SEC = 0.08;
 const DEFAULT_MAX_SPEED = 2.4;
+const CUE_DEDUPE_MS = 120;
+const CUE_DISTANCE_FALLOFF = 20;
+const TENSION_RAMP_SEC = 0.4;
+const TENSION_PULSE_MAX_GAIN = 0.12;
+const TENSION_AMBIENT_DUCK = 0.6;
+const TENSION_PULSE_HZ = 55;
+const TENSION_LFO_HZ = 1.6;
+
+export type CueName =
+  | 'launch'
+  | 'hit'
+  | 'distantBoom'
+  | 'sink'
+  | 'hullHit'
+  | 'incoming'
+  | 'decoy'
+  | 'waveStart'
+  | 'victory'
+  | 'gameover';
+
+export interface CueOptions {
+  /** World distance from the listener; louder when closer. */
+  distance?: number;
+  /** 0..1 loudness scale (default 1). */
+  intensity?: number;
+}
+
+interface CueVoice {
+  bank: BankName;
+  frequency: number;
+  duration: number;
+  type: OscillatorType;
+  gain: number;
+  distance?: number;
+}
+
+const CUE_VOICES: Record<CueName, CueVoice> = {
+  launch: { bank: 'torpedo', frequency: 120, duration: 0.18, type: 'sawtooth', gain: 0.18 },
+  hit: { bank: 'explosion', frequency: 90, duration: 0.28, type: 'sawtooth', gain: 0.26 },
+  distantBoom: {
+    bank: 'explosion',
+    frequency: 48,
+    duration: 0.5,
+    type: 'sine',
+    gain: 0.3,
+    distance: 60,
+  },
+  sink: { bank: 'explosion', frequency: 62, duration: 0.36, type: 'sawtooth', gain: 0.3 },
+  hullHit: { bank: 'explosion', frequency: 140, duration: 0.2, type: 'square', gain: 0.22 },
+  incoming: { bank: 'alarm', frequency: 370, duration: 0.13, type: 'square', gain: 0.11 },
+  decoy: { bank: 'countermeasure', frequency: 260, duration: 0.16, type: 'triangle', gain: 0.12 },
+  waveStart: { bank: 'sonar', frequency: 520, duration: 0.5, type: 'sine', gain: 0.12 },
+  victory: { bank: 'pickup', frequency: 720, duration: 0.5, type: 'sine', gain: 0.14 },
+  gameover: { bank: 'explosion', frequency: 40, duration: 0.8, type: 'sawtooth', gain: 0.25 },
+};
+
+/** Loudness multiplier for a source at `distance` (1 at 0, monotonically decreasing). */
+export function cueDistanceGain(distance: number): number {
+  return 1 / (1 + Math.max(0, distance) / CUE_DISTANCE_FALLOFF);
+}
 
 export interface EngineMix {
   playbackRate: number;
@@ -85,6 +145,11 @@ export class GameAudio {
   private muted = false;
   private lastEngine = 0;
   private previous: GameState | null = null;
+  private readonly lastCueAt = new Map<BankName, number>();
+  private tension = 0;
+  private pulseOsc: OscillatorNode | null = null;
+  private pulseLfo: OscillatorNode | null = null;
+  private pulseGain: GainNode | null = null;
   private readonly banks = new Map<BankName, AudioBuffer>();
   private readonly bankLoads = new Set<Promise<void>>();
   private readonly bankLoadsByName = new Map<BankName, Promise<void>>();
@@ -135,6 +200,7 @@ export class GameAudio {
       this.engineGroup.connect(this.master);
     }
     void this.context.resume();
+    if (this.tension > 0) this.applyTension();
     if (!this.banksRequested) {
       this.banksRequested = true;
       void this.loadBanks();
@@ -316,6 +382,82 @@ export class GameAudio {
   sfxAlarm(): void { this.playBankOrTone('alarm', 370, 0.13, 'square', 0.11, 'sfx'); }
   sfxPickup(): void { this.playBankOrTone('pickup', 720, 0.15, 'sine', 0.12, 'sfx'); }
 
+  /** Play a named combat cue; gain falls off with distance. Suppresses observe()'s duplicate. */
+  playCue(cue: CueName, opts: CueOptions = {}): void {
+    const voice = CUE_VOICES[cue];
+    const distance = opts.distance ?? voice.distance ?? 0;
+    const intensity = Math.min(1, Math.max(0, opts.intensity ?? 1));
+    this.lastCueAt.set(voice.bank, performance.now());
+    this.playBankOrTone(
+      voice.bank,
+      voice.frequency,
+      voice.duration,
+      voice.type,
+      voice.gain * cueDistanceGain(distance) * intensity,
+      'sfx',
+    );
+  }
+
+  /** 0..1 tension: ducks ambient and raises a synthesized pulse layer. */
+  setTension(value: number): void {
+    this.tension = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+    this.applyTension();
+  }
+
+  private applyTension(): void {
+    const ctx = this.context;
+    if (!ctx || !this.master || this.disposed) return;
+    const now = ctx.currentTime;
+    if (!this.pulseGain && this.tension > 0) this.startPulse();
+    if (this.pulseGain) {
+      rampParam(this.pulseGain.gain, this.tension * TENSION_PULSE_MAX_GAIN, now, TENSION_RAMP_SEC);
+    }
+    if (this.ambience) {
+      rampParam(this.ambience.gain, 1 - this.tension * TENSION_AMBIENT_DUCK, now, TENSION_RAMP_SEC);
+    }
+  }
+
+  private startPulse(): void {
+    const ctx = this.context;
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const depth = ctx.createGain();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = TENSION_PULSE_HZ;
+    lfo.type = 'sine';
+    lfo.frequency.value = TENSION_LFO_HZ;
+    gain.gain.value = 0;
+    depth.gain.value = 0.5;
+    lfo.connect(depth).connect(gain.gain);
+    osc.connect(gain).connect(this.mix('sfx'));
+    osc.start();
+    lfo.start();
+    this.pulseOsc = osc;
+    this.pulseLfo = lfo;
+    this.pulseGain = gain;
+  }
+
+  private stopPulse(): void {
+    for (const node of [this.pulseOsc, this.pulseLfo]) {
+      try {
+        node?.stop();
+      } catch {
+        // Already stopped.
+      }
+    }
+    this.pulseOsc = null;
+    this.pulseLfo = null;
+    this.pulseGain = null;
+  }
+
+  /** True when playCue already voiced this bank inside the dedupe window. */
+  private recentlyCued(bank: BankName): boolean {
+    const at = this.lastCueAt.get(bank);
+    return at !== undefined && performance.now() - at < CUE_DEDUPE_MS;
+  }
+
   observe(game: GameState): void {
     const before = this.previous;
     this.lastSpeed = game.submarine.speed;
@@ -329,12 +471,27 @@ export class GameAudio {
       this.stopEngine();
     }
     if (before) {
-      if (game.torpedoes.length > before.torpedoes.length) this.sfxTorpedo();
-      if (game.countermeasures.length > before.countermeasures.length) this.sfxCountermeasure();
-      if (game.sonarPing > before.sonarPing) this.sfxSonar();
-      if (game.stats.shipsSunk > before.stats.shipsSunk) this.sfxExplosion();
+      if (game.torpedoes.length > before.torpedoes.length && !this.recentlyCued('torpedo')) {
+        this.sfxTorpedo();
+      }
+      if (
+        game.countermeasures.length > before.countermeasures.length &&
+        !this.recentlyCued('countermeasure')
+      ) {
+        this.sfxCountermeasure();
+      }
+      if (game.sonarPing > before.sonarPing && !this.recentlyCued('sonar')) this.sfxSonar();
+      if (game.stats.shipsSunk > before.stats.shipsSunk && !this.recentlyCued('explosion')) {
+        this.sfxExplosion();
+      }
       if (game.stats.powerupsTaken > before.stats.powerupsTaken) this.sfxPickup();
-      if (game.submarine.hp < before.submarine.hp && game.submarine.hp < 35) this.sfxAlarm();
+      if (
+        game.submarine.hp < before.submarine.hp &&
+        game.submarine.hp < 35 &&
+        !this.recentlyCued('alarm')
+      ) {
+        this.sfxAlarm();
+      }
       if (
         game.phase === 'playing' &&
         !this.muted &&
@@ -353,6 +510,7 @@ export class GameAudio {
     this.engineWantsPlaying = false;
     this.stopEngine();
     this.stopAmbient();
+    this.stopPulse();
     void this.context?.close();
     this.context = null;
     this.master = null;
