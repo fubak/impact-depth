@@ -24,3 +24,14 @@ Wave-1 escorts and the U-boat shared the innermost spawn ring (radius 12) around
 
 - `tests/game/survival.balance.test.ts` — min spawn distance >18 across seeds; 10-min quiet helm on seed 19 keeps HP >80.
 - Full suite: `npm test` / `npm run verify`.
+
+## Plan 022 S4 playtest findings (2026-09-26)
+
+Measured by `tests/game/playtest/*` on seeds 1, 7, 19, 42, 91 (headless bots, current `master`).
+
+- Silent bot, stopped at attack depth: first `alert > 0.25` after 11.8 s, 10.5 s, 15.4 s, 9.8 s, 24.4 s. Stealth at the opening is weaker than the start state suggests; Plan 022 G1 tunes this against the OD6 band.
+- Ambush, stalk and intercept doctrines each fire within 180 s on every seed.
+- Defect (pinned with `it.fails`): the Evade doctrine dies before the helm returns to manual on seeds 7, 42 and 91.
+- Defect (pinned with `it.fails`): Exfil is sunk before reaching the FOB on all five seeds.
+
+Flipping an `it.fails` to a passing test is the acceptance signal for fixing the matching defect.
