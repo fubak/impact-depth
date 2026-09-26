@@ -144,6 +144,11 @@ export class AssetRegistry {
       this.manifest = (await response.json()) as AssetManifest;
       await Promise.all(
         (Object.keys(this.manifest.entities) as AssetEntity[]).map(async (kind) => {
+          // Skip loadAsync for kinds that don't prefer authored GLTF; use procedural fallback
+          if (!prefersAuthoredGltf(kind)) {
+            this.loadState.set(kind, 'missing');
+            return;
+          }
           const url = this.manifest?.entities[kind].gltf;
           if (!url) {
             this.loadState.set(kind, 'missing');
