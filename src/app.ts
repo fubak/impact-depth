@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { loadSettings, saveSettings } from './core/settings';
+import { loadPlayPreferences, loadSettings, saveSettings } from './core/settings';
 import { advanceAccumulator, FIXED_DT } from './core/sim';
 import type { LookDevSettings, SimState, ViewMode } from './core/types';
 import { deriveCombatEvents, type CombatEvent } from './game/adapt/combat-events';
@@ -43,6 +43,15 @@ import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
 import { GameScene } from './render/scene';
 import { entityDepthY } from './render/presentation/coordinates';
 import { hideBootOverlay, setBootProgress } from './ui/boot';
+import {
+  bindMasterVolume,
+  ErrorToast,
+  recordCapturedError,
+  reducedMotionGates,
+  resolveReducedMotion,
+  resolveStartupQuality,
+  type ErrorRecord,
+} from './ui/error-toast';
 import { Hud } from './ui/hud';
 import { PatrolOverlay } from './ui/overlays';
 import { LookDevPanel } from './ui/panel';
@@ -103,9 +112,13 @@ export class App {
   private bootVisible = true;
   private readonly combatLog: CombatEvent[] = [];
   private errorCount = 0;
+  private errorToast: ErrorToast | null = null;
 
   constructor() {
-    this.runtime = parseRuntimeSelection(window.location.search);
+    const play = loadPlayPreferences();
+    const parsed = parseRuntimeSelection(window.location.search);
+    const startup = resolveStartupQuality(parsed, play.quality);
+    this.runtime = { ...parsed, quality: startup.quality, qualityForced: startup.qualityForced };
     if (this.runtime.diagnostics.length > 0) {
       console.warn('[silent-depths]', this.runtime.diagnostics.join('; '));
     }
@@ -120,7 +133,9 @@ export class App {
       settings: this.settings,
     };
     this.sim = adaptToLookDevSim(this.game);
-    this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    const systemReduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    this.reducedMotion = resolveReducedMotion(play.reducedMotion, systemReduce);
+    bindMasterVolume(this.audio, play.masterVolume);
 
     const canvas = $('scene') as HTMLCanvasElement;
     this.appRoot = $('app');
@@ -129,6 +144,7 @@ export class App {
     this.recoveryBanner.setAttribute('role', 'status');
     this.recoveryBanner.hidden = true;
     this.appRoot.append(this.recoveryBanner);
+    this.errorToast = new ErrorToast(this.appRoot);
     this.renderer = new RendererHost(canvas);
     this.renderer.setQuality(QUALITY_PROFILES[this.runtime.quality]);
     this.renderer.setExposure(this.settings.atmosphere.exposure);
@@ -269,6 +285,13 @@ export class App {
       incoming: this.game.torpedoes.filter((torpedo) => torpedo.owner === 'enemy').length,
       errors: this.errorCount,
     };
+  }
+
+  /** Count a window error or rejection and show the copyable toast. */
+  noteCapturedError(record: ErrorRecord): void {
+    const recorded = recordCapturedError(this.errorCount, record);
+    this.errorCount = recorded.count;
+    this.errorToast?.show(recorded.summary, recorded.count);
   }
 
   /** Newest combat cues, capped at 64. Oldest events drop first. */
@@ -709,8 +732,9 @@ export class App {
         this.game = updateGame(this.game, [command], FIXED_DT);
         combat.push(...deriveCombatEvents(prev, this.game));
       }
-      if (!this.reducedMotion && chargesBefore > this.game.depthCharges.length) {
-        this.cameraShake = Math.max(this.cameraShake, 0.85);
+      const chargeShake = 0.85 * reducedMotionGates(this.reducedMotion).shakeScale;
+      if (chargeShake > 0 && chargesBefore > this.game.depthCharges.length) {
+        this.cameraShake = Math.max(this.cameraShake, chargeShake);
       }
       this.sim = adaptToLookDevSim(this.game);
     }
@@ -774,18 +798,23 @@ export class App {
       this.applyCombatFeel(events);
       for (const event of events) this.playCombatCue(event);
     }
-    this.scene.playCombatEvents(events, now);
+    const gates = reducedMotionGates(this.reducedMotion);
+    this.scene.playCombatEvents(gates.emitFlash ? events : [], now);
     const alert = this.game.ships.reduce((max, ship) => Math.max(max, ship.alert), 0);
     this.audio.setTension(this.game.phase === 'playing' ? alert : 0);
   }
 
   /** Hit shake 0.5, player-hit shake 0.9, sink freeze 0.4 s. All zero under reduced motion. */
   private applyCombatFeel(events: readonly CombatEvent[]): void {
-    if (this.reducedMotion) return;
+    const gates = reducedMotionGates(this.reducedMotion);
     for (const event of events) {
-      if (event.type === 'torpedoHit') this.cameraShake = Math.max(this.cameraShake, 0.5);
-      else if (event.type === 'playerHit') this.cameraShake = Math.max(this.cameraShake, 0.9);
-      else if (event.type === 'shipSunk') this.hitFreeze = Math.max(this.hitFreeze, 0.4);
+      if (event.type === 'torpedoHit') {
+        this.cameraShake = Math.max(this.cameraShake, 0.5 * gates.shakeScale);
+      } else if (event.type === 'playerHit') {
+        this.cameraShake = Math.max(this.cameraShake, 0.9 * gates.shakeScale);
+      } else if (event.type === 'shipSunk') {
+        this.hitFreeze = Math.max(this.hitFreeze, 0.4 * gates.freezeScale);
+      }
     }
   }
 
@@ -845,6 +874,7 @@ export class App {
     this.tutorial.dispose();
     this.threatRoot.remove();
     this.audio.dispose();
+    this.errorToast?.dispose();
     this.recoveryBanner.remove();
     this.finishBoot();
     this.scene.dispose();
