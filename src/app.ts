@@ -42,6 +42,13 @@ import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-sel
 import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
 import { GameScene } from './render/scene';
 import { entityDepthY } from './render/presentation/coordinates';
+import {
+  idleTrack,
+  startTrack,
+  stepTrack,
+  type CinemaPoint,
+  type CinemaTrack,
+} from './render/presentation/cinema-follow';
 import { hideBootOverlay, setBootProgress } from './ui/boot';
 import {
   bindMasterVolume,
@@ -106,9 +113,7 @@ export class App {
   private activeQuality: RuntimeSelection['quality'];
   private hitFreeze = 0;
   private cameraShake = 0;
-  private cinemaUntil = 0;
-  private cinemaId: string | null = null;
-  private cinemaSnap = false;
+  private cinema: CinemaTrack = idleTrack();
   private bootVisible = true;
   private readonly combatLog: CombatEvent[] = [];
   private errorCount = 0;
@@ -347,9 +352,7 @@ export class App {
 
   private beginPatrol(): void {
     this.missionGeneration += 1;
-    this.cinemaId = null;
-    this.cinemaUntil = 0;
-    this.cinemaSnap = false;
+    this.cinema = idleTrack();
     this.scene.resetEnvironment(this.missionGeneration);
     this.game = { ...startMission(this.game), settings: this.settings, viewMode: 'chase' };
     this.cameras.setMode('chase');
@@ -363,9 +366,7 @@ export class App {
 
   private restartPatrol(): void {
     this.missionGeneration += 1;
-    this.cinemaId = null;
-    this.cinemaUntil = 0;
-    this.cinemaSnap = false;
+    this.cinema = idleTrack();
     this.scene.resetEnvironment(this.missionGeneration);
     this.game = {
       ...createGame(this.game.seed),
@@ -579,46 +580,29 @@ export class App {
     const prev = new Set(before.torpedoes.filter((t) => t.owner === 'player').map((t) => t.id));
     const fresh = this.game.torpedoes.find((t) => t.owner === 'player' && !prev.has(t.id));
     if (fresh) {
-      this.cinemaUntil = performance.now() + 600;
-      this.cinemaId = fresh.id;
-      this.cinemaSnap = false;
+      this.cinema = startTrack(fresh.id, performance.now());
     }
     this.sim = adaptToLookDevSim(this.game);
   }
 
   private cinemaPresentation(): {
-    cinema?: { x: number; y: number; z: number; heading: number };
+    cinema?: CinemaPoint;
     snapToTarget?: boolean;
   } {
     const escortFix = this.game.ships.some((ship) => hasContact(ship, this.game));
-    if (escortFix && this.cinemaId) {
-      this.cinemaId = null;
-      this.cinemaUntil = 0;
-      this.cinemaSnap = true;
-    }
-    if (this.cinemaId && performance.now() > this.cinemaUntil) {
-      this.cinemaId = null;
-      this.cinemaSnap = true;
-    }
-    const fish = this.cinemaId
-      ? this.game.torpedoes.find((t) => t.id === this.cinemaId)
+    const torpedo = this.cinema.id
+      ? this.game.torpedoes.find((t) => t.id === this.cinema.id)
       : undefined;
-    if (this.cinemaId && !fish) {
-      this.cinemaId = null;
-      this.cinemaSnap = true;
-    }
-    const snapToTarget = this.cinemaSnap;
-    this.cinemaSnap = false;
-    if (!fish) return snapToTarget ? { snapToTarget } : {};
-    const world = simToWorldMeters(fish.x, fish.y);
+    const world = torpedo ? simToWorldMeters(torpedo.x, torpedo.y) : null;
+    const fish =
+      torpedo && world
+        ? { x: world.x, y: -depthToMeters(torpedo.z), z: world.z, heading: torpedo.heading }
+        : undefined;
+    const step = stepTrack(this.cinema, fish, escortFix, performance.now());
+    this.cinema = step.track;
     return {
-      cinema: {
-        x: world.x,
-        y: -depthToMeters(fish.z),
-        z: world.z,
-        heading: fish.heading,
-      },
-      snapToTarget,
+      ...(step.cinema ? { cinema: step.cinema } : {}),
+      ...(step.snapToTarget ? { snapToTarget: true } : {}),
     };
   }
 
