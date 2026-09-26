@@ -3,9 +3,12 @@
 ## Action gameplay follow-up (2026-09-26)
 
 [Plan 023: action gameplay and production readiness](023-action-gameplay-and-production-readiness.md)
-is **PLANNED**, following the independent review of `ddd4281`. Priorities: trustworthy
-escape/combat rules, one focused action mission, readable presentation, and verified
-release gates. Implementation has not started; existing operator gates remain pending.
+is the review. [Plan 024: execute it](024-action-gameplay-execution.md) is the
+implementation plan: Phase 1 combat rules and the red patrol E2E, then one
+convoy-strike scenario, presentation evidence, and a CI gate in front of Pages.
+Execute one phase per session. Implementation has not started. Operator gates
+remain pending. 024 feeds Plan 017 and does not tag `solo-production`.
+
 The older integration direction below is historical context, not evidence that those
 gates have passed.
 
@@ -91,6 +94,8 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 | 020  | Island / foliage art pass                                           | P1       | Hours                                  | 019 water close                                                      | **IN PROGRESS** — olive cay + palms; not demo-island copy; operator lighting still PENDING                                                                                                                       |
 | 017  | Polish and release the solo production build                        | P1       | 4–10 days                              | 011, 012, 014, 015, accepted 018                                     | TODO — operator soak/GPU/tag; do not self-approve                                                                                                                                                                |
 | 009  | Add optional host-authoritative co-op for up to 10 players          | P2       | 3–6 weeks                              | 017                                                                  | TODO                                                                                                                                                                                                             |
+| 023  | Action gameplay and production readiness (review)                   | P1       | —                                      | 022 machine landed                                                   | PLANNED — spec only; see 024                                                                                                                                                                                     |
+| 024  | Execute the action-gameplay review                                  | P1       | Four sessions                          | 023                                                                  | MACHINE WORK LANDED — unit, build, assets, patrol E2E; operator gates stay pending                                                                                                                               |
 
 Historical estimate before Plan 018 (not an estimate for the revised integration track): roughly 3–6 focused weeks,
 with licensed asset acquisition and operator QA as the long poles. Co-op (009) adds ~3–6 weeks

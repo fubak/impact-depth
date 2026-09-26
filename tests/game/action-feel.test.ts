@@ -18,6 +18,7 @@ describe('action feel', () => {
     expect(actionTimeScale(far)).toBe(4);
     const loud = { ...far, sonarPing: 2 };
     expect(shouldTimeCompress(loud)).toBe(false);
+    expect(shouldTimeCompress({ ...far, compressEnabled: false })).toBe(false);
   });
 
   it('spawns wave-1 contacts inside the close-stalk radius', () => {

@@ -14,9 +14,9 @@ export const SEAMOUNT_CRUSH_DPS = 18;
 export const METERS_PER_UNIT = 5;
 export const MAX_DEPTH = 0.95;
 export const MAX_TIER = 3;
-/** Surface runs are still fireable; deep attack stays tube-locked. */
+/** Surface and attack depths still fire. Deep (0.82) is past this lock. */
 export const FIRE_MIN_DEPTH = 0.04;
-export const FIRE_MAX_DEPTH = 0.85;
+export const FIRE_MAX_DEPTH = 0.8;
 /** Shared depth orders so HUD active-state matches integration targets. */
 export const DEPTH_TARGET = {
   surface: 0.06,
@@ -28,6 +28,13 @@ export const BUBBLE_LIFE = 10;
 export const FOXER_LIFE = 14;
 export const BUBBLE_RADIUS = 4.5;
 export const FOXER_RADIUS = 3.5;
+/** Vertical half-window for each blast, in normalized depth — not the horizontal radius. */
+export const BLAST_VERTICAL = {
+  depthCharge: 0.28,
+  hedgehog: 0.18,
+  shell: 0.12,
+  bomb: 0.22,
+} as const;
 export const PICKUP_RADIUS = 1.3;
 export const PICKUP_MAX = 10;
 export const PICKUP_LIFE = 110;
@@ -43,6 +50,8 @@ export const ESCORT_QUIET_SWEEP_RADIUS = 3.2;
 /** OD6: passive hunt opens after the stealth minute. */
 export const ESCORT_QUIET_HUNT_AFTER = 62;
 export const ESCORT_QUIET_SWEEP_GROWTH = 1.15;
+/** Quiet non-deep sweeps stop growing so a late boat is not map-wide. */
+export const ESCORT_QUIET_SWEEP_CAP = 18;
 /** Lateral weave so the escort screen walks across the convoy's bow. */
 export const ESCORT_SCREEN_OFFSET = 3.5;
 /** A merchant or escort above the pursuit threshold wakes warships inside this range. */

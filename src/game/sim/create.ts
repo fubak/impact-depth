@@ -81,6 +81,7 @@ function createSubmarine(
     sysTubes: 1,
     sysFlood: 0,
     crewStress: 0,
+    lastDamage: null,
   };
 }
 
@@ -347,6 +348,7 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
       shotTimer: 0,
       path: [],
       repathTimer: 0,
+      emergency: false,
     },
     stats: {
       score: 0,
@@ -372,5 +374,9 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     sonarPing: 0,
     sonarCooldown: 0,
     aircraftCooldown: 55 + (seed % 41),
+    scenario: 'patrol',
+    assistanceAutoFire: true,
+    compressEnabled: true,
+    strikeExit: null,
   };
 }

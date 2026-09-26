@@ -15,5 +15,6 @@ it('exports PRD numeric constants', () => {
     ACTIVE_COOLDOWN: 6.5,
     DAY_LENGTH: 480,
     SEAMOUNT_CRUSH_DPS: 18,
+    FIRE_MAX_DEPTH: 0.8,
   });
 });

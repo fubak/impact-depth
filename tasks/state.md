@@ -4,6 +4,16 @@
 > Longer claims ledger: `docs/release/solo-production-status.md`  
 > Persistent notes: `memory/MEMORY.md`
 
+## Plan 024 — machine work landed 2026-09-26
+
+[Execute the action-gameplay review](../plans/024-action-gameplay-execution.md). Unit suite 651 passed. `npm run build` and `npm run assets:validate` passed. Patrol E2E on `http://127.0.0.1:8098/` passed all 7 journeys in Chrome (no console errors). A system Chrome session started Convoy strike: objective "Sink the merchant, reach the exit", tutorial clock stayed at 0 while the cards were open, the Survive card spawned 6 hedgehog charges with hull still at 100, then the patrol resumed with 3 ships and INCOMING showing. Scripted strike report: victory in 8.9 s, 4 shots, 100 HP.
+
+Key M toggles 4× transit. Key V stays Deep.
+
+Ruling: the 18-unit quiet cap breaks OD6's "every seed alerts" passive band. The cap stays. The loud ≤15 s band stays.
+
+Operator gates are not approved: GPU FPS, lighting eye-pass, fleet ACCEPT, audio listen, soak, fun/feel, world-default flip, `solo-production`. Hull-contrast ratio was not measured. No new GLBs. Not pushed.
+
 ## Plan 023 — planned 2026-09-26
 
 [Action gameplay and production readiness](../plans/023-action-gameplay-and-production-readiness.md)

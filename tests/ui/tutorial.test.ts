@@ -7,9 +7,11 @@ import type { GameState } from '../../src/game/sim/types';
 import {
   TutorialOverlay,
   fullTourStepCount,
+  hedgehogBeatFailed,
   patrolClockRuns,
   phaseWhileTutorial,
   quickStartStepCount,
+  safeHedgehogPattern,
 } from '../../src/ui/tutorial';
 
 function stepTotal(html: string): number | null {
@@ -160,5 +162,15 @@ describe('tutorial quick start (A3)', () => {
     expect(source).toContain('if (this.tutorial.isOpen()) return;');
     expect(source).toContain('new ThreatIndicatorLayer');
     expect(source).toContain('behind');
+  });
+
+  it('fails the hedgehog beat only when damage lands before the pattern is marked', () => {
+    expect(hedgehogBeatFailed(100, 100, false)).toBe(false);
+    expect(hedgehogBeatFailed(100, 80, true)).toBe(false);
+    expect(hedgehogBeatFailed(100, 80, false)).toBe(true);
+    const pattern = safeHedgehogPattern(0, 0, 0);
+    expect(pattern).toHaveLength(6);
+    expect(Math.hypot(pattern[0]!.x, pattern[0]!.y)).toBeGreaterThan(12);
+    expect(pattern.every((charge) => charge.radius < 2)).toBe(true);
   });
 });

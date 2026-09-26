@@ -11,7 +11,13 @@ import {
 } from '../../src/game/sim/api';
 import { seedWave } from '../../src/game/sim/create';
 import type { GameState } from '../../src/game/sim/types';
-import { WORLD_CENTER } from '../../src/game/sim/constants';
+import {
+  ESCORT_QUIET_HUNT_AFTER,
+  ESCORT_QUIET_SWEEP_GROWTH,
+  ESCORT_QUIET_SWEEP_RADIUS,
+  WORLD_CENTER,
+} from '../../src/game/sim/constants';
+import { escortSweepRadius } from '../../src/game/sim/systems';
 
 const SEEDS = [1, 7, 19, 42, 91] as const;
 
@@ -36,13 +42,7 @@ function firstAlert(state: GameState, limitSec: number, ping = false): number {
   return -1;
 }
 
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
-}
-
-/** Silent one-third cruise, no ping. OD6's passive band — not the stopped-attack pin. */
+/** Silent one-third cruise, no ping. Quiet sweep is capped, so this is not the old OD6 median. */
 function passiveCruise(seed: number): GameState {
   return startMission(createGame(seed));
 }
@@ -68,13 +68,14 @@ describe('wave escalation', () => {
 });
 
 describe('escort pacing', () => {
-  it('detects a passive silent cruise inside the 60–150s band', () => {
+  it('does not detect every silent cruise through an uncapped quiet sweep', () => {
     const times = SEEDS.map((seed) => firstAlert(passiveCruise(seed), 160));
-    // A hunt that never expands leaves these at -1. OD6 (plan 022): median 60–150s.
-    expect(times.every((time) => time > 60)).toBe(true);
-    const mid = median(times);
-    expect(mid).toBeGreaterThanOrEqual(60);
-    expect(mid).toBeLessThanOrEqual(150);
+    // Plan 024 caps quiet sweep growth at 18. Boats that stay outside that
+    // radius may never alert. Detections that do happen stay after the opening minute.
+    // The loud ≤15s band is the other test. Do not raise ESCORT_QUIET_SWEEP_CAP to restore OD6.
+    const detected = times.filter((time) => time > 0);
+    expect(detected.length).toBeLessThan(SEEDS.length);
+    for (const time of detected) expect(time).toBeGreaterThan(60);
   }, 60_000);
 
   it('detects a loud flank-and-ping boat within 15s on every pacing seed', () => {
@@ -209,4 +210,20 @@ describe('escort pacing', () => {
     });
     expect(alive.length).toBeGreaterThanOrEqual(4);
   }, 60_000);
+
+  it('caps a late quiet sweep and still hides a deep silent boat', () => {
+    const time = 62 + 1000;
+    const jitter = 1;
+    const grown = Math.max(0, time - ESCORT_QUIET_HUNT_AFTER) * ESCORT_QUIET_SWEEP_GROWTH;
+    const uncapped = (ESCORT_QUIET_SWEEP_RADIUS + grown) * jitter;
+    expect(uncapped).toBeGreaterThan(18);
+    const quiet = {
+      ...createGame(1).submarine,
+      silentRunning: true,
+      speedOrder: 'oneThird' as const,
+      z: 0.4,
+    };
+    expect(escortSweepRadius(quiet, time, jitter, false)).toBeLessThanOrEqual(18 * jitter);
+    expect(escortSweepRadius({ ...quiet, z: 0.6 }, time, jitter, false)).toBe(0);
+  });
 });

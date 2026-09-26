@@ -41,10 +41,11 @@ export function stepTrack(
   fish: CinemaPoint | undefined,
   escortFix: boolean,
   now: number,
+  helmActive = false,
 ): CinemaStep {
   const active = track.id !== null || track.lingerUntil > 0;
   if (!active) return { track };
-  if (escortFix) return release();
+  if (escortFix || helmActive) return release();
   if (track.id !== null) {
     if (now > track.until) return release();
     if (fish) return { track: { ...track, last: fish }, cinema: fish };

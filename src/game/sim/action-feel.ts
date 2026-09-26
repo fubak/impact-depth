@@ -9,6 +9,7 @@ export const ACTION_TIME_SCALE = 4;
 export const ACTION_CONTACT_RANGE = 22;
 
 export function shouldTimeCompress(state: GameState): boolean {
+  if (!state.compressEnabled) return false;
   if (state.phase !== 'playing') return false;
   if (state.torpedoes.length > 0 || state.depthCharges.length > 0) return false;
   if (state.sonarPing > 0) return false;

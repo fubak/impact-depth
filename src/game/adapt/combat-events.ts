@@ -1,4 +1,5 @@
-import { PICKUP_RADIUS } from '../sim/constants';
+import { blastDamage } from '../sim/blast';
+import { BLAST_VERTICAL, PICKUP_RADIUS } from '../sim/constants';
 import type { Countermeasure, DepthCharge, GameState, Ship, ShipKind, Torpedo } from '../sim/types';
 
 /** Presentation cues derived from one fixed step. Positions are sim units. */
@@ -171,8 +172,13 @@ function blasts(prev: GameState, next: GameState): CombatEvent[] {
 function blastNearSub(charge: DepthCharge, next: GameState): boolean {
   const sub = next.submarine;
   return (
-    horizontal(charge.x, charge.y, sub.x, sub.y) <= charge.radius &&
-    Math.abs(charge.targetDepth - sub.z) <= charge.radius
+    blastDamage({
+      damage: charge.damage,
+      horizontal: horizontal(charge.x, charge.y, sub.x, sub.y),
+      radius: charge.radius,
+      depthDelta: Math.abs(charge.targetDepth - sub.z),
+      vertical: BLAST_VERTICAL[charge.kind],
+    }) > 0
   );
 }
 

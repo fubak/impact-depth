@@ -170,6 +170,9 @@ export class LookDevPanel {
           ['medium', 'Medium'],
           ['low', 'Low'],
         ])}
+        <label class="field"><input type="checkbox" data-play-flag="captions" ${this.play.captions ? 'checked' : ''}/> Captions</label>
+        <label class="field"><input type="checkbox" data-play-flag="pauseOnBlur" ${this.play.pauseOnBlur ? 'checked' : ''}/> Pause when the window blurs</label>
+        <p class="hint">Keys: 1–7 views, WASD helm, F fire, V deep, Space pause, H panel, M 4× transit.</p>
       </section>
 
       <section class="lookdev-section">
@@ -257,6 +260,15 @@ export class LookDevPanel {
         input.addEventListener('input', handler);
         input.addEventListener('change', handler);
       });
+
+    this.root.querySelectorAll<HTMLInputElement>('input[data-play-flag]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const field = input.dataset.playFlag;
+        if (field === 'captions' || field === 'pauseOnBlur') {
+          this.play = savePlayPreferences({ ...this.play, [field]: input.checked });
+        }
+      });
+    });
 
     this.root.querySelectorAll<HTMLSelectElement>('select[data-play]').forEach((select) => {
       select.addEventListener('change', () => {

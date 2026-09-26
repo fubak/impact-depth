@@ -1,6 +1,7 @@
 import type { LookDevSettings, ViewMode } from '../../core/types';
 
 export type GamePhase = 'menu' | 'playing' | 'paused' | 'gameover' | 'victory';
+export type ScenarioId = 'patrol' | 'convoy-strike';
 export type WeaponMode = 'torpedo' | 'seeker' | 'decoy';
 export type DepthOrder = 'surface' | 'periscope' | 'attack' | 'deep';
 export type SpeedOrder = 'stop' | 'oneThird' | 'twoThirds' | 'flank';
@@ -56,6 +57,8 @@ export interface Submarine {
   sysTubes: number;
   sysFlood: number;
   crewStress: number;
+  /** Last thing that took hull points. Presentation reads this on the result card. */
+  lastDamage: 'weapon' | 'ground' | null;
 }
 export interface Point {
   x: number;
@@ -86,6 +89,8 @@ export interface Ship {
   /** Last place this hull had a visual or acoustic fix. Hunt this, not live coords. */
   lastKnownX?: number;
   lastKnownY?: number;
+  /** Encounter-local hunt pressure. Quiet sweep radius grows from this, not mission time. */
+  suspicion?: number;
 }
 export interface Torpedo {
   id: string;
@@ -170,6 +175,8 @@ export interface Autopilot {
   shotTimer: number;
   path: Point[];
   repathTimer: number;
+  /** Damaged-boat exfil. Once set, low HP must not reset the breakaway clock. */
+  emergency: boolean;
 }
 export interface GameStats {
   score: number;
@@ -220,6 +227,13 @@ export interface GameState {
   sonarPing: number;
   sonarCooldown: number;
   aircraftCooldown: number;
+  scenario: ScenarioId;
+  /** Patrol doctrines may shoot. The strike scenario leaves this off. */
+  assistanceAutoFire: boolean;
+  /** Empty-plot 4× time scale. Key M toggles it. V stays Deep. */
+  compressEnabled: boolean;
+  /** Convoy-strike exit. Null on a patrol. */
+  strikeExit: Point | null;
 }
 
 export type ApiResult<T = GameState> =

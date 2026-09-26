@@ -9,6 +9,7 @@ import {
   blowTanks,
   cancelAutopilot,
   clearEngagement,
+  createConvoyStrike,
   createGame,
   deployCountermeasure,
   fireWeapon,
@@ -28,6 +29,7 @@ import {
   toggleTorpedoSpread,
   updateGame,
 } from './game/sim/api';
+import { nearMissCue, verticalMissCue } from './game/adapt/cue-map';
 import { actionTimeScale } from './game/sim/action-feel';
 import { hasContact } from './game/sim/contact';
 import { depthToMeters, simToWorldMeters, worldMetersToSim } from './game/sim/coords';
@@ -69,7 +71,14 @@ import {
   ThreatIndicatorLayer,
   type ThreatProjection,
 } from './ui/threat-indicators';
-import { TutorialOverlay, patrolClockRuns, phaseWhileTutorial } from './ui/tutorial';
+import {
+  HEDGEHOG_BEAT_INDEX,
+  TutorialOverlay,
+  hedgehogBeatFailed,
+  patrolClockRuns,
+  phaseWhileTutorial,
+  safeHedgehogPattern,
+} from './ui/tutorial';
 import './styles/threats.css';
 
 function $(id: string): HTMLElement {
@@ -114,10 +123,12 @@ export class App {
   private hitFreeze = 0;
   private cameraShake = 0;
   private cinema: CinemaTrack = idleTrack();
+  private helmSample = { heading: 0, speed: 0, ready: false };
   private bootVisible = true;
   private readonly combatLog: CombatEvent[] = [];
   private errorCount = 0;
   private errorToast: ErrorToast | null = null;
+  private hedgehogHp: number | null = null;
 
   constructor() {
     const play = loadPlayPreferences();
@@ -195,10 +206,13 @@ export class App {
       $('patrol-overlay'),
       () => this.beginPatrol(),
       () => this.restartPatrol(),
+      (action) => this.menuAction(action),
     );
     this.tutorial = new TutorialOverlay($('tutorial-overlay'), (open) =>
       this.holdForTutorial(open),
     );
+    this.tutorial.onBeat = (index) => this.onTutorialBeat(index);
+    this.tutorial.mayAdvance = (step) => this.tutorialMayAdvance(step);
     this.threatRoot = document.createElement('div');
     this.threatRoot.id = 'threat-indicators';
     this.appRoot.append(this.threatRoot);
@@ -230,6 +244,9 @@ export class App {
       zoom: (d) => this.cameras.zoom(d),
       getViewMode: () => this.sim.viewMode,
       interact: (button, x, y) => this.handleWorldInteraction(button, x, y),
+      toggleCompress: () => {
+        this.game = { ...this.game, compressEnabled: !this.game.compressEnabled };
+      },
     });
 
     window.addEventListener('keydown', this.onKeyDown);
@@ -238,6 +255,10 @@ export class App {
     this.patrol.render(this.game);
     window.addEventListener('pointerdown', () => this.audio.unlock(), { once: true });
 
+    window.addEventListener('blur', () => {
+      this.input.clearHeldKeys();
+      if (loadPlayPreferences().pauseOnBlur && this.game.phase === 'playing') this.inputPause();
+    });
     window.addEventListener('resize', this.onResize);
     window.addEventListener('beforeunload', this.onUnload);
     this.raf = requestAnimationFrame(this.frame);
@@ -296,7 +317,10 @@ export class App {
   noteCapturedError(record: ErrorRecord): void {
     const recorded = recordCapturedError(this.errorCount, record);
     this.errorCount = recorded.count;
-    this.errorToast?.show(recorded.summary, recorded.count);
+    const sha = import.meta.env.VITE_COMMIT || 'dev';
+    const mode = import.meta.env.MODE ?? 'dev';
+    const context = `${mode}@${sha} phase=${this.game.phase} seed=${this.game.seed} scenario=${this.game.scenario} hp=${this.game.submarine.hp} lastDamage=${this.game.submarine.lastDamage ?? 'none'}`;
+    this.errorToast?.show(`${recorded.summary}\n${context}`, recorded.count);
   }
 
   /** Newest combat cues, capped at 64. Oldest events drop first. */
@@ -350,9 +374,42 @@ export class App {
     };
   }
 
+  private menuAction(action: 'begin' | 'strike' | 'new-seed' | 'retry'): void {
+    if (action === 'retry') {
+      this.restartPatrol();
+      return;
+    }
+    if (action === 'new-seed') {
+      const seed = 1 + (Date.now() % 9000);
+      this.game = {
+        ...createGame(seed),
+        settings: this.settings,
+        worldVersion: this.runtime.world,
+      };
+      this.beginPatrol();
+      return;
+    }
+    if (action === 'strike') {
+      this.game = {
+        ...createConvoyStrike(19),
+        settings: this.settings,
+        worldVersion: this.runtime.world,
+      };
+      this.beginPatrol();
+      return;
+    }
+    this.game = {
+      ...createGame(this.game.seed),
+      settings: this.settings,
+      worldVersion: this.runtime.world,
+    };
+    this.beginPatrol();
+  }
+
   private beginPatrol(): void {
     this.missionGeneration += 1;
     this.cinema = idleTrack();
+    this.hedgehogHp = null;
     this.scene.resetEnvironment(this.missionGeneration);
     this.game = { ...startMission(this.game), settings: this.settings, viewMode: 'chase' };
     this.cameras.setMode('chase');
@@ -468,6 +525,30 @@ export class App {
   }
 
   /** Tutorial holds the sim with the same paused phase the Pause control uses. */
+  private onTutorialBeat(index: number): void {
+    if (index !== HEDGEHOG_BEAT_INDEX || this.game.scenario !== 'convoy-strike') return;
+    if (this.game.depthCharges.some((charge) => charge.id.startsWith('tutorial-hog-'))) return;
+    const sub = this.game.submarine;
+    this.hedgehogHp = sub.hp;
+    this.game = {
+      ...this.game,
+      depthCharges: [...this.game.depthCharges, ...safeHedgehogPattern(sub.x, sub.y, sub.heading)],
+    };
+  }
+
+  private tutorialMayAdvance(step: number): boolean {
+    if (step !== HEDGEHOG_BEAT_INDEX || this.hedgehogHp === null) return true;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const visible = computeThreatMarkers(
+      this.game,
+      (x, y, z) => this.projectThreat(x, y, z, width, height),
+      { width, height },
+      { underwater: this.game.submarine.z > 0.2 },
+    ).some((marker) => marker.kind === 'charge');
+    return !hedgehogBeatFailed(this.hedgehogHp, this.game.submarine.hp, visible);
+  }
+
   private holdForTutorial(open: boolean): void {
     const next = phaseWhileTutorial(this.game.phase, open, this.tutorialHeldPause);
     this.tutorialHeldPause = next.heldByTutorial;
@@ -491,6 +572,7 @@ export class App {
       this.game,
       (x, y, z) => this.projectThreat(x, y, z, width, height),
       { width, height },
+      { underwater: this.game.submarine.z > 0.2 },
     );
     this.threats.render(markers);
   }
@@ -589,6 +671,12 @@ export class App {
     cinema?: CinemaPoint;
     snapToTarget?: boolean;
   } {
+    const sub = this.game.submarine;
+    const helmActive =
+      this.helmSample.ready &&
+      (Math.abs(sub.heading - this.helmSample.heading) > 0.02 ||
+        Math.abs(sub.speed - this.helmSample.speed) > 0.05);
+    this.helmSample = { heading: sub.heading, speed: sub.speed, ready: true };
     const escortFix = this.game.ships.some((ship) => hasContact(ship, this.game));
     const torpedo = this.cinema.id
       ? this.game.torpedoes.find((t) => t.id === this.cinema.id)
@@ -598,7 +686,7 @@ export class App {
       torpedo && world
         ? { x: world.x, y: -depthToMeters(torpedo.z), z: world.z, heading: torpedo.heading }
         : undefined;
-    const step = stepTrack(this.cinema, fish, escortFix, performance.now());
+    const step = stepTrack(this.cinema, fish, escortFix, performance.now(), helmActive);
     this.cinema = step.track;
     return {
       ...(step.cinema ? { cinema: step.cinema } : {}),
@@ -817,11 +905,12 @@ export class App {
       case 'shipSunk':
         this.audio.playCue('sink', { distance: distanceOf(event.x, event.y) });
         return;
-      case 'chargeBlast':
-        this.audio.playCue(event.near ? 'hullHit' : 'distantBoom', {
-          distance: distanceOf(event.x, event.y),
-        });
+      case 'chargeBlast': {
+        const distance = distanceOf(event.x, event.y);
+        if (event.near) this.audio.playCue('hullHit', { distance });
+        else if (verticalMissCue(distance, false)) this.audio.playCue('distantBoom', { distance });
         return;
+      }
       case 'playerHit':
         this.audio.playCue('hullHit');
         return;
@@ -838,6 +927,10 @@ export class App {
         this.audio.playCue('gameover');
         return;
       case 'torpedoExpired':
+        if (nearMissCue(distanceOf(event.x, event.y))) {
+          this.audio.playCue('incoming', { distance: distanceOf(event.x, event.y) });
+        }
+        return;
       case 'sonarPing':
       case 'pickup':
         return;

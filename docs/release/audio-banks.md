@@ -10,20 +10,22 @@ Runtime still starts a procedural oscillator if a bank is missing, still
 loading, or fails to decode. Gesture unlock and mute stay required; audio never
 writes simulation state.
 
+Launch, near contact, hull hit, distant blast, and sink each call a distinct `playCue` id (`launch` / `incoming`, `hit`, `hullHit`, `distantBoom`, `sink`). The files themselves remain fallback-generated synthesis. A human listening pass is still required.
+
 ## Bank ledger
 
-| Cue | File | Duration | Status |
-| --- | --- | --- | --- |
-| UI click | `audio/click.wav` | 0.06s | fallback-generated |
-| Torpedo launch | `audio/torpedo.wav` | 0.50s | fallback-generated |
-| Explosion / kill | `audio/explosion.wav` | 1.00s | fallback-generated |
-| Sonar ping | `audio/sonar.wav` | 0.55s | fallback-generated |
-| Countermeasure | `audio/countermeasure.wav` | 0.30s | fallback-generated |
-| Hull alarm | `audio/alarm.wav` | 0.20s | fallback-generated |
-| Powerup pickup | `audio/pickup.wav` | 0.22s | fallback-generated |
-| Engine bed | `audio/engine.wav` | 1.50s | fallback-generated |
-| Primary ambience | `audio/ambient.wav` | 3.50s | fallback-generated |
-| Second ambience | `audio/ambient2.wav` | 3.50s | fallback-generated |
+| Cue              | File                       | Duration | Status             |
+| ---------------- | -------------------------- | -------- | ------------------ |
+| UI click         | `audio/click.wav`          | 0.06s    | fallback-generated |
+| Torpedo launch   | `audio/torpedo.wav`        | 0.50s    | fallback-generated |
+| Explosion / kill | `audio/explosion.wav`      | 1.00s    | fallback-generated |
+| Sonar ping       | `audio/sonar.wav`          | 0.55s    | fallback-generated |
+| Countermeasure   | `audio/countermeasure.wav` | 0.30s    | fallback-generated |
+| Hull alarm       | `audio/alarm.wav`          | 0.20s    | fallback-generated |
+| Powerup pickup   | `audio/pickup.wav`         | 0.22s    | fallback-generated |
+| Engine bed       | `audio/engine.wav`         | 1.50s    | fallback-generated |
+| Primary ambience | `audio/ambient.wav`        | 3.50s    | fallback-generated |
+| Second ambience  | `audio/ambient2.wav`       | 3.50s    | fallback-generated |
 
 Creator/source/license for every row: Silent Depths in-process synthesis,
 project-owned. Replacements must change the ledger (and cache version if CDN

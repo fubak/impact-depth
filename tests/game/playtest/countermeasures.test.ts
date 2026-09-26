@@ -68,7 +68,7 @@ describe('playtest countermeasures', () => {
     state = {
       ...state,
       submarine: { ...state.submarine, x: origin.x, y: origin.y + 8 },
-      torpedoes: [incoming(state, origin.x - 5, origin.y)],
+      torpedoes: [incoming(state, origin.x - 0.4, origin.y)],
     };
     state = step(state, 2);
     expect(state.torpedoes.some((torpedo) => torpedo.owner === 'enemy')).toBe(false);

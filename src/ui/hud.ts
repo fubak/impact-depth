@@ -1,4 +1,5 @@
 import { formatDepth, formatSpeed, headingDegrees } from '../core/sim';
+import { loadPlayPreferences } from '../core/settings';
 import { ISLAND_MESH_RADIUS_FACTOR, ISLAND_SPECS } from '../core/terrain';
 import type { LookDevSettings, SimState } from '../core/types';
 import {
@@ -8,8 +9,16 @@ import {
   METERS_PER_UNIT,
   WORLD_SIZE,
 } from '../game/sim/constants';
+import { actionTimeScale } from '../game/sim/action-feel';
+import { defenseCallout } from '../game/sim/defense-callout';
 import { worldMetersToSim } from '../game/sim/coords';
-import type { AutopilotTactic, DepthOrder, GameMessage, GameState, SpeedOrder } from '../game/sim/types';
+import type {
+  AutopilotTactic,
+  DepthOrder,
+  GameMessage,
+  GameState,
+  SpeedOrder,
+} from '../game/sim/types';
 import { getTerrain, isLand } from '../game/sim/world';
 import { findPixelProximateContact, MAP_PROXIMATE_PX } from '../input/world-click';
 import { listFirmContacts, type FirmContact } from './sonar';
@@ -71,6 +80,16 @@ export type HudPanelPrefs = {
   contacts: boolean;
   legend: boolean;
 };
+
+/** Persistent bottom-clearance label. `null` when the hull is clear of the limit. */
+export function bottomClearanceText(limit: number, z: number): string | null {
+  return limit - z < 0.08 ? 'BOTTOM' : null;
+}
+
+/** Player-facing patrol objective. Victory still requires the sim sink target. */
+export function objectiveText(scenario: 'patrol' | 'convoy-strike' = 'patrol'): string {
+  return scenario === 'convoy-strike' ? 'Sink the merchant, reach the exit' : 'Clear two waves';
+}
 
 /** Pure formatter: extracts new hit/sunk pops from messages since last seen. */
 export function formatScorePops(
@@ -337,7 +356,9 @@ export class Hud {
     this.lastShips = game.ships.map((ship) => ({ id: ship.id, x: ship.x, y: ship.y }));
     const fobSafe = Math.hypot(sub.x - game.base.x, sub.y - game.base.y) <= game.base.radius;
     const weapon = game.weaponMode;
-    const message = game.messages[0];
+    const message = loadPlayPreferences().captions ? game.messages[0] : undefined;
+    // Sim message BOTTOM is the source until hullDepthLimit is wired.
+    const showBottom = game.messages.some((entry) => entry.text === 'BOTTOM');
     const depthOrder = orderedDepth(sub.targetDepth);
     const depthSettled = Math.abs(sub.z - sub.targetDepth) < 0.02;
     const speedSettled = Math.abs(sub.speed - sub.targetSpeed) < 0.05;
@@ -403,6 +424,7 @@ export class Hud {
         targetRange,
         fobSafe,
         message,
+        showBottom,
         contacts,
         scorePop: popResult.label,
       });
@@ -464,6 +486,9 @@ export class Hud {
         </div>
       </section>
       <section class="hud-block hud-score" aria-label="Patrol score">
+        <span data-field="objective">${objectiveText(game.scenario)}</span>
+        <span data-field="callout">${defenseCallout(game) ?? ''}</span>
+        <span data-field="compress">${actionTimeScale(game) === 4 ? '4×' : ''}</span>
         <span>Score <b data-field="score">${game.stats.score}</b></span>
         <span>Wave <b data-field="wave">${game.stats.wave}</b></span>
         <span>Sunk <b data-field="sunk">${game.stats.shipsSunk}</b></span>
@@ -480,7 +505,9 @@ export class Hud {
             undefined,
             false,
             false,
-            this.panels.contacts ? 'Hide the contact list' : 'Show bearing and range for each contact',
+            this.panels.contacts
+              ? 'Hide the contact list'
+              : 'Show bearing and range for each contact',
           )}
         </div>
         <div class="contacts-detail${this.panels.contacts ? '' : ' is-collapsed'}" data-field="contacts">
@@ -611,7 +638,7 @@ export class Hud {
         </div>
       </section>
       <section class="hud-block hud-depth" data-tutorial="depth" aria-label="Depth order">
-        <div class="panel-label">DEPTH <span data-field="depth-label">${formatDepth(v.depth)} → ${DEPTH_LABEL[depthOrder]}</span></div>
+        <div class="panel-label">DEPTH <span data-field="depth-label">${formatDepth(v.depth)} → ${DEPTH_LABEL[depthOrder]}${showBottom ? ' BOTTOM' : ''}</span></div>
         <div class="control-row">${DEPTHS.map(([order, label, tip]) =>
           button(
             'depth',
@@ -700,6 +727,7 @@ export class Hud {
       targetRange: number | null;
       fobSafe: boolean;
       message: GameState['messages'][number] | undefined;
+      showBottom: boolean;
       contacts: readonly FirmContact[];
       scorePop: string | null;
     },
@@ -761,6 +789,9 @@ export class Hud {
         : 'None — map / list / T',
       extras.target ? 'engaged' : '',
     );
+    set('objective', objectiveText(game.scenario));
+    set('callout', defenseCallout(game) ?? '');
+    set('compress', actionTimeScale(game) === 4 ? '4×' : '');
     set('score', String(game.stats.score));
     set('wave', String(game.stats.wave));
     set('sunk', String(game.stats.shipsSunk));
@@ -769,7 +800,10 @@ export class Hud {
       `${Math.floor(game.stats.timeSurvived / 60)}:${String(Math.floor(game.stats.timeSurvived % 60)).padStart(2, '0')}`,
     );
     set('score-pop', extras.scorePop ?? '');
-    set('depth-label', `${formatDepth(v.depth)} → ${DEPTH_LABEL[extras.depthOrder]}`);
+    set(
+      'depth-label',
+      `${formatDepth(v.depth)} → ${DEPTH_LABEL[extras.depthOrder]}${extras.showBottom ? ' BOTTOM' : ''}`,
+    );
     set(
       'speed-label',
       `${formatSpeed(v.speed)} → ${formatSpeed(sub.maxSpeed * SPEED_FRACTION[sub.speedOrder] * 5)}`,

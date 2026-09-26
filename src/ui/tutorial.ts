@@ -11,7 +11,7 @@ const STORAGE_KEY = 'silent-depths-tutorial-v1';
 const QUICK_START: readonly Step[] = [
   {
     title: 'Steer',
-    body: 'Click open water or the tactical plot to set a waypoint. WASD nudges the helm. The boat routes around shoals.',
+    body: 'Steer to the marked water ahead. WASD nudges the helm. The boat routes around shoals.',
     tip: 'Drag the tactical view and use the wheel to zoom.',
     anchor: 'canvas',
   },
@@ -23,19 +23,19 @@ const QUICK_START: readonly Step[] = [
   },
   {
     title: 'Fire',
-    body: 'Select a contact, then Fire or press F. Mk-14s run straight. Mk-18s seek. Right-click a ship to shoot it.',
+    body: 'From attack depth, fire at the merchant. Tubes launch within 60° of the bow.',
     tip: 'Ping sharpens the picture and tells escorts where you are.',
     anchor: 'magazine',
   },
   {
     title: 'Survive',
-    body: 'Escorts, aircraft, and enemy submarines hunt noise. Go deep and quiet, screen with bubbles, and dock at FOB Argus to repair.',
+    body: 'A hedgehog pattern is marked at a distance. Clear it, then steer to the exit. The sim stays paused while this card is open.',
     tip: 'The full tour stays on Help. Stay quiet, shoot from the beam, and get home.',
     anchor: 'center',
   },
 ];
 
-const FULL_TOUR: readonly Step[] = [
+export const FULL_TOUR: readonly Step[] = [
   {
     title: 'Welcome aboard, Captain',
     body: 'This tour covers helm, stealth, weapons, and the combat AI. Reopen Help from the HUD whenever you need it.',
@@ -98,11 +98,60 @@ const FULL_TOUR: readonly Step[] = [
   },
   {
     title: 'You are on station',
-    body: 'Sink ships to clear the sector. Reopen this guide from Help anytime.',
+    body: 'Clear two waves. Reopen this guide from Help anytime.',
     tip: 'Stay quiet, shoot from the beam, and get home.',
     anchor: 'center',
   },
 ];
+
+/** Survive card. The pattern is astern and outside its own blast. */
+export const HEDGEHOG_BEAT_INDEX = 3;
+
+/** True when hull points changed before the pattern had a threat marker. */
+export function hedgehogBeatFailed(
+  hpBefore: number,
+  hpAfter: number,
+  patternVisible: boolean,
+): boolean {
+  return hpAfter !== hpBefore && !patternVisible;
+}
+
+/** Six charges 16 units astern. Radius 0.85, so the boat is already outside the blast. */
+export function safeHedgehogPattern(
+  x: number,
+  y: number,
+  heading: number,
+): Array<{
+  id: string;
+  kind: 'hedgehog';
+  sourceId: string;
+  x: number;
+  y: number;
+  z: number;
+  vz: number;
+  fuse: number;
+  damage: number;
+  radius: number;
+  targetDepth: number;
+}> {
+  const stern = heading + Math.PI;
+  return Array.from({ length: 6 }, (_, index) => {
+    const spread = (index - 2.5) * 1.1;
+    return {
+      id: `tutorial-hog-${index}`,
+      kind: 'hedgehog' as const,
+      sourceId: 'tutorial',
+      x: x + Math.cos(stern) * 16 + Math.cos(stern + Math.PI / 2) * spread,
+      y: y + Math.sin(stern) * 16 + Math.sin(stern + Math.PI / 2) * spread,
+      z: 0.5,
+      vz: 0,
+      fuse: 8,
+      damage: 12,
+      radius: 0.85,
+      targetDepth: 0.5,
+    };
+  });
+}
 
 export function quickStartStepCount(): number {
   return QUICK_START.length;
@@ -144,6 +193,10 @@ export class TutorialOverlay {
   private step = 0;
   private open = false;
   private mode: Mode = 'quick';
+  /** Fired after each card render. The app uses it to spawn the hedgehog beat. */
+  onBeat: ((index: number) => void) | null = null;
+  /** Return false to keep the current card. Skip and Escape are not gated. */
+  mayAdvance: ((fromStep: number) => boolean) | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -221,6 +274,7 @@ export class TutorialOverlay {
       `<button class="hud-btn" data-tutorial-action="skip">Skip</button>` +
       `<button class="hud-btn active" data-tutorial-action="next">${nextLabel}</button>` +
       `</div></section>`;
+    this.onBeat?.(this.step);
     if (typeof this.root.querySelector === 'function') {
       const next = this.root.querySelector('[data-tutorial-action="next"]');
       if (next instanceof HTMLElement) next.focus();
@@ -245,6 +299,7 @@ export class TutorialOverlay {
       this.render();
     }
     if (action === 'next') {
+      if (this.mayAdvance && !this.mayAdvance(this.step)) return;
       if (this.step === this.steps().length - 1) this.finish();
       else {
         this.step += 1;

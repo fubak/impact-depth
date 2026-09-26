@@ -59,6 +59,22 @@ describe('playtest progression', () => {
     expect(state.phase).toBe('victory');
   });
 
+  it('eight sinks with a hull still afloat stay in the patrol', () => {
+    let state = startMission(createGame(21));
+    const last = state.ships[0]!;
+    state = {
+      ...state,
+      ships: [{ ...last, sinking: undefined, hp: last.maxHp, weaponCooldown: 999 }],
+      torpedoes: [],
+      depthCharges: [],
+      stats: { ...state.stats, shipsSunk: 8 },
+    };
+    state = updateGame(state, [], FIXED_DT);
+    expect(state.stats.shipsSunk).toBe(8);
+    expect(state.ships).toHaveLength(1);
+    expect(state.phase).toBe('playing');
+  });
+
   it('zero hull ends the patrol and createGame(seed) starts a fresh boat', () => {
     const seed = 20;
     let state = startMission(createGame(seed));
@@ -112,9 +128,7 @@ describe('playtest progression', () => {
           speedTier: 0,
           maxSpeed: beforeSpeed,
         },
-        powerups: [
-          { id: kind, kind, x: state.submarine.x, y: state.submarine.y, life: 90 },
-        ],
+        powerups: [{ id: kind, kind, x: state.submarine.x, y: state.submarine.y, life: 90 }],
       };
       state = updateGame(state, [], FIXED_DT);
       expect(state.stats.powerupsTaken).toBe(1);

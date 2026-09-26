@@ -32,6 +32,7 @@ import {
   ACTIVE_COOLDOWN,
   ACTIVE_PING_DURATION,
   ALERT_SPREAD_RADIUS,
+  BLAST_VERTICAL,
   BUBBLE_HOLD_DRAIN,
   DC_ENGAGE_RANGE,
   DEEP_SAFE_DEPTH,
@@ -39,21 +40,13 @@ import {
   FOXER_SEDUCE_RANGE,
   WAVE_BREATHER,
   ESCORT_LOUD_SWEEP_RADIUS,
-  ESCORT_QUIET_HUNT_AFTER,
-  ESCORT_QUIET_SWEEP_GROWTH,
+  ESCORT_QUIET_SWEEP_CAP,
   ESCORT_QUIET_SWEEP_RADIUS,
   ESCORT_SCREEN_OFFSET,
   ESCORT_SWEEP_PERIOD,
 } from './constants';
 import { nextRandom } from './rng';
-import {
-  getTerrain,
-  isCrushedBySeamount,
-  isLand,
-  SEAMOUNT_CRUSH_DEPTH,
-  snapToNavigable,
-  terrainHeight,
-} from './world';
+import { getTerrain, hullDepthLimit, isCrushedBySeamount, isLand, snapToNavigable } from './world';
 import { updateAutopilot } from './autopilot';
 import { makeClear, resolveClearStep, steerAvoid, shipClearRadius } from './pathfinding';
 import { updateSonar } from './sonar';
@@ -63,6 +56,7 @@ import { integrateV2Horizontal, resolveV2WorldCollision } from '../world/collisi
 import { getWorld } from '../world/queries';
 import { emergencySurface } from './action-feel';
 import { integrateSubmarineDepth } from './submarine-motion';
+import { blastDamage } from './blast';
 
 type System = (state: GameState, commands: GameCommand[], dt: number) => GameState;
 export const SYSTEM_ORDER = [
@@ -170,17 +164,19 @@ const ESCORT_SWEEP_KINDS: ReadonlySet<Ship['kind']> = new Set([
  * Active sweep radius. Deep + silent + not flank is invisible to the sweep.
  * Other silent boats use a short radius that grows after the opening minute.
  */
-function escortSweepRadius(
+export function escortSweepRadius(
   sub: GameState['submarine'],
-  time: number,
+  _time: number,
   jitter: number,
   pinging: boolean,
+  suspicion = 0,
 ): number {
   const quiet = sub.silentRunning && sub.speedOrder !== 'flank';
   if (quiet && sub.z >= DEEP_SAFE_DEPTH) return 0;
   if (quiet) {
-    const grown = Math.max(0, time - ESCORT_QUIET_HUNT_AFTER) * ESCORT_QUIET_SWEEP_GROWTH;
-    return (ESCORT_QUIET_SWEEP_RADIUS + grown) * jitter;
+    // Suspicion is encounter-local. Mission time no longer grows the sweep without a cap.
+    const fromHunt = suspicion * ESCORT_QUIET_SWEEP_CAP;
+    return Math.min(ESCORT_QUIET_SWEEP_CAP, ESCORT_QUIET_SWEEP_RADIUS + fromHunt) * jitter;
   }
   // A flank or noisy boat is loud only while it is pinging. Otherwise escorts
   // still need to close inside ordinary hearing, so a stalk is not a beacon.
@@ -188,7 +184,7 @@ function escortSweepRadius(
 }
 
 /** Stable [0,1) roll from the mission seed and a torpedo id. */
-function seduceRoll(seed: number, id: string): number {
+export function seduceRoll(seed: number, id: string): number {
   let hash = seed >>> 0;
   for (let index = 0; index < id.length; index += 1) {
     hash = Math.imul(hash ^ id.charCodeAt(index), 0x45d9f3b);
@@ -222,6 +218,16 @@ function spreadAlert(ships: Ship[], state: GameState): Ship[] {
   });
 }
 
+/** Tubes can aim at most 60° off the bow. The HUD lead is still the desired bearing. */
+export function launchHeading(boatHeading: number, desiredHeading: number): number {
+  const delta = Math.atan2(
+    Math.sin(desiredHeading - boatHeading),
+    Math.cos(desiredHeading - boatHeading),
+  );
+  const clamped = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, delta));
+  return Math.atan2(Math.sin(boatHeading + clamped), Math.cos(boatHeading + clamped));
+}
+
 function makeTorpedo(
   state: GameState,
   kind: 'mk14' | 'mk18',
@@ -243,6 +249,7 @@ function makeTorpedo(
   } else if (aimPoint) {
     heading = Math.atan2(aimPoint.y - sub.y, aimPoint.x - sub.x) + offset;
   }
+  heading = launchHeading(sub.heading, heading);
   return {
     id: `${kind}-${state.tick}-${offset}`,
     owner: 'player',
@@ -352,6 +359,7 @@ function applyPlayerDamage(sub: GameState['submarine'], damage: number) {
     sysTubes: clamp(sub.sysTubes - actual / 650, 0, 1),
     sysFlood: clamp(sub.sysFlood + actual / 500, 0, 1),
     crewStress: clamp(sub.crewStress + actual / 150, 0, 1),
+    lastDamage: 'weapon' as const,
   };
 }
 
@@ -469,6 +477,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
                 targetId: command.targetId ?? next.selectedTargetId,
                 phase: 'approach',
                 phaseTimer: 0,
+                emergency: false,
                 // Grace prevents the select tick from instantly firing + breakaway-fleeing.
                 shotTimer:
                   command.tactic &&
@@ -766,6 +775,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
               shotTimer: next.autopilot.tactic === 'stalk' ? 8 : 5,
               phase: 'breakaway',
               phaseTimer: 0,
+              emergency: false,
             },
           };
         }
@@ -869,18 +879,28 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       x = safe.x;
       y = safe.y;
     }
+    // Lift the hull before the crush test. Autopilot may still be ordering Deep;
+    // a hull already above the ceiling takes no rock damage this step.
+    const limit = hullDepthLimit(terrain, x, y);
+    const z = Math.min(clampDepth(sub.z), limit);
     const crush =
-      sub.invuln <= 0 && !inFob(state, x, y) && isCrushedBySeamount(terrain, x, y, sub.z)
+      sub.invuln <= 0 && !inFob(state, x, y) && isCrushedBySeamount(terrain, x, y, z)
         ? SEAMOUNT_CRUSH_DPS * dt
         : 0;
     const hp = clamp(sub.hp - crush, 0, sub.maxHp);
-    // Depth orders stop just above the rock: a Deep click over a shoal must not be a death sentence.
-    const seabedLimit = Math.max(
-      SEAMOUNT_CRUSH_DEPTH,
-      clampDepth(1 - terrainHeight(terrain, x, y) + 0.2) - 0.03,
-    );
-    const targetDepth = Math.min(sub.targetDepth, seabedLimit);
-    return { ...state, submarine: { ...sub, x, y, z: clampDepth(sub.z), targetDepth, hp } };
+    const targetDepth = Math.min(sub.targetDepth, limit);
+    return {
+      ...state,
+      submarine: {
+        ...sub,
+        x,
+        y,
+        z,
+        targetDepth,
+        hp,
+        lastDamage: crush > 0 ? 'ground' : sub.lastDamage,
+      },
+    };
   },
   sonar: (state, _commands, dt) => updateSonar(state, dt),
   enemies(state, _commands, dt) {
@@ -898,10 +918,22 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       rngState = roll.state;
       sweepJitter = 0.9 + roll.value * 0.2;
     }
-    const sweepRadius = escortSweepRadius(sub, state.time, sweepJitter, state.sonarPing > 0);
     const ships = state.ships.map((ship) => {
       if (ship.sinking !== undefined) return ship;
       const distance = Math.hypot(ship.x - sub.x, ship.y - sub.y);
+      const suspicionIn = ship.suspicion ?? 0;
+      const sweepRadius = escortSweepRadius(
+        sub,
+        state.time,
+        sweepJitter,
+        state.sonarPing > 0,
+        suspicionIn,
+      );
+      const hunting =
+        ESCORT_SWEEP_KINDS.has(ship.kind) && sweepRadius > 0 && distance <= sweepRadius;
+      const suspicion = ESCORT_SWEEP_KINDS.has(ship.kind)
+        ? clamp(suspicionIn + (hunting ? dt * 0.25 : -dt * 0.08), 0, 1)
+        : suspicionIn;
       const detected = hasContact(ship, state);
       const bubbleScreen = state.countermeasures.some(
         (cm) => cm.kind === 'bubble' && Math.hypot(cm.x - sub.x, cm.y - sub.y) <= cm.radius,
@@ -993,6 +1025,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         lastKnownX,
         lastKnownY,
         path,
+        suspicion,
         weaponCooldown: Math.max(0, ship.weaponCooldown - dt),
       };
       if (next.weaponCooldown > 0 || !detected || inFob(state) || state.submarine.invuln > 0)
@@ -1125,8 +1158,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             ),
           };
       }
-      const mk18Player =
-        next.owner === 'enemy' && next.kind === 'mk18' && next.targetId === 'player';
+      // Enemy AI fish are kind 'enemy', not mk18, but they share the same homing and foxer odds.
+      const mk18Player = next.owner === 'enemy' && next.targetId === 'player';
       const seducer =
         mk18Player && seduceRoll(state.seed, next.id) < FOXER_SEDUCE_ODDS
           ? state.countermeasures.find(
@@ -1214,19 +1247,19 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       const next = { ...charge, z: clampDepth(charge.z + charge.vz * dt), fuse: charge.fuse - dt };
       if (next.fuse > 0) return [next];
       const distance = Math.hypot(next.x - submarine.x, next.y - submarine.y);
-      if (
-        !inFob(state) &&
-        distance <= next.radius &&
-        Math.abs(next.targetDepth - submarine.z) <= next.radius
-      ) {
+      const blast = blastDamage({
+        damage: next.damage,
+        horizontal: distance,
+        radius: next.radius,
+        depthDelta: Math.abs(next.targetDepth - submarine.z),
+        vertical: BLAST_VERTICAL[next.kind],
+      });
+      if (!inFob(state) && blast > 0) {
         const bubble = state.countermeasures.some(
           (cm) =>
             cm.kind === 'bubble' && Math.hypot(cm.x - submarine.x, cm.y - submarine.y) <= cm.radius,
         );
-        submarine = applyPlayerDamage(
-          submarine,
-          next.damage * (1 - distance / next.radius) * (bubble ? 0.75 : 1),
-        );
+        submarine = applyPlayerDamage(submarine, blast * (bubble ? 0.75 : 1));
       }
       return [];
     });
@@ -1326,6 +1359,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
           ]
         : remaining;
     const boardEmpty =
+      state.scenario !== 'convoy-strike' &&
       state.phase === 'playing' &&
       state.ships.length === 0 &&
       state.stats.shipsSunk < VICTORY_TARGET;
@@ -1378,7 +1412,20 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
   },
   cleanupEvents: (state, _commands, dt) => ({
     ...state,
-    phase: state.submarine.hp <= 0 ? 'gameover' : state.phase,
+    phase:
+      state.submarine.hp <= 0
+        ? 'gameover'
+        : state.scenario === 'convoy-strike' &&
+            state.phase === 'playing' &&
+            state.strikeExit != null &&
+            !state.ships.some((ship) => ship.id === 'strike-merchant') &&
+            state.stats.shipsSunk > 0 &&
+            Math.hypot(
+              state.submarine.x - state.strikeExit.x,
+              state.submarine.y - state.strikeExit.y,
+            ) <= 4
+          ? 'victory'
+          : state.phase,
     countermeasures: state.countermeasures
       .filter((cm) => cm.life - dt > 0)
       .map((cm) => ({ ...cm, life: cm.life - dt })),

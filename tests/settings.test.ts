@@ -92,6 +92,8 @@ describe('play preference persistence', () => {
       masterVolume: 0.35,
       reducedMotion: 'reduce' as const,
       quality: 'low' as const,
+      captions: true,
+      pauseOnBlur: true,
     };
     savePlayPreferences(prefs);
     expect(loadPlayPreferences()).toEqual(prefs);

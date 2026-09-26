@@ -13,12 +13,16 @@ export interface PlayPreferences {
   /** `system` follows the OS; `reduce` forces reduced motion; `allow` forces full motion. */
   reducedMotion: ReducedMotionPreference;
   quality: QualityPreference;
+  captions: boolean;
+  pauseOnBlur: boolean;
 }
 
 export const DEFAULT_PLAY_PREFERENCES: PlayPreferences = {
   masterVolume: 1,
   reducedMotion: 'system',
   quality: 'auto',
+  captions: true,
+  pauseOnBlur: true,
 };
 
 const ENVELOPE_VERSION = 6;
@@ -192,6 +196,8 @@ function clonePlay(play: PlayPreferences): PlayPreferences {
     masterVolume: play.masterVolume,
     reducedMotion: play.reducedMotion,
     quality: play.quality,
+    captions: play.captions,
+    pauseOnBlur: play.pauseOnBlur,
   };
 }
 
@@ -206,7 +212,13 @@ function normalizePlayPreferences(value: unknown): PlayPreferences {
   if (!volumeOk || !isReducedMotion(reduced) || !isQualityPreference(quality)) {
     return clonePlay(DEFAULT_PLAY_PREFERENCES);
   }
-  return { masterVolume: volume, reducedMotion: reduced, quality };
+  return {
+    masterVolume: volume,
+    reducedMotion: reduced,
+    quality,
+    captions: typeof value.captions === 'boolean' ? value.captions : true,
+    pauseOnBlur: typeof value.pauseOnBlur === 'boolean' ? value.pauseOnBlur : true,
+  };
 }
 
 function parseEnvelope(raw: string): StoredEnvelope | null {

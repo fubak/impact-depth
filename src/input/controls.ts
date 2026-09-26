@@ -2,6 +2,11 @@ import type { ControlIntent } from '../core/sim';
 import { createControlIntent } from '../core/sim';
 import type { ViewMode } from '../core/types';
 
+/** Testable half of blur handling: the held-key set must be empty afterwards. */
+export function dropHeldKeys(keys: Set<string>): void {
+  keys.clear();
+}
+
 /** Canvas-drag click only — HUD pointerups must not become world picks/plots. */
 export function shouldDispatchWorldInteract(
   dragging: boolean,
@@ -21,6 +26,7 @@ export type InputCallbacks = {
   zoom: (delta: number) => void;
   getViewMode: () => ViewMode;
   interact: (button: 0 | 2, x: number, y: number) => void;
+  toggleCompress: () => void;
 };
 
 export class InputController {
@@ -44,7 +50,13 @@ export class InputController {
     this.cb = cb;
 
     this.onKeyDown = (e) => {
-      if (e.repeat && ['Space', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'KeyH'].includes(e.code)) return;
+      if (
+        e.repeat &&
+        ['Space', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'KeyH'].includes(
+          e.code,
+        )
+      )
+        return;
       this.keys.add(e.code);
       if (e.code === 'Digit1') this.cb.setViewMode('tactical');
       if (e.code === 'Digit2') this.cb.setViewMode('chase');
@@ -58,13 +70,16 @@ export class InputController {
         this.cb.togglePause();
       }
       if (e.code === 'KeyH') this.cb.togglePanel();
+      if (e.code === 'KeyM') this.cb.toggleCompress();
     };
     this.onKeyUp = (e) => {
       this.keys.delete(e.code);
     };
     this.onPointerDown = (e) => {
       if (e.button !== 0 && e.button !== 2) return;
-      const tag = (e.target as HTMLElement)?.closest?.('aside, button, input, select, label, a, #hud, .hud');
+      const tag = (e.target as HTMLElement)?.closest?.(
+        'aside, button, input, select, label, a, #hud, .hud',
+      );
       if (tag) return;
       this.dragging = true;
       this.lastX = e.clientX;
@@ -112,6 +127,11 @@ export class InputController {
     target.addEventListener('wheel', this.onWheel, { passive: false });
   }
 
+  /** Drop held helm keys. Window blur calls this so a stuck key cannot keep turning. */
+  clearHeldKeys(): void {
+    dropHeldKeys(this.keys);
+  }
+
   update(): void {
     const forward =
       (this.keys.has('KeyW') || this.keys.has('ArrowUp') ? 1 : 0) -
@@ -119,8 +139,7 @@ export class InputController {
     const yaw =
       (this.keys.has('KeyD') || this.keys.has('ArrowRight') ? 1 : 0) -
       (this.keys.has('KeyA') || this.keys.has('ArrowLeft') ? 1 : 0);
-    const depth =
-      (this.keys.has('KeyE') ? 1 : 0) - (this.keys.has('KeyQ') ? 1 : 0);
+    const depth = (this.keys.has('KeyE') ? 1 : 0) - (this.keys.has('KeyQ') ? 1 : 0);
 
     this.intent.surge = forward;
     this.intent.yaw = yaw;

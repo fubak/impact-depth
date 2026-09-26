@@ -25,7 +25,7 @@ export interface ThreatViewport {
 }
 
 export type ThreatEdge = 'left' | 'right' | 'top' | 'bottom';
-export type ThreatMarkerKind = 'torpedo' | 'ship' | 'aircraft';
+export type ThreatMarkerKind = 'torpedo' | 'ship' | 'aircraft' | 'charge';
 
 export interface ThreatMarker {
   id: string;
@@ -54,6 +54,7 @@ const LABEL: Record<ThreatMarkerKind, string> = {
   torpedo: 'TORP',
   ship: 'SHIP',
   aircraft: 'AIR',
+  charge: 'DC',
 };
 
 function horizontalRange(originX: number, originY: number, x: number, y: number): number {
@@ -80,6 +81,16 @@ function collectCandidates(game: GameState): Candidate[] {
     if (ship.sinking != null || ship.alert <= THREAT_ALERT_MIN) continue;
     candidates.push({ id: ship.id, kind: 'ship', x: ship.x, y: ship.y, z: 0, alert: ship.alert });
   }
+  for (const charge of game.depthCharges) {
+    candidates.push({
+      id: charge.id,
+      kind: 'charge',
+      x: charge.x,
+      y: charge.y,
+      z: charge.z,
+      alert: 1,
+    });
+  }
   for (const aircraft of game.aircraft) {
     if (!aircraft.active) continue;
     candidates.push({
@@ -95,7 +106,7 @@ function collectCandidates(game: GameState): Candidate[] {
 }
 
 function urgencyOf(kind: ThreatMarkerKind, range: number, alert: number): number {
-  if (kind === 'torpedo') {
+  if (kind === 'torpedo' || kind === 'charge') {
     const closeness = 1 - Math.min(range, THREAT_TORPEDO_RANGE) / THREAT_TORPEDO_RANGE;
     return 2 + closeness;
   }
@@ -135,13 +146,22 @@ export function computeThreatMarkers(
   game: GameState,
   project: (x: number, y: number, z: number) => ThreatProjection,
   viewport: ThreatViewport = { width: 1280, height: 720, margin: DEFAULT_THREAT_MARGIN },
+  options: { underwater?: boolean } = {},
 ): ThreatMarker[] {
   const sub = game.submarine;
   const markers: ThreatMarker[] = [];
   for (const candidate of collectCandidates(game)) {
-    const clamped = clampToEdge(project(candidate.x, candidate.y, candidate.z), viewport);
-    if (!clamped) continue;
+    const projection = project(candidate.x, candidate.y, candidate.z);
     const range = horizontalRange(sub.x, sub.y, candidate.x, candidate.y);
+    const showThroughFog =
+      candidate.kind === 'charge' &&
+      options.underwater === true &&
+      projection.onScreen &&
+      range > 12;
+    const clamped = showThroughFog
+      ? { sx: projection.sx, sy: projection.sy, edge: 'top' as const }
+      : clampToEdge(projection, viewport);
+    if (!clamped) continue;
     markers.push({
       id: candidate.id,
       kind: candidate.kind,

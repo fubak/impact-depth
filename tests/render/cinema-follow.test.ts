@@ -40,6 +40,13 @@ describe('cinema follow', () => {
     expect(stepTrack(hit.track, undefined, true, 2100).cinema).toBeUndefined();
   });
 
+  it('cancels when the helm is active', () => {
+    const flying = stepTrack(startTrack('t1', 0), fish(9), false, 1000);
+    const cancelled = stepTrack(flying.track, fish(10), false, 1100, true);
+    expect(cancelled.track).toEqual(idleTrack());
+    expect(cancelled.snapToTarget).toBe(true);
+  });
+
   it('releases on timeout and does nothing when idle', () => {
     const late = stepTrack(startTrack('t1', 0), fish(1), false, CINEMA_FOLLOW_MS + 1);
     expect(late.cinema).toBeUndefined();

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { LookDevSettings, SimState } from '../core/types';
 
 import type { CombatEvent } from '../game/adapt/combat-events';
+import { advanceWrecks, wreckPose, type Wreck } from './presentation/wrecks';
 import type { GameState } from '../game/sim/types';
 import { worldMetersToSim } from '../game/sim/coords';
 import { getWorld, worldHeight } from '../game/world/queries';
@@ -177,6 +178,9 @@ export class GameScene {
     { until: 0, peak: 0 },
   ];
   private hitCursor = 0;
+  private wrecks: Wreck[] = [];
+  private wreckClock = 0;
+  private readonly wreckMeshes = new Map<string, THREE.Mesh>();
   private readonly trailAt = new Map<string, number>();
 
   constructor() {
@@ -572,12 +576,50 @@ export class GameScene {
    * Hit lights are the two allocated at init; this never adds a light.
    */
   playCombatEvents(events: readonly CombatEvent[], now: number): void {
+    const dt = this.wreckClock === 0 ? 0 : Math.max(0, (now - this.wreckClock) / 1000);
+    this.wreckClock = now;
+    this.wrecks = advanceWrecks(this.wrecks, events, dt);
+    this.syncWreckMeshes();
     this.decayHitLights(now);
     for (const event of events) {
       for (const burst of combatEventBursts(event)) this.vfx.emitBurst(burst, now);
       const flash = combatEventHitLight(event);
       if (flash) this.pulseHitLight(flash.x, flash.y, flash.z, flash.intensity, now);
     }
+  }
+
+  private syncWreckMeshes(): void {
+    const live = new Set(this.wrecks.map((wreck) => wreck.id));
+    for (const [id, mesh] of this.wreckMeshes) {
+      if (live.has(id)) continue;
+      this.scene.remove(mesh);
+      mesh.geometry.dispose();
+      const material = mesh.material;
+      if (material instanceof THREE.Material) material.dispose();
+      this.wreckMeshes.delete(id);
+    }
+    for (const wreck of this.wrecks) {
+      let mesh = this.wreckMeshes.get(wreck.id);
+      if (!mesh) {
+        mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(6, 1.6, 22),
+          new THREE.MeshStandardMaterial({ color: 0x3a332c, roughness: 0.86, metalness: 0.04 }),
+        );
+        mesh.name = `wreck-${wreck.id}`;
+        this.scene.add(mesh);
+        this.wreckMeshes.set(wreck.id, mesh);
+      }
+      const pose = wreckPose(wreck.age);
+      const world = simToWorldMeters(wreck.x, wreck.y);
+      mesh.position.set(world.x, -pose.sink, world.z);
+      mesh.rotation.z = pose.list;
+    }
+  }
+
+  private clearWrecks(): void {
+    this.wrecks = [];
+    this.wreckClock = 0;
+    this.syncWreckMeshes();
   }
 
   private pulseHitLight(x: number, y: number, z: number, peak: number, now: number): void {
@@ -672,6 +714,7 @@ export class GameScene {
   }
 
   resetEnvironment(missionGeneration: number): void {
+    this.clearWrecks();
     this.missionGeneration = missionGeneration;
     this.probeBackendGeneration += 1;
     this.probes.reset();
