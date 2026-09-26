@@ -12,6 +12,13 @@ export default defineConfig({
   build: {
     // Three.js + game shell; split later if routes appear.
     chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          three: ['three'],
+        },
+      },
+    },
   },
   test: {
     environment: 'node',
