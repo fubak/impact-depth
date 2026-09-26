@@ -175,7 +175,7 @@ export class GameAudio {
   private async loadBankInner(name: BankName): Promise<void> {
     if (!this.context || this.disposed) return;
     try {
-      const response = await fetch(`/assets/audio/${name}.wav`);
+      const response = await fetch(`${import.meta.env.BASE_URL}assets/audio/${name}.wav`);
       if (!response.ok) return;
       const data = await response.arrayBuffer();
       if (!this.context || this.disposed) return;

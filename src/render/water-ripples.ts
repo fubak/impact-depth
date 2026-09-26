@@ -38,7 +38,7 @@ export class WaterRipplePass {
       side: THREE.DoubleSide,
     });
 
-    const map = new THREE.TextureLoader().load('/assets/textures/water-ripple.png');
+    const map = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}assets/textures/water-ripple.png`);
     map.colorSpace = THREE.NoColorSpace;
     map.flipY = false;
     this.plusMaterial = new THREE.MeshBasicMaterial({
