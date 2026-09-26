@@ -83,6 +83,9 @@ export interface Ship {
   formationRole?: FormationRole | null;
   formationAlong?: number;
   formationLateral?: number;
+  /** Last place this hull had a visual or acoustic fix. Hunt this, not live coords. */
+  lastKnownX?: number;
+  lastKnownY?: number;
 }
 export interface Torpedo {
   id: string;

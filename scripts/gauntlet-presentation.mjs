@@ -126,7 +126,7 @@ try {
     await page.mouse.click(20, 20);
     const audio = await page.evaluate(() => {
       const app = window.__silentDepths;
-      app.getAudioDiagnostics && app.debugBurstPresentationFx();
+      if (app.getAudioDiagnostics) app.debugBurstPresentationFx();
       return app.getAudioDiagnostics();
     });
     if (!audio) throw new Error('audio diagnostics missing');

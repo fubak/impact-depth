@@ -29,7 +29,7 @@
     "test:e2e:ocean": "node scripts/e2e-ocean.mjs",
     "test:e2e:hud": "node scripts/e2e-hud-commands.mjs",
     "test:e2e:assets": "node scripts/e2e-delayed-assets.mjs",
-    "test:gauntlet:unit": "vitest run tests/render/vfx.test.ts tests/render/surface-effects.test.ts tests/game/audio.test.ts tests/game/combat-impact.test.ts",
+    "test:gauntlet:unit": "vitest run tests/render/vfx.test.ts tests/render/surface-effects.test.ts tests/game/audio.test.ts tests/game/combat-impact.test.ts tests/game/contact.test.ts tests/game/ship-separation.test.ts tests/render/camera-underwater.test.ts",
     "test:gauntlet": "npm run test:gauntlet:unit && node scripts/gauntlet-presentation.mjs",
     "test:gauntlet:visual": "node scripts/gauntlet-visual-upgrade.mjs",
     "test:gauntlet:fleet": "node scripts/gauntlet-fleet-models.mjs",

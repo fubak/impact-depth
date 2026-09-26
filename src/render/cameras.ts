@@ -16,6 +16,10 @@ export type CameraPresentation = {
   waterHeight?: number | null;
   /** Presentation bed at a world XZ. Water is allowed; terrain is not. */
   sampleTerrainY?: (worldX: number, worldZ: number) => number;
+  /** Follow a running fish (world metres). Chase/tactical/free only. */
+  cinema?: { x: number; y: number; z: number; heading: number };
+  /** Instantly lerp onto the current desired eye (snap back from cinema). */
+  snapToTarget?: boolean;
 };
 
 /** Metres above keel for orbit/chase pivot (hull geometric centre). */
@@ -239,7 +243,22 @@ export class CameraRig {
       this.desiredLook.set(v.x, 0, v.z);
     }
 
-    const k = 1 - Math.exp(-5.5 * dt);
+    const cinema = presentation?.cinema;
+    if (
+      orbit &&
+      cinema &&
+      (this.activeMode === 'chase' || this.activeMode === 'tactical' || this.activeMode === 'free')
+    ) {
+      this.target.set(cinema.x, cinema.y, cinema.z);
+      const stern = -8;
+      this.desiredOffset.set(
+        Math.cos(cinema.heading) * stern,
+        2.2,
+        Math.sin(cinema.heading) * stern,
+      );
+    }
+
+    const k = presentation?.snapToTarget ? 1 : 1 - Math.exp(-5.5 * dt);
     if (orbit) {
       // Eye = live hull centre + smoothed offset, so the sub never drifts off-centre.
       if (!this.offsetSeeded) {

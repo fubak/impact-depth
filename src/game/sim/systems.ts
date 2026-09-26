@@ -43,7 +43,9 @@ import {
 } from './world';
 import { updateAutopilot } from './autopilot';
 import { makeClear, resolveClearStep, steerAvoid, shipClearRadius } from './pathfinding';
-import { passiveRange, updateSonar } from './sonar';
+import { updateSonar } from './sonar';
+import { hasContact } from './contact';
+import { separateShips } from './ship-separation';
 import { integrateV2Horizontal, resolveV2WorldCollision } from '../world/collision';
 import { getWorld } from '../world/queries';
 import { emergencySurface } from './action-feel';
@@ -811,18 +813,12 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     const ships = state.ships.map((ship) => {
       if (ship.sinking !== undefined) return ship;
       const distance = Math.hypot(ship.x - sub.x, ship.y - sub.y);
-      const listenerDepth = ship.kind === 'sub' ? 0.35 : 0.02;
-      const masking = state.countermeasures.some(
-        (cm) => Math.hypot(cm.x - sub.x, cm.y - sub.y) <= cm.radius,
-      )
-        ? 0.5
-        : 1;
-      const detected =
-        distance <= passiveRange(ship.kind, sub.noise, listenerDepth, sub.z, masking) ||
-        (state.sonarPing > 0 && distance <= 24);
+      const detected = hasContact(ship, state);
       const holdContact = detected
         ? Math.min(8, ship.holdContact + dt)
         : Math.max(0, ship.holdContact - dt * 0.45);
+      const lastKnownX = detected ? sub.x : ship.lastKnownX;
+      const lastKnownY = detected ? sub.y : ship.lastKnownY;
       const alert = clamp(
         ship.alert +
           (detected ? dt * 0.3 : -dt * 0.06) -
@@ -842,8 +838,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         : undefined;
       let path = ship.path;
       let pursuit: number;
-      if (alert > 0.25 && holdContact > 0) {
-        pursuit = Math.atan2(sub.y - ship.y, sub.x - ship.x);
+      if (alert > 0.25 && holdContact > 0 && lastKnownX !== undefined && lastKnownY !== undefined) {
+        pursuit = Math.atan2(lastKnownY - ship.y, lastKnownX - ship.x);
       } else if (anchor) {
         pursuit = formationSlotHeading(ship, anchor);
       } else if (path.length > 0) {
@@ -890,6 +886,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         y,
         alert,
         holdContact,
+        lastKnownX,
+        lastKnownY,
         path,
         weaponCooldown: Math.max(0, ship.weaponCooldown - dt),
       };
@@ -937,7 +935,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       }
       return next;
     });
-    return { ...state, ships, torpedoes, depthCharges };
+    return { ...state, ships: separateShips(ships), torpedoes, depthCharges };
   },
   aircraft(state, _commands, dt) {
     let cooldown = state.aircraftCooldown - dt;
