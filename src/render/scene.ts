@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { LookDevSettings, SimState } from '../core/types';
 
+import type { CombatEvent } from '../game/adapt/combat-events';
 import type { GameState } from '../game/sim/types';
 import { worldMetersToSim } from '../game/sim/coords';
 import { getWorld, worldHeight } from '../game/world/queries';
@@ -89,6 +90,13 @@ import {
   createWakeRibbon,
 } from './vessels';
 import { VfxPool } from './vfx';
+import {
+  combatEventBursts,
+  combatEventHitLight,
+  HIT_LIGHT_PULSE_S,
+  torpedoTrailMarks,
+  TRAIL_INTERVAL_S,
+} from './presentation/combat-event-fx';
 import type { QualityProfile } from './quality';
 
 type LabelKind = 'own' | 'contact';
@@ -157,6 +165,13 @@ export class GameScene {
   private lastEffectCrests: SurfaceCrestSample[] = [];
   private lastEffectSubmerged: SubmergedEmitter[] = [];
   private readonly splashIds = new Set<string>();
+  private readonly hitLights: THREE.PointLight[];
+  private readonly hitPulse = [
+    { until: 0, peak: 0 },
+    { until: 0, peak: 0 },
+  ];
+  private hitCursor = 0;
+  private readonly trailAt = new Map<string, number>();
 
   constructor() {
     this.scene.background = new THREE.Color(0xd5efff);
@@ -276,6 +291,13 @@ export class GameScene {
     this.scene.add(this.tacticalGrid);
     this.scene.add(this.labelsRoot);
     this.scene.add(this.vfx.group);
+    this.hitLights = [0, 1].map(() => {
+      const light = new THREE.PointLight(0xffb060, 0, 48, 2);
+      light.name = 'combat-hit-light';
+      light.castShadow = false;
+      this.scene.add(light);
+      return light;
+    });
     excludeFromWaterCapture(this.tacticalGrid);
     excludeFromWaterCapture(this.labelsRoot);
     excludeFromWaterCapture(this.vfx.group);
@@ -522,6 +544,59 @@ export class GameScene {
     return rows;
   }
 
+  /**
+   * Presentation for one batch of fixed-step combat events.
+   * Hit lights are the two allocated at init; this never adds a light.
+   */
+  playCombatEvents(events: readonly CombatEvent[], now: number): void {
+    this.decayHitLights(now);
+    for (const event of events) {
+      for (const burst of combatEventBursts(event)) this.vfx.emitBurst(burst, now);
+      const flash = combatEventHitLight(event);
+      if (flash) this.pulseHitLight(flash.x, flash.y, flash.z, flash.intensity, now);
+    }
+  }
+
+  private pulseHitLight(x: number, y: number, z: number, peak: number, now: number): void {
+    const index = this.hitCursor % this.hitLights.length;
+    this.hitCursor += 1;
+    const light = this.hitLights[index]!;
+    light.position.set(x, y, z);
+    this.hitPulse[index] = { until: now + HIT_LIGHT_PULSE_S, peak };
+    light.intensity = peak;
+  }
+
+  private decayHitLights(now: number): void {
+    for (let i = 0; i < this.hitLights.length; i += 1) {
+      const pulse = this.hitPulse[i]!;
+      const remain = pulse.until - now;
+      this.hitLights[i]!.intensity = remain > 0 ? pulse.peak * (remain / HIT_LIGHT_PULSE_S) : 0;
+    }
+  }
+
+  private emitTorpedoTrail(
+    id: string,
+    x: number,
+    y: number,
+    z: number,
+    heading: number,
+    now: number,
+  ): void {
+    const last = this.trailAt.get(id);
+    if (last !== undefined && now >= last && now - last < TRAIL_INTERVAL_S) return;
+    this.trailAt.set(id, now);
+    for (const mark of torpedoTrailMarks({ id, x, y, z, heading })) {
+      this.vfx.emit(mark.kind, new THREE.Vector3(mark.x, mark.y, mark.z), now, mark.key);
+    }
+  }
+
+  private pruneTorpedoTrails(liveIds: readonly string[]): void {
+    const live = new Set(liveIds);
+    for (const id of this.trailAt.keys()) {
+      if (!live.has(id)) this.trailAt.delete(id);
+    }
+  }
+
   /** Test/gauntlet: spawn visible combat VFX + splash without advancing GameState. */
   debugBurstPresentationFx(): { vfx: ReturnType<VfxPool['getDiagnostics']>; splash: number } {
     const origin = this.sub.position;
@@ -592,6 +667,13 @@ export class GameScene {
     this.surfaceEffects.reset(missionGeneration);
     this.ocean.bindOptics(null);
     this.splashIds.clear();
+    this.trailAt.clear();
+    this.hitCursor = 0;
+    for (const pulse of this.hitPulse) {
+      pulse.until = 0;
+      pulse.peak = 0;
+    }
+    this.decayHitLights(0);
   }
 
   resize(width: number, height: number, dpr = 1): void {
@@ -722,18 +804,9 @@ export class GameScene {
       const p = simToWorldMeters(torpedo.x, torpedo.y);
       const fishY = entityDepthY(torpedo.z);
       add(`torpedo:${torpedo.id}`, 'torpedo', p.x, fishY, p.z, torpedo.heading);
-      const trailKind = fishY > -1.5 ? 'wake' : 'plume';
-      this.vfx.emit(
-        trailKind,
-        new THREE.Vector3(
-          p.x - Math.cos(torpedo.heading),
-          fishY > -1.5 ? Math.max(SURFACE_SPLASH_Y, fishY) : fishY,
-          p.z - Math.sin(torpedo.heading),
-        ),
-        game.time,
-        `torpedo:${torpedo.id}`,
-      );
+      this.emitTorpedoTrail(torpedo.id, p.x, fishY, p.z, torpedo.heading, game.time);
     }
+    this.pruneTorpedoTrails(game.torpedoes.map((torpedo) => torpedo.id));
     for (const charge of game.depthCharges) {
       const p = simToWorldMeters(charge.x, charge.y);
       add(`charge:${charge.id}`, 'torpedo', p.x, entityDepthY(charge.z), p.z);
