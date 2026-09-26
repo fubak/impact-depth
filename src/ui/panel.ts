@@ -3,8 +3,12 @@ import {
   cloneSettings,
   DEFAULT_SETTINGS,
   isPresetId,
+  loadPlayPreferences,
+  savePlayPreferences,
   saveSettings,
   settingsToJson,
+  STORAGE_KEY,
+  type PlayPreferences,
 } from '../core/settings';
 import type { LookDevSettings, PresetId } from '../core/types';
 
@@ -27,6 +31,7 @@ export type AssetCreditLine = {
 export class LookDevPanel {
   private readonly root: HTMLElement;
   private settings: LookDevSettings;
+  private play: PlayPreferences;
   private readonly cb: PanelCallbacks;
   private visible = false;
   private perfEl: HTMLElement | null = null;
@@ -36,6 +41,7 @@ export class LookDevPanel {
   constructor(root: HTMLElement, settings: LookDevSettings, cb: PanelCallbacks) {
     this.root = root;
     this.settings = cloneSettings(settings);
+    this.play = loadPlayPreferences();
     this.cb = cb;
     this.root.classList.add('lookdev');
     this.render();
@@ -151,6 +157,22 @@ export class LookDevPanel {
       </section>
 
       <section class="lookdev-section">
+        <h2>PLAY</h2>
+        ${slider('masterVolume', 'Master volume', this.play.masterVolume, 0, 1, 0.01, 'play')}
+        ${choice('reducedMotion', 'Reduced motion', this.play.reducedMotion, [
+          ['system', 'Match system'],
+          ['reduce', 'Reduce'],
+          ['allow', 'Allow motion'],
+        ])}
+        ${choice('quality', 'Quality', this.play.quality, [
+          ['auto', 'Auto'],
+          ['high', 'High'],
+          ['medium', 'Medium'],
+          ['low', 'Low'],
+        ])}
+      </section>
+
+      <section class="lookdev-section">
         <h2>PRESENTATION</h2>
         ${slider('hudOpacity', 'HUD opacity', s.presentation.hudOpacity, 0.4, 1, 0.01)}
         ${slider('labelDensity', 'Label density', s.presentation.labelDensity, 0, 1, 0.01)}
@@ -184,7 +206,7 @@ export class LookDevPanel {
         <button type="button" class="btn" data-action="reset">Reset</button>
         <button type="button" class="btn primary" data-action="copy">Copy settings JSON</button>
       </section>
-      <p class="lookdev-hint">Values persist in localStorage · key silent-depths-lookdev-v5</p>
+      <p class="lookdev-hint">Values persist in localStorage · key ${STORAGE_KEY}</p>
     `;
 
     this.perfEl = this.root.querySelector('[data-perf]');
@@ -220,6 +242,27 @@ export class LookDevPanel {
           } catch {
             el.textContent = 'Copy failed';
           }
+        }
+      });
+    });
+
+    this.root
+      .querySelectorAll<HTMLInputElement>('input[data-play="masterVolume"]')
+      .forEach((input) => {
+        const handler = () => {
+          this.play = savePlayPreferences({ ...this.play, masterVolume: Number(input.value) });
+          const valueEl = this.root.querySelector('[data-value-for="masterVolume"]');
+          if (valueEl) valueEl.textContent = this.play.masterVolume.toFixed(2);
+        };
+        input.addEventListener('input', handler);
+        input.addEventListener('change', handler);
+      });
+
+    this.root.querySelectorAll<HTMLSelectElement>('select[data-play]').forEach((select) => {
+      select.addEventListener('change', () => {
+        const field = select.dataset.play;
+        if (field === 'reducedMotion' || field === 'quality') {
+          this.play = savePlayPreferences({ ...this.play, [field]: select.value });
         }
       });
     });
@@ -265,12 +308,31 @@ function slider(
   min: number,
   max: number,
   step: number,
+  scope: 'field' | 'play' = 'field',
 ): string {
   const digits = step < 0.01 ? 4 : step >= 1 ? 0 : 2;
+  const attr = scope === 'play' ? 'data-play' : 'data-field';
   return `
     <label class="field">
       <span class="field-label"><span>${label}</span><span data-value-for="${field}">${value.toFixed(digits)}</span></span>
-      <input type="range" data-field="${field}" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}" />
+      <input type="range" ${attr}="${field}" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}" />
+    </label>
+  `;
+}
+
+function choice(
+  field: string,
+  label: string,
+  value: string,
+  options: ReadonlyArray<readonly [string, string]>,
+): string {
+  const opts = options
+    .map(([id, text]) => `<option value="${id}"${id === value ? ' selected' : ''}>${text}</option>`)
+    .join('');
+  return `
+    <label class="field">
+      <span class="field-label">${label}</span>
+      <select data-play="${field}" aria-label="${label}">${opts}</select>
     </label>
   `;
 }
