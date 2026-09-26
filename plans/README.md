@@ -154,3 +154,7 @@ For the next plan, replace the filename. Use `--continue` only to correct the cu
 ## Follow-up visual review — 2026-09-13
 
 [Plan 021: vessel motion corrections and reference parity](021-visual-correction-and-reference-parity.md) machine A–F landed (`docs/release/plan-021-review.md`). Operator GPU/lighting/fleet/soak ACCEPT still pending.
+
+## Production action pass — 2026-09-26
+
+[Plan 022: production action pass](022-production-action-pass.md) is PROPOSED and blocked on Phase 0 (operator commits or drops the uncommitted cinema-camera WIP). Operator gates stay PENDING.
