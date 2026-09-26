@@ -31,8 +31,21 @@ import {
   VICTORY_TARGET,
   ACTIVE_COOLDOWN,
   ACTIVE_PING_DURATION,
+  ALERT_SPREAD_RADIUS,
+  BUBBLE_HOLD_DRAIN,
   DC_ENGAGE_RANGE,
+  DEEP_SAFE_DEPTH,
+  FOXER_SEDUCE_ODDS,
+  FOXER_SEDUCE_RANGE,
+  WAVE_BREATHER,
+  ESCORT_LOUD_SWEEP_RADIUS,
+  ESCORT_QUIET_HUNT_AFTER,
+  ESCORT_QUIET_SWEEP_GROWTH,
+  ESCORT_QUIET_SWEEP_RADIUS,
+  ESCORT_SCREEN_OFFSET,
+  ESCORT_SWEEP_PERIOD,
 } from './constants';
+import { nextRandom } from './rng';
 import {
   getTerrain,
   isCrushedBySeamount,
@@ -133,16 +146,81 @@ const distPointSegment = (
   const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / ab2));
   return Math.hypot(px - (ax + abx * t), py - (ay + aby * t));
 };
-/** Heading from `ship` toward its convoy/escort formation slot relative to `anchor`. */
-const formationSlotHeading = (ship: Ship, anchor: Ship): number => {
+/** Heading from `ship` toward its convoy screen slot. The slot weaves across the bow. */
+const formationSlotHeading = (ship: Ship, anchor: Ship, time: number): number => {
   const along = ship.formationAlong ?? 0;
-  const lateral = ship.formationLateral ?? 0;
+  const lateral =
+    (ship.formationLateral ?? 0) +
+    Math.sin(time * 0.22 + ship.patrolIndex * 1.3) * ESCORT_SCREEN_OFFSET;
   const cos = Math.cos(anchor.heading);
   const sin = Math.sin(anchor.heading);
   const slotX = anchor.x + cos * along - sin * lateral;
   const slotY = anchor.y + sin * along + cos * lateral;
   return Math.atan2(slotY - ship.y, slotX - ship.x);
 };
+
+const ESCORT_SWEEP_KINDS: ReadonlySet<Ship['kind']> = new Set([
+  'destroyer',
+  'patrol',
+  'cruiser',
+  'battleship',
+]);
+
+/**
+ * Active sweep radius. Deep + silent + not flank is invisible to the sweep.
+ * Other silent boats use a short radius that grows after the opening minute.
+ */
+function escortSweepRadius(
+  sub: GameState['submarine'],
+  time: number,
+  jitter: number,
+  pinging: boolean,
+): number {
+  const quiet = sub.silentRunning && sub.speedOrder !== 'flank';
+  if (quiet && sub.z >= DEEP_SAFE_DEPTH) return 0;
+  if (quiet) {
+    const grown = Math.max(0, time - ESCORT_QUIET_HUNT_AFTER) * ESCORT_QUIET_SWEEP_GROWTH;
+    return (ESCORT_QUIET_SWEEP_RADIUS + grown) * jitter;
+  }
+  // A flank or noisy boat is loud only while it is pinging. Otherwise escorts
+  // still need to close inside ordinary hearing, so a stalk is not a beacon.
+  return (pinging ? ESCORT_LOUD_SWEEP_RADIUS : 8) * jitter;
+}
+
+/** Stable [0,1) roll from the mission seed and a torpedo id. */
+function seduceRoll(seed: number, id: string): number {
+  let hash = seed >>> 0;
+  for (let index = 0; index < id.length; index += 1) {
+    hash = Math.imul(hash ^ id.charCodeAt(index), 0x45d9f3b);
+  }
+  hash = (hash ^ (hash >>> 16)) >>> 0;
+  return hash / 4294967296;
+}
+
+/** A merchant or escort that has a fix wakes every warship inside the alarm radius. */
+function spreadAlert(ships: Ship[], state: GameState): Ship[] {
+  const sources = ships.filter(
+    (ship) =>
+      ship.sinking === undefined &&
+      ship.alert > 0.25 &&
+      (ship.kind === 'merchant' || ESCORT_SWEEP_KINDS.has(ship.kind)),
+  );
+  if (sources.length === 0) return ships;
+  return ships.map((ship) => {
+    if (ship.sinking !== undefined || !HUNTER_KINDS.has(ship.kind)) return ship;
+    // A hull that can already hear the boat keeps its own solution.
+    if (hasContact(ship, state)) return ship;
+    let alert = ship.alert;
+    for (const source of sources) {
+      if (source.id === ship.id) continue;
+      if (Math.hypot(ship.x - source.x, ship.y - source.y) > ALERT_SPREAD_RADIUS) continue;
+      // Under the 0.25 pursuit line: a warning, not a firing solution.
+      alert = Math.max(alert, Math.min(source.alert, 0.24));
+    }
+    if (alert === ship.alert) return ship;
+    return { ...ship, alert };
+  });
+}
 
 function makeTorpedo(
   state: GameState,
@@ -810,16 +888,36 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     const sub = state.submarine;
     const torpedoes = [...state.torpedoes];
     const depthCharges = [...state.depthCharges];
+    let rngState = state.rngState;
+    let sweepJitter = 1;
+    const sweepPulse =
+      Math.floor(state.time / ESCORT_SWEEP_PERIOD) !==
+      Math.floor((state.time - dt) / ESCORT_SWEEP_PERIOD);
+    if (sweepPulse) {
+      const roll = nextRandom(rngState);
+      rngState = roll.state;
+      sweepJitter = 0.9 + roll.value * 0.2;
+    }
+    const sweepRadius = escortSweepRadius(sub, state.time, sweepJitter, state.sonarPing > 0);
     const ships = state.ships.map((ship) => {
       if (ship.sinking !== undefined) return ship;
       const distance = Math.hypot(ship.x - sub.x, ship.y - sub.y);
       const detected = hasContact(ship, state);
-      const holdContact = detected
+      const bubbleScreen = state.countermeasures.some(
+        (cm) => cm.kind === 'bubble' && Math.hypot(cm.x - sub.x, cm.y - sub.y) <= cm.radius,
+      );
+      const swept =
+        sweepPulse &&
+        sweepRadius > 0 &&
+        ESCORT_SWEEP_KINDS.has(ship.kind) &&
+        distance <= sweepRadius;
+      const contactDrain = 0.45 * (bubbleScreen ? BUBBLE_HOLD_DRAIN : 1);
+      let holdContact = detected
         ? Math.min(8, ship.holdContact + dt)
-        : Math.max(0, ship.holdContact - dt * 0.45);
-      const lastKnownX = detected ? sub.x : ship.lastKnownX;
-      const lastKnownY = detected ? sub.y : ship.lastKnownY;
-      const alert = clamp(
+        : Math.max(0, ship.holdContact - dt * contactDrain);
+      let lastKnownX = detected ? sub.x : ship.lastKnownX;
+      let lastKnownY = detected ? sub.y : ship.lastKnownY;
+      let alert = clamp(
         ship.alert +
           (detected ? dt * 0.3 : -dt * 0.06) -
           (state.countermeasures.some(
@@ -830,6 +928,12 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         0,
         1,
       );
+      if (swept) {
+        alert = Math.max(alert, 0.4);
+        holdContact = Math.max(holdContact, 1);
+        lastKnownX = sub.x;
+        lastKnownY = sub.y;
+      }
       const clear = makeClear(terrain, shipClearRadius(ship.kind));
       const anchor = ship.formationAnchorId
         ? state.ships.find(
@@ -841,7 +945,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       if (alert > 0.25 && holdContact > 0 && lastKnownX !== undefined && lastKnownY !== undefined) {
         pursuit = Math.atan2(lastKnownY - ship.y, lastKnownX - ship.x);
       } else if (anchor) {
-        pursuit = formationSlotHeading(ship, anchor);
+        pursuit = formationSlotHeading(ship, anchor, state.time);
       } else if (path.length > 0) {
         let goal = path[0]!;
         if (Math.hypot(ship.x - goal.x, ship.y - goal.y) < 1.35) {
@@ -935,7 +1039,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       }
       return next;
     });
-    return { ...state, ships: separateShips(ships), torpedoes, depthCharges };
+    const spread = spreadAlert(ships, state);
+    return { ...state, rngState, ships: separateShips(spread), torpedoes, depthCharges };
   },
   aircraft(state, _commands, dt) {
     let cooldown = state.aircraftCooldown - dt;
@@ -1019,6 +1124,37 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
               dt,
             ),
           };
+      }
+      const mk18Player =
+        next.owner === 'enemy' && next.kind === 'mk18' && next.targetId === 'player';
+      const seducer =
+        mk18Player && seduceRoll(state.seed, next.id) < FOXER_SEDUCE_ODDS
+          ? state.countermeasures.find(
+              (cm) =>
+                cm.kind === 'foxer' &&
+                Math.hypot(cm.x - next.x, cm.y - next.y) <= FOXER_SEDUCE_RANGE,
+            )
+          : undefined;
+      if (seducer) {
+        next = {
+          ...next,
+          heading: turnToward(
+            next.heading,
+            Math.atan2(seducer.y - next.y, seducer.x - next.x),
+            next.turnRate,
+            dt,
+          ),
+        };
+      } else if (mk18Player) {
+        next = {
+          ...next,
+          heading: turnToward(
+            next.heading,
+            Math.atan2(submarine.y - next.y, submarine.x - next.x),
+            next.turnRate,
+            dt,
+          ),
+        };
       }
       const foxer =
         next.owner === 'enemy' &&
@@ -1189,27 +1325,54 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             })),
           ]
         : remaining;
-    const waveCleared = state.ships.length === 0 && state.stats.shipsSunk < VICTORY_TARGET;
-    const nextStats = {
-      ...stats,
-      wave: waveCleared ? stats.wave + 1 : stats.wave,
-      powerupsTaken: stats.powerupsTaken + collected.length,
-    };
-    const nextPowerups = waveCleared
-      ? [...powerups, ...seedPowerups(state.seed + stats.wave * 101, 3, state.worldVersion)].slice(
-          0,
-          PICKUP_MAX,
-        )
-      : powerups;
+    const boardEmpty =
+      state.phase === 'playing' &&
+      state.ships.length === 0 &&
+      state.stats.shipsSunk < VICTORY_TARGET;
+    const inbound = state.messages.find((message) => /^WAVE \d+ INBOUND$/.test(message.text));
+    const spawnWave = boardEmpty && inbound !== undefined && inbound.ttl <= dt;
+    const holding = boardEmpty && !spawnWave;
+    const gatedPowerups = holding ? remaining : powerups;
+    const gatedRespawn = holding
+      ? Math.max(pickupRespawn, dt)
+      : pickupRespawn <= 0
+        ? PICKUP_RESPAWN
+        : pickupRespawn;
+    const nextWave = stats.wave + 1;
+    const messages = !boardEmpty
+      ? state.messages
+      : spawnWave
+        ? state.messages.filter((message) => message !== inbound)
+        : inbound
+          ? state.messages
+          : [
+              ...state.messages,
+              {
+                id: `wave-inbound-${nextWave}`,
+                text: `WAVE ${nextWave} INBOUND`,
+                ttl: WAVE_BREATHER,
+              },
+            ];
+    const nextPowerups = spawnWave
+      ? [
+          ...gatedPowerups,
+          ...seedPowerups(state.seed + stats.wave * 101, 3, state.worldVersion),
+        ].slice(0, PICKUP_MAX)
+      : gatedPowerups;
     return {
       ...state,
       submarine: sub,
-      stats: nextStats,
+      stats: {
+        ...stats,
+        wave: spawnWave ? nextWave : stats.wave,
+        powerupsTaken: stats.powerupsTaken + collected.length,
+      },
       powerups: nextPowerups,
+      messages,
       dockHold,
-      pickupRespawn: pickupRespawn <= 0 ? PICKUP_RESPAWN : pickupRespawn,
-      ships: waveCleared
-        ? seedWave(state.seed, stats.wave + 1, undefined, state.worldVersion)
+      pickupRespawn: gatedRespawn,
+      ships: spawnWave
+        ? seedWave(state.seed, nextWave, undefined, state.worldVersion)
         : state.ships,
     };
   },

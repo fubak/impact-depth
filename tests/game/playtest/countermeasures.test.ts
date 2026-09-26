@@ -127,4 +127,108 @@ describe('playtest countermeasures', () => {
     expect(bareLoss).toBeGreaterThan(0);
     expect(screenedLoss).toBeCloseTo(bareLoss * 0.75, 5);
   });
+
+  function holdTime(bubble: boolean): number {
+    let state = quietOcean(startMission(createGame(6)));
+    const escort = state.ships.find((ship) => ship.kind !== 'merchant' && ship.kind !== 'sub');
+    expect(escort).toBeDefined();
+    const boat = { x: escort!.x + 40, y: escort!.y };
+    state = {
+      ...state,
+      submarine: {
+        ...state.submarine,
+        x: boat.x,
+        y: boat.y,
+        speed: 0,
+        targetSpeed: 0,
+        silentRunning: true,
+        noise: 0.05,
+      },
+      ships: state.ships.map((ship) =>
+        ship.id === escort!.id
+          ? {
+              ...ship,
+              holdContact: 6,
+              alert: 0.2,
+              weaponCooldown: 999,
+              speed: 0,
+              path: [],
+              formationAnchorId: null,
+            }
+          : { ...ship, x: boat.x - 80, y: boat.y - 80, speed: 0, holdContact: 0 },
+      ),
+      countermeasures: bubble
+        ? [{ id: 'screen', kind: 'bubble', x: boat.x, y: boat.y, z: 0.5, life: 40, radius: 4.5 }]
+        : [],
+    };
+    let elapsed = 0;
+    while (elapsed < 40) {
+      const holder = state.ships.find((ship) => ship.id === escort!.id);
+      if (!holder || holder.holdContact <= 0) break;
+      state = updateGame(state, [], FIXED_DT);
+      elapsed += FIXED_DT;
+    }
+    return elapsed;
+  }
+
+  it('a bubble screen breaks escort contact in less than half the open-ocean time', () => {
+    const bare = holdTime(false);
+    const screened = holdTime(true);
+    expect(bare).toBeGreaterThan(5);
+    expect(screened).toBeGreaterThan(0);
+    expect(screened).toBeLessThan(bare * 0.5);
+  });
+
+  function mk18Hits(seed: number, decoy: boolean): boolean {
+    let state = quietOcean(startMission(createGame(seed)));
+    const boat = state.submarine;
+    state = {
+      ...state,
+      submarine: { ...boat, speed: 0, targetSpeed: 0, targetDepth: boat.z },
+      torpedoes: [
+        {
+          id: 'mk18-shot',
+          owner: 'enemy',
+          kind: 'mk18',
+          sourceId: 'hunter',
+          x: boat.x - 14,
+          y: boat.y,
+          z: boat.z,
+          heading: 0,
+          speed: 8,
+          life: 8,
+          armDelay: 0,
+          damage: 40,
+          targetId: 'player',
+          turnRate: 1.6,
+          run: 0,
+        },
+      ],
+      countermeasures: decoy
+        ? [
+            {
+              id: 'fox',
+              kind: 'foxer',
+              x: boat.x - 3,
+              y: boat.y + 4.5,
+              z: boat.z,
+              life: 14,
+              radius: 3.5,
+            },
+          ]
+        : [],
+    };
+    state = step(state, 4);
+    return state.submarine.hp < 100;
+  }
+
+  it('a decoy cuts Mk-18 hit rate to at most 40 percent across 20 seeds', () => {
+    const seeds = Array.from({ length: 20 }, (_, index) => index + 1);
+    const withDecoy = seeds.filter((seed) => mk18Hits(seed, true)).length / seeds.length;
+    const bare = seeds.filter((seed) => mk18Hits(seed, false)).length / seeds.length;
+    // Without the seduction roll the off-track foxer never touches the torpedo.
+    expect(bare).toBeGreaterThanOrEqual(0.7);
+    expect(withDecoy).toBeLessThanOrEqual(0.4);
+    expect(withDecoy).toBeGreaterThan(0);
+  }, 30_000);
 });

@@ -1,4 +1,10 @@
-import { DEFAULT_CRUISE, FOB_RADIUS, WORLD_CENTER } from './constants';
+import {
+  DEFAULT_CRUISE,
+  FOB_RADIUS,
+  WAVE_SPAWN_INNER,
+  WAVE_SPAWN_STEP,
+  WORLD_CENTER,
+} from './constants';
 import { WAVE1_SPAWN_RADIUS, WAVE1_SPAWN_SPREAD } from './action-feel';
 import type { FormationRole, GameState, Point, Powerup, Ship, ShipKind, Submarine } from './types';
 import { createTerrain, snapToNavigable, type Terrain } from './world';
@@ -17,6 +23,12 @@ import { shipClearRadius } from './pathfinding';
 
 const escortKinds: ReadonlySet<ShipKind> = new Set(['destroyer', 'patrol', 'cruiser']);
 const formationRoleCycle: readonly FormationRole[] = ['lead', 'wing', 'trail'];
+
+/** OD6: wave 1 stays cold. Later waves arrive already nervous, capped at 0.5. */
+function startingAlert(wave: number): number {
+  if (wave <= 1) return 0;
+  return Math.min(0.2 * (wave - 1), 0.5);
+}
 
 function createSubmarine(
   x = WORLD_CENTER,
@@ -150,7 +162,9 @@ export function seedWave(
     const angle = ((seed + wave * 29 + index * 47) % 360) * (Math.PI / 180);
     // Scaled for 128 map — stay outside ~17u passive detection envelope.
     const radius =
-      wave === 1 ? WAVE1_SPAWN_RADIUS + (index % 3) * WAVE1_SPAWN_SPREAD : 34 + (index % 3) * 8;
+      wave === 1
+        ? WAVE1_SPAWN_RADIUS + (index % 3) * WAVE1_SPAWN_SPREAD
+        : WAVE_SPAWN_INNER + (index % 3) * WAVE_SPAWN_STEP;
     const spawnX = WORLD_CENTER + 2 + Math.cos(angle) * radius;
     const spawnY = WORLD_CENTER + Math.sin(angle) * radius;
     const point =
@@ -184,6 +198,7 @@ export function seedWave(
         patrolIndex: index % 4,
         path,
         repathTimer: 0,
+        alert: startingAlert(wave),
       };
     }
     return {
@@ -196,7 +211,7 @@ export function seedWave(
       speed: stats.speed,
       hp: stats.hp,
       maxHp: stats.hp,
-      alert: 0,
+      alert: startingAlert(wave),
       holdContact: 0,
       weaponCooldown,
       patrolIndex: index % 4,

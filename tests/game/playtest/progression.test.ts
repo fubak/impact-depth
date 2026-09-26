@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FIXED_DT } from '../../../src/core/sim';
 import { createGame, startMission, updateGame } from '../../../src/game/sim/api';
+import { WAVE_BREATHER } from '../../../src/game/sim/constants';
 import type { GameState, Powerup } from '../../../src/game/sim/types';
 
 function stoppedAt(state: GameState, x: number, y: number, hp: number): GameState {
@@ -26,11 +27,22 @@ describe('playtest progression', () => {
     state = {
       ...state,
       ships: state.ships.map((ship) => ({ ...ship, sinking: 0 })),
+      submarine: { ...state.submarine, speed: 0, targetSpeed: 0 },
     };
     state = updateGame(state, [], FIXED_DT);
     expect(state.phase).toBe('playing');
+    // OD6 breather is 20s (plans/022). The board stays empty until it elapses.
+    expect(state.stats.wave).toBe(1);
+    expect(state.messages.some((message) => message.text === 'WAVE 2 INBOUND')).toBe(true);
+    const ticks = Math.round((WAVE_BREATHER + 1) / FIXED_DT);
+    for (let index = 0; index < ticks && state.stats.wave < 2; index += 1) {
+      state = updateGame(state, [], FIXED_DT);
+    }
     expect(state.stats.wave).toBe(2);
+    expect(state.time).toBeGreaterThanOrEqual(WAVE_BREATHER - FIXED_DT);
+    expect(state.time).toBeLessThan(WAVE_BREATHER + 1);
     expect(state.ships.filter((ship) => ship.kind === 'battleship')).toHaveLength(1);
+    expect(state.ships.every((ship) => ship.alert === 0.2)).toBe(true);
     expect(state.powerups).toHaveLength(pickupsBefore + 3);
   });
 
