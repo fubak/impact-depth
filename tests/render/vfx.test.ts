@@ -90,3 +90,53 @@ describe('combat VFX pool', () => {
     pool.dispose();
   });
 });
+
+describe('combat bursts', () => {
+  it('flood of wakes never evicts an active flash', () => {
+    const pool = new VfxPool(10);
+    pool.emit('flash', new THREE.Vector3(), 0);
+    for (let i = 0; i < 500; i++) pool.emit('wake', new THREE.Vector3(), 0.001 * i);
+    const diag = pool.getDiagnostics();
+    expect(diag.byKind.flash).toBe(1);
+    expect(diag.alive).toBe(10);
+    pool.dispose();
+  });
+
+  it('evicts bubbles before smoke before other kinds', () => {
+    const pool = new VfxPool(3);
+    pool.emit('flash', new THREE.Vector3(), 0);
+    pool.emit('smoke', new THREE.Vector3(), 0);
+    pool.emit('bubbles', new THREE.Vector3(), 0);
+    pool.emit('fireball', new THREE.Vector3(), 0);
+    expect(pool.getDiagnostics().byKind.bubbles).toBe(0);
+    pool.emit('fireball', new THREE.Vector3(), 0);
+    expect(pool.getDiagnostics().byKind.smoke).toBe(0);
+    pool.dispose();
+  });
+
+  it('uses additive blending for flash/fire only and no fog on flash', () => {
+    const pool = new VfxPool(20);
+    pool.emitBurst({ preset: 'torpedoHit', x: 0, y: 0, z: 0, intensity: 1 }, 0);
+    for (const c of pool.group.children) {
+      const m = (c as THREE.Sprite).material as THREE.SpriteMaterial;
+      expect([THREE.AdditiveBlending, THREE.NormalBlending]).toContain(m.blending);
+    }
+    const kinds = new Map<THREE.Blending, number>();
+    for (const c of pool.group.children) {
+      const b = ((c as THREE.Sprite).material as THREE.SpriteMaterial).blending;
+      kinds.set(b, (kinds.get(b) ?? 0) + 1);
+    }
+    expect(kinds.get(THREE.NormalBlending)).toBeGreaterThan(0);
+    const flash = pool.group.children[0] as THREE.Sprite;
+    expect((flash.material as THREE.SpriteMaterial).fog).toBe(false);
+    pool.dispose();
+  });
+
+  it('setCap still holds after a burst', () => {
+    const pool = new VfxPool(200);
+    pool.emitBurst({ preset: 'sink', x: 0, y: 0, z: 0, intensity: 1 }, 0);
+    pool.setCap(5);
+    expect(pool.getDiagnostics().alive).toBe(5);
+    pool.dispose();
+  });
+});
