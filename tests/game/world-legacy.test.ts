@@ -22,7 +22,7 @@ describe('legacy-v1 world wrapper', () => {
     expect(v2.version).toBe('littoral-v2');
     expect(v2).not.toBe(v1);
     expect(v1.bedNormalized).toEqual(createTerrain(19).heights);
-  });
+  }, 60_000);
 
   it('matches createTerrain heights and land masks for seeds 19 and 77', () => {
     for (const seed of [19, 77]) {

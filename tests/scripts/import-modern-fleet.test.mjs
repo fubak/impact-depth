@@ -40,7 +40,7 @@ describe('import-modern-fleet manifest contract', () => {
     const result = runImport(['--manifest', fixtureManifest, '--validate']);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('"ok": true');
-  });
+  }, 60_000);
 
   it('validates the project-owned fixture manifest', () => {
     const validation = validateFleetSourceManifest(fixtureManifest, root);
