@@ -1,6 +1,18 @@
 import * as THREE from 'three';
+import { burstParticles, type FxBurst } from './presentation/combat-fx';
 
-type EffectKind = 'wake' | 'explosion' | 'plume' | 'pickup';
+export type EffectKind =
+  | 'wake'
+  | 'explosion'
+  | 'plume'
+  | 'pickup'
+  | 'flash'
+  | 'fireball'
+  | 'smoke'
+  | 'debris'
+  | 'shockwave'
+  | 'spray'
+  | 'bubbles';
 
 type Particle = {
   sprite: THREE.Sprite;
@@ -8,6 +20,41 @@ type Particle = {
   born: number;
   ttl: number;
   baseScale: number;
+  vx: number;
+  vy: number;
+  vz: number;
+};
+
+type KindStyle = {
+  color: number;
+  additive: boolean;
+  fog: boolean;
+  ttl: number;
+  growth: number;
+  gravity: number;
+  /** Eviction priority: lower is evicted first. */
+  priority: number;
+};
+
+const LEGACY: Omit<KindStyle, 'color' | 'ttl' | 'growth'> = {
+  additive: true,
+  fog: true,
+  gravity: 0,
+  priority: 3,
+};
+
+const STYLE: Record<EffectKind, KindStyle> = {
+  wake: { ...LEGACY, color: 0xe8fbff, ttl: 1.2, growth: 3, priority: 0 },
+  explosion: { ...LEGACY, color: 0xffa33b, ttl: 0.9, growth: 3 },
+  plume: { ...LEGACY, color: 0x9dd9df, ttl: 0.9, growth: 5 },
+  pickup: { ...LEGACY, color: 0x9ce9c0, ttl: 1.8, growth: 3 },
+  flash: { ...LEGACY, color: 0xfff4d0, ttl: 0.25, growth: 0.6, fog: false },
+  fireball: { ...LEGACY, color: 0xff8a2a, ttl: 0.9, growth: 0.5 },
+  smoke: { ...LEGACY, color: 0x4a4f52, ttl: 3.2, growth: 1.5, additive: false, priority: 2 },
+  debris: { ...LEGACY, color: 0x2b2b2b, ttl: 1.6, growth: 0, additive: false, gravity: -9 },
+  shockwave: { ...LEGACY, color: 0xcfe8f0, ttl: 0.7, growth: 5, additive: false },
+  spray: { ...LEGACY, color: 0xe4f6ff, ttl: 1.5, growth: 0.6, additive: false, gravity: -4 },
+  bubbles: { ...LEGACY, color: 0xbfe6f0, ttl: 2.5, growth: 0.3, additive: false, priority: 1 },
 };
 
 function createRadialTexture(): THREE.Texture {
@@ -47,6 +94,21 @@ function createRadialTexture(): THREE.Texture {
   return tex;
 }
 
+/** Constant upward drift of the original kinds, in metres per second. */
+const LEGACY_RISE: Record<EffectKind, number> = {
+  wake: 0.24,
+  explosion: 0.24,
+  plume: 1.08,
+  pickup: 0.24,
+  flash: 0,
+  fireball: 0,
+  smoke: 0,
+  debris: 0,
+  shockwave: 0,
+  spray: 0,
+  bubbles: 0,
+};
+
 const WAKE_MIN_INTERVAL = 1 / 30;
 const MAX_STEP = 0.25;
 
@@ -73,34 +135,56 @@ export class VfxPool {
       if (last !== undefined && now >= last && now - last < WAKE_MIN_INTERVAL) return;
       this.lastEmit.set(key, now);
     }
+    this.spawn(kind, position.x, position.y, position.z, now, kind === 'wake' ? 0.4 : 1.1, {});
+  }
+
+  /** Spawn a preset combat burst (world metres). Jitter is seeded, never Math.random. */
+  emitBurst(spec: FxBurst, now: number): void {
+    for (const p of burstParticles(spec)) {
+      this.spawn(p.kind, spec.x + p.dx, spec.y + p.dy, spec.z + p.dz, now, p.scale, p);
+    }
+  }
+
+  private spawn(
+    kind: EffectKind,
+    x: number,
+    y: number,
+    z: number,
+    now: number,
+    baseScale: number,
+    extra: { vx?: number; vy?: number; vz?: number; ttl?: number },
+  ): void {
     if (this.particles.length >= this.cap) this.evictOne();
-    const color =
-      kind === 'explosion'
-        ? 0xffa33b
-        : kind === 'plume'
-          ? 0x9dd9df
-          : kind === 'pickup'
-            ? 0x9ce9c0
-            : 0xe8fbff;
-    const baseScale = kind === 'wake' ? 0.4 : 1.1;
+    const style = STYLE[kind];
     const sprite = this.free.pop() ?? this.createSprite();
     const material = sprite.material as THREE.SpriteMaterial;
-    material.color.setHex(color);
+    material.color.setHex(style.color);
     material.opacity = kind === 'wake' ? 0.36 : 0.82;
-    sprite.position.copy(position);
+    const blending = style.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
+    if (material.blending !== blending) material.blending = blending;
+    if (material.fog !== style.fog) {
+      material.fog = style.fog;
+      material.needsUpdate = true;
+    }
+    sprite.position.set(x, y, z);
     sprite.scale.setScalar(baseScale);
     this.group.add(sprite);
     this.particles.push({
       sprite,
       kind,
       born: now,
-      ttl: kind === 'wake' ? 1.2 : kind === 'pickup' ? 1.8 : 0.9,
+      ttl: extra.ttl ?? style.ttl,
       baseScale,
+      vx: extra.vx ?? 0,
+      vy: extra.vy ?? 0,
+      vz: extra.vz ?? 0,
     });
   }
 
   getDiagnostics(): { alive: number; cap: number; byKind: Record<EffectKind, number> } {
-    const byKind: Record<EffectKind, number> = { wake: 0, explosion: 0, plume: 0, pickup: 0 };
+    const byKind = Object.fromEntries(
+      Object.keys(STYLE).map((kind) => [kind, 0]),
+    ) as Record<EffectKind, number>;
     for (const particle of this.particles) byKind[particle.kind] += 1;
     return { alive: this.particles.length, cap: this.cap, byKind };
   }
@@ -120,10 +204,12 @@ export class VfxPool {
         this.removeAt(i);
         continue;
       }
-      particle.sprite.scale.setScalar(
-        particle.baseScale * (1 + life * (particle.kind === 'plume' ? 5 : 3)),
-      );
-      particle.sprite.position.y += (particle.kind === 'plume' ? 1.08 : 0.24) * dt;
+      const style = STYLE[particle.kind];
+      particle.sprite.scale.setScalar(particle.baseScale * (1 + life * style.growth));
+      particle.vy += style.gravity * dt;
+      particle.sprite.position.x += particle.vx * dt;
+      particle.sprite.position.z += particle.vz * dt;
+      particle.sprite.position.y += (particle.vy + LEGACY_RISE[particle.kind]) * dt;
       (particle.sprite.material as THREE.SpriteMaterial).opacity = (1 - life) * 0.7;
     }
     for (const [key, t] of this.lastEmit) if (now - t > 2 || t > now) this.lastEmit.delete(key);
@@ -147,10 +233,18 @@ export class VfxPool {
     );
   }
 
-  /** Oldest wake first so explosions/plumes survive wake floods; else oldest overall. */
+  /** Lowest priority first (wake < bubbles < smoke < others), oldest within a priority. */
   private evictOne(): void {
-    const wake = this.particles.findIndex((p) => p.kind === 'wake');
-    this.removeAt(wake >= 0 ? wake : 0);
+    let victim = 0;
+    let best = Infinity;
+    this.particles.forEach((p, i) => {
+      const priority = STYLE[p.kind].priority;
+      if (priority < best) {
+        best = priority;
+        victim = i;
+      }
+    });
+    this.removeAt(victim);
   }
 
   private removeAt(index: number): void {
