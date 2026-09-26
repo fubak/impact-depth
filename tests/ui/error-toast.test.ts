@@ -206,7 +206,9 @@ function fakeParent() {
     copied: '',
     restore() {
       globalThis.document = previousDocument;
-      if (previousClipboard) {
+      if (!hadNavigator) {
+        delete (globalThis as { navigator?: unknown }).navigator;
+      } else if (previousClipboard) {
         Object.defineProperty(globalThis.navigator, 'clipboard', previousClipboard);
       } else {
         delete (globalThis.navigator as { clipboard?: unknown }).clipboard;
@@ -221,6 +223,11 @@ function fakeParent() {
       return Promise.resolve();
     },
   };
+  // Node < 21 has no global navigator; provide one for the test and remove it on restore.
+  const hadNavigator = typeof globalThis.navigator !== 'undefined';
+  if (!hadNavigator) {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: {} });
+  }
   const previousClipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, 'clipboard');
   globalThis.document = {
     createElement(tag: string) {
