@@ -1,6 +1,27 @@
 import type { LookDevSettings, PresetId } from './types';
 
-export const STORAGE_KEY = 'silent-depths-lookdev-v5';
+/** Current envelope. v5 stored a bare look-dev document; v6 adds play preferences. */
+export const STORAGE_KEY = 'silent-depths-lookdev-v6';
+export const LEGACY_STORAGE_KEY = 'silent-depths-lookdev-v5';
+
+export type ReducedMotionPreference = 'system' | 'reduce' | 'allow';
+export type QualityPreference = 'auto' | 'high' | 'medium' | 'low';
+
+export interface PlayPreferences {
+  /** Linear gain, 0–1. */
+  masterVolume: number;
+  /** `system` follows the OS; `reduce` forces reduced motion; `allow` forces full motion. */
+  reducedMotion: ReducedMotionPreference;
+  quality: QualityPreference;
+}
+
+export const DEFAULT_PLAY_PREFERENCES: PlayPreferences = {
+  masterVolume: 1,
+  reducedMotion: 'system',
+  quality: 'auto',
+};
+
+const ENVELOPE_VERSION = 6;
 
 export const DEFAULT_SETTINGS: LookDevSettings = {
   atmosphere: {
@@ -62,7 +83,7 @@ export const PRESETS: Record<PresetId, LookDevSettings> = {
     },
     environment: {
       sandColor: '#cbb882',
-        foliageColor: '#2a5c34',
+      foliageColor: '#2a5c34',
       rockColor: '#5a6a56',
     },
     presentation: {
@@ -149,26 +170,133 @@ export function parseSettingsJson(raw: string): LookDevSettings | null {
   }
 }
 
-export function loadSettings(): LookDevSettings {
-  if (typeof localStorage === 'undefined') {
-    return cloneSettings(DEFAULT_SETTINGS);
+interface StoredEnvelope {
+  lookdev: LookDevSettings;
+  play: PlayPreferences;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isReducedMotion(value: unknown): value is ReducedMotionPreference {
+  return value === 'system' || value === 'reduce' || value === 'allow';
+}
+
+function isQualityPreference(value: unknown): value is QualityPreference {
+  return value === 'auto' || value === 'high' || value === 'medium' || value === 'low';
+}
+
+function clonePlay(play: PlayPreferences): PlayPreferences {
+  return {
+    masterVolume: play.masterVolume,
+    reducedMotion: play.reducedMotion,
+    quality: play.quality,
+  };
+}
+
+/** Rejects a bad volume or an unknown override/quality instead of clamping garbage into a pref. */
+function normalizePlayPreferences(value: unknown): PlayPreferences {
+  if (!isRecord(value)) return clonePlay(DEFAULT_PLAY_PREFERENCES);
+  const volume = value.masterVolume;
+  const reduced = value.reducedMotion;
+  const quality = value.quality;
+  const volumeOk =
+    typeof volume === 'number' && Number.isFinite(volume) && volume >= 0 && volume <= 1;
+  if (!volumeOk || !isReducedMotion(reduced) || !isQualityPreference(quality)) {
+    return clonePlay(DEFAULT_PLAY_PREFERENCES);
   }
+  return { masterVolume: volume, reducedMotion: reduced, quality };
+}
+
+function parseEnvelope(raw: string): StoredEnvelope | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return cloneSettings(DEFAULT_SETTINGS);
-    return parseSettingsJson(raw) ?? cloneSettings(DEFAULT_SETTINGS);
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed) || parsed.version !== ENVELOPE_VERSION || !isRecord(parsed.lookdev)) {
+      return null;
+    }
+    const lookdev = parseSettingsJson(JSON.stringify(parsed.lookdev));
+    if (!lookdev) return null;
+    return { lookdev, play: normalizePlayPreferences(parsed.play) };
   } catch {
-    return cloneSettings(DEFAULT_SETTINGS);
+    return null;
   }
 }
 
-export function saveSettings(settings: LookDevSettings): void {
-  if (typeof localStorage === 'undefined') return;
+function browserStorage(): Storage | null {
+  if (typeof localStorage === 'undefined') return null;
+  return localStorage;
+}
+
+function freshEnvelope(): StoredEnvelope {
+  return { lookdev: cloneSettings(DEFAULT_SETTINGS), play: clonePlay(DEFAULT_PLAY_PREFERENCES) };
+}
+
+function writeEnvelope(store: Storage, envelope: StoredEnvelope): void {
+  const body = {
+    version: ENVELOPE_VERSION,
+    lookdev: envelope.lookdev,
+    play: envelope.play,
+  };
+  store.setItem(STORAGE_KEY, JSON.stringify(body, null, 2));
+  store.removeItem(LEGACY_STORAGE_KEY);
+}
+
+/** Read v6, or copy a v5 look-dev document forward and drop the old key. */
+function readEnvelope(): StoredEnvelope {
+  const store = browserStorage();
+  if (!store) return freshEnvelope();
   try {
-    localStorage.setItem(STORAGE_KEY, settingsToJson(settings));
+    const current = store.getItem(STORAGE_KEY);
+    if (current) {
+      const parsed = parseEnvelope(current);
+      if (parsed) return parsed;
+    }
+    const legacyRaw = store.getItem(LEGACY_STORAGE_KEY);
+    if (legacyRaw) {
+      const lookdev = parseSettingsJson(legacyRaw);
+      if (lookdev) {
+        const migrated: StoredEnvelope = { lookdev, play: clonePlay(DEFAULT_PLAY_PREFERENCES) };
+        writeEnvelope(store, migrated);
+        return migrated;
+      }
+    }
+    return freshEnvelope();
+  } catch {
+    return freshEnvelope();
+  }
+}
+
+export function loadSettings(): LookDevSettings {
+  return cloneSettings(readEnvelope().lookdev);
+}
+
+export function loadPlayPreferences(): PlayPreferences {
+  return clonePlay(readEnvelope().play);
+}
+
+export function saveSettings(settings: LookDevSettings): void {
+  const store = browserStorage();
+  if (!store) return;
+  try {
+    const current = readEnvelope();
+    writeEnvelope(store, { lookdev: cloneSettings(settings), play: current.play });
   } catch {
     // Ignore quota / private mode failures
   }
+}
+
+export function savePlayPreferences(prefs: unknown): PlayPreferences {
+  const normalized = normalizePlayPreferences(prefs);
+  const store = browserStorage();
+  if (!store) return normalized;
+  try {
+    const current = readEnvelope();
+    writeEnvelope(store, { lookdev: current.lookdev, play: normalized });
+  } catch {
+    // Ignore quota / private mode failures
+  }
+  return normalized;
 }
 
 export function isPresetId(value: string): value is PresetId {
