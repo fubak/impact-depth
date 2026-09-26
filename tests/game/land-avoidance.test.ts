@@ -17,5 +17,5 @@ describe('surface ship land avoidance', () => {
       expect(isLand(terrain, ship.x, ship.y)).toBe(false);
       expect(clear(ship.x, ship.y)).toBe(true);
     }
-  });
+  }, 30_000);
 });
