@@ -4,7 +4,29 @@
 > Longer claims ledger: `docs/release/solo-production-status.md`  
 > Persistent notes: `memory/MEMORY.md`
 
-## Plan 024 — machine work landed 2026-09-26
+## Plan 025 — planned after fresh review, 2026-09-26
+
+**Current next action:** execute Phase 1 of [Plan 025](../plans/025-action-mission-completion-and-release-proof.md).
+This supersedes older resume instructions below. Planning only; no implementation phase is complete.
+
+The [independent review of merged cf0ab5a](../docs/release/plan-025-fresh-review.md)
+passed verify (651 tests), build, and assets. Local patrol E2E failed targeting/fire
+waiting for PLOT; GitHub CI failed the same journey with a different canvas-click
+timeout. Pages was skipped. Prior local success below is historical, not current
+release proof. The old 8.9-second strike test teleports to extraction.
+
+Fresh probes: all five Evade seeds survived at 100 HP; four of five Exfil seeds
+arrived, with seed 7 not arriving within 180 seconds. Emergency retreat, deep-launch
+restriction, and blast-depth separation are improved. A command-only strike took
+20.33 simulation seconds using hidden exit coordinates; this is not human pacing proof.
+
+Remaining work: input/CI repair and tested-SHA deployment, enforcement of auto-fire
+off, wreck time-unit correction, visible extraction and normal-input mission tests,
+active tutorial, HUD/threat readability, consistent world initialization, reliable
+retreat progress, encounter playtesting, and inherited production gates.
+All operator gates remain PENDING. See Plan 025 probe JSON for evidence.
+
+## Plan 024 — historical implementation report, superseded by fresh review
 
 [Execute the action-gameplay review](../plans/024-action-gameplay-execution.md). Unit suite 651 passed. `npm run build` and `npm run assets:validate` passed. Patrol E2E on `http://127.0.0.1:8098/` passed all 7 journeys in Chrome (no console errors). A system Chrome session started Convoy strike: objective "Sink the merchant, reach the exit", tutorial clock stayed at 0 while the cards were open, the Survive card spawned 6 hedgehog charges with hull still at 100, then the patrol resumed with 3 ships and INCOMING showing. Scripted strike report: victory in 8.9 s, 4 shots, 100 HP.
 
@@ -12,7 +34,7 @@ Key M toggles 4× transit. Key V stays Deep.
 
 Ruling: the 18-unit quiet cap breaks OD6's "every seed alerts" passive band. The cap stays. The loud ≤15 s band stays.
 
-Operator gates are not approved: GPU FPS, lighting eye-pass, fleet ACCEPT, audio listen, soak, fun/feel, world-default flip, `solo-production`. Hull-contrast ratio was not measured. No new GLBs. Not pushed.
+Operator gates are not approved: GPU FPS, lighting eye-pass, fleet ACCEPT, audio listen, soak, fun/feel, world-default flip, `solo-production`. Hull-contrast ratio was not measured. No new GLBs. Merged as cf0ab5a; fresh acceptance gaps are recorded above.
 
 ## Plan 023 — planned 2026-09-26
 

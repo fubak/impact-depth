@@ -5,6 +5,16 @@
 **Production tag:** pending — only Plan 017 may close `solo-production`  
 **Rolling agent SSOT:** `tasks/state.md` · **Memory:** `memory/MEMORY.md`
 
+## Fresh acceptance update — 2026-09-26
+
+At merged `cf0ab5a`, verify (651 tests), build, and assets pass, but local and CI
+targeting/fire browser journeys fail. Pages was skipped. Older automated PASS
+entries below are historical and do not certify this revision.
+[Plan 025](../../plans/025-action-mission-completion-and-release-proof.md) is PLANNED
+to close the observed mission, control, navigation, presentation, and deployment
+gaps. See the [fresh review](plan-025-fresh-review.md). No implementation or
+operator acceptance is claimed by this planning update.
+
 ## Claim levels
 
 | Claim | Meaning |

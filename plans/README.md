@@ -2,12 +2,17 @@
 
 ## Action gameplay follow-up (2026-09-26)
 
-[Plan 023: action gameplay and production readiness](023-action-gameplay-and-production-readiness.md)
-is the review. [Plan 024: execute it](024-action-gameplay-execution.md) is the
-implementation plan: Phase 1 combat rules and the red patrol E2E, then one
-convoy-strike scenario, presentation evidence, and a CI gate in front of Pages.
-Execute one phase per session. Implementation has not started. Operator gates
-remain pending. 024 feeds Plan 017 and does not tag `solo-production`.
+[Plan 023](023-action-gameplay-and-production-readiness.md) is the original review.
+[Plan 024](024-action-gameplay-execution.md) landed in `cf0ab5a`. The
+[fresh review](../docs/release/plan-025-fresh-review.md) confirms combat fixes, but
+local and CI targeting/fire checks fail and mission/presentation gaps remain.
+
+**Next selected plan:** [Plan 025: complete the action mission and prove release readiness](025-action-mission-completion-and-release-proof.md).
+Its seven phases cover input and tested-revision deployment, firing/wreck fixes,
+visible extraction, active onboarding and HUD, worlds/navigation, encounter
+playtesting, and production evidence. Execute Phase 1 first, one phase per session.
+Plan 025 implementation has not started. Operator gates remain pending; it feeds
+Plan 017 and does not tag `solo-production`.
 
 The older integration direction below is historical context, not evidence that those
 gates have passed.
@@ -95,7 +100,14 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 | 017  | Polish and release the solo production build                        | P1       | 4–10 days                              | 011, 012, 014, 015, accepted 018                                     | TODO — operator soak/GPU/tag; do not self-approve                                                                                                                                                                |
 | 009  | Add optional host-authoritative co-op for up to 10 players          | P2       | 3–6 weeks                              | 017                                                                  | TODO                                                                                                                                                                                                             |
 | 023  | Action gameplay and production readiness (review)                   | P1       | —                                      | 022 machine landed                                                   | PLANNED — spec only; see 024                                                                                                                                                                                     |
-| 024  | Execute the action-gameplay review                                  | P1       | Four sessions                          | 023                                                                  | MACHINE WORK LANDED — unit, build, assets, patrol E2E; operator gates stay pending                                                                                                                               |
+| 024  | Execute the action-gameplay review                                  | P1       | Four sessions                          | 023                                                                  | LANDED — fresh browser CI red; mission gaps tracked in 025                                                                                                                               |
+
+**Plan 024 status correction:** its row above records the earlier implementation report.
+The fresh review supersedes its patrol-E2E acceptance claim: browser CI is red.
+
+| Plan | Title | Dependency | Status |
+| --- | --- | --- | --- |
+| 025 | Complete the action mission and prove release readiness | 024 merged | PLANNED — seven phases; execute Phase 1 next |
 
 Historical estimate before Plan 018 (not an estimate for the revised integration track): roughly 3–6 focused weeks,
 with licensed asset acquisition and operator QA as the long poles. Co-op (009) adds ~3–6 weeks
