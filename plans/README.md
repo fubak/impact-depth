@@ -1,5 +1,14 @@
 # Silent Depths implementation plans
 
+## Action gameplay follow-up (2026-09-26)
+
+[Plan 023: action gameplay and production readiness](023-action-gameplay-and-production-readiness.md)
+is **PLANNED**, following the independent review of `ddd4281`. Priorities: trustworthy
+escape/combat rules, one focused action mission, readable presentation, and verified
+release gates. Implementation has not started; existing operator gates remain pending.
+The older integration direction below is historical context, not evidence that those
+gates have passed.
+
 ## Current integration direction (2026-09-12)
 
 **Current execution update:** [Complete realism upgrade](018-realism-upgrade-execution.md).  

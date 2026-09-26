@@ -4,6 +4,20 @@
 > Longer claims ledger: `docs/release/solo-production-status.md`  
 > Persistent notes: `memory/MEMORY.md`
 
+## Plan 023 — planned 2026-09-26
+
+[Action gameplay and production readiness](../plans/023-action-gameplay-and-production-readiness.md)
+records the independent review of `ddd4281`, prioritized fixes, and four delivery
+milestones. Documentation only; implementation and operator acceptance remain pending.
+Review checks: verify (614 tests), asset validation, and browser smoke passed. Full
+patrol E2E failed in targeting-fire while waiting for PLOT after a water click; later
+journeys did not run and the cause remains unresolved.
+
+Independent five-seed probes found Evade fails on 7/42/91 (seed 7 loses 100 HP to
+world collision), while Exfil fails on 1/7/42/91 but reaches the base ring on seed 19.
+This supersedes the older all-five Exfil failure claim below. See
+`docs/release/plan-023-simulation-probes.json` for the measured outcomes.
+
 ## Plan 022 (production action pass) — machine work landed 2026-09-26
 
 All Phase 1–4 items are merged to `master` (S1–S5, K1–K4, B1–B2, A1–A3, C1, D1, G1–G4, H1–H4 plus the cinema
