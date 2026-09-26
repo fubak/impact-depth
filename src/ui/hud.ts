@@ -398,7 +398,7 @@ export class Hud {
             .join(' · ')}</b></div>
           <div class="order-row"${tipAttr('Selected contact for fire and doctrine')}><span>Target</span><b data-field="target" class="${target ? 'engaged' : ''}">${
             target
-              ? `${target.name} · ${Math.ceil(targetRange ?? 0)}u · ${Math.round(target.hp)}% HP`
+              ? `${target.name} · ${Math.ceil(targetRange ?? 0)}u · ${Math.round((target.hp / Math.max(1, target.maxHp)) * 100)}% HP`
               : 'None — map / list / T'
           }</b></div>
         </div>
@@ -673,7 +673,7 @@ export class Hud {
     set(
       'target',
       extras.target
-        ? `${extras.target.name} · ${Math.ceil(extras.targetRange ?? 0)}u · ${Math.round(extras.target.hp)}% HP`
+        ? `${extras.target.name} · ${Math.ceil(extras.targetRange ?? 0)}u · ${Math.round((extras.target.hp / Math.max(1, extras.target.maxHp)) * 100)}% HP`
         : 'None — map / list / T',
       extras.target ? 'engaged' : '',
     );

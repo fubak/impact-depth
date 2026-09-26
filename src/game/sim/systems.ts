@@ -233,6 +233,27 @@ function makeThreat(
   };
 }
 
+const HIT_ALARM_RADIUS = 30;
+const HUNTER_KINDS: ReadonlySet<Ship['kind']> = new Set([
+  'destroyer',
+  'patrol',
+  'cruiser',
+  'battleship',
+  'sub',
+]);
+
+/** A torpedo hit blows the shooter's cover: the victim and nearby warships start hunting. */
+function raiseHitAlarm(ships: Ship[], victim: Ship): void {
+  victim.alert = 1;
+  victim.holdContact = 8;
+  for (const other of ships) {
+    if (other === victim || other.sinking !== undefined || !HUNTER_KINDS.has(other.kind)) continue;
+    if (Math.hypot(other.x - victim.x, other.y - victim.y) > HIT_ALARM_RADIUS) continue;
+    other.alert = Math.max(other.alert, 0.8);
+    other.holdContact = Math.max(other.holdContact, 6);
+  }
+}
+
 function applyPlayerDamage(sub: GameState['submarine'], damage: number) {
   if (sub.invuln > 0) return sub;
   const actual = damage * (1 - Math.min(0.28, sub.hullTier * 0.08));
@@ -1021,6 +1042,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
           victim.hp -= next.damage;
           damageDealt += applied;
           if (victim.hp <= 0) victim.sinking = 0.05;
+          raiseHitAlarm(ships, victim);
           messages.push({
             id: `hit-${next.id}-${state.tick}`,
             text: victim.hp <= 0 ? `HIT · ${victim.name} BREAKING UP` : `HIT · ${victim.name}`,
