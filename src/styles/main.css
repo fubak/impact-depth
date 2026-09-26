@@ -252,7 +252,6 @@ select:focus-visible {
   right: 16px;
   width: 220px;
   padding: var(--hud-pad-y) 8px;
-  position: relative;
 }
 
 .score-pop {
