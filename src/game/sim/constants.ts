@@ -34,3 +34,29 @@ export const PICKUP_LIFE = 110;
 export const PICKUP_RESPAWN = 19;
 export const DOCK_SPEED_MAX = 0.6;
 export const DOCK_HOLD = 0.5;
+/** Escorts pulse an active sweep on this cadence. The roll comes from rngState. */
+export const ESCORT_SWEEP_PERIOD = 8;
+/** Noisy or flank boats are caught out to this radius. */
+export const ESCORT_LOUD_SWEEP_RADIUS = 36;
+/** Silent, non-flank boats inside the layer. Stays inside the opening acoustic miss. */
+export const ESCORT_QUIET_SWEEP_RADIUS = 3.2;
+/** OD6: passive hunt opens after the stealth minute. */
+export const ESCORT_QUIET_HUNT_AFTER = 62;
+export const ESCORT_QUIET_SWEEP_GROWTH = 1.15;
+/** Lateral weave so the escort screen walks across the convoy's bow. */
+export const ESCORT_SCREEN_OFFSET = 3.5;
+/** A merchant or escort above the pursuit threshold wakes warships inside this range. */
+export const ALERT_SPREAD_RADIUS = 30;
+/** Deep enough that a silent, non-flank boat is under the sweep. */
+export const DEEP_SAFE_DEPTH = 0.6;
+/** Bubble screen drains an escort's contact this many times faster. */
+export const BUBBLE_HOLD_DRAIN = 3;
+/** Homing torpedoes can be pulled onto a foxer from this far out. */
+export const FOXER_SEDUCE_RANGE = 12;
+/** Fraction of seeds whose Mk-18 is seduced. The rest press the attack. */
+export const FOXER_SEDUCE_ODDS = 0.7;
+/** OD6: quiet seconds between a cleared wave and the next spawn. */
+export const WAVE_BREATHER = 20;
+/** Wave 2+ spawn ring, sim units from the map centre. */
+export const WAVE_SPAWN_INNER = 34;
+export const WAVE_SPAWN_STEP = 8;
