@@ -157,4 +157,4 @@ For the next plan, replace the filename. Use `--continue` only to correct the cu
 
 ## Production action pass — 2026-09-26
 
-[Plan 022: production action pass](022-production-action-pass.md) is PROPOSED and blocked on Phase 0 (operator commits or drops the uncommitted cinema-camera WIP). Operator gates stay PENDING.
+[Plan 022: production action pass](022-production-action-pass.md) machine work is landed (see `tasks/state.md`). Operator gates stay PENDING.

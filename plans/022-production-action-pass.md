@@ -1,6 +1,6 @@
 # Plan 022: Production action pass (solo)
 
-Status: **PROPOSED**. Blocked on Phase 0, an operator step.
+Status: **MACHINE WORK LANDED (2026-09-26)**. Operator gates PENDING.
 Reviewed: 2026-09-26, `master` 4195c66, with the uncommitted operator WIP present in the main checkout.
 Executors: Sonnet (logic, shaders, gameplay, harness) and Haiku (mechanical changes, timeouts, docs). Every item below is self-contained.
 

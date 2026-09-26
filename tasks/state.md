@@ -1,8 +1,25 @@
 # Silent Depths — project state
 
-> Rolling SSOT for agents. Last updated **2026-09-13**.
+> Rolling SSOT for agents. Last updated **2026-09-26**.
 > Longer claims ledger: `docs/release/solo-production-status.md`  
 > Persistent notes: `memory/MEMORY.md`
+
+## Plan 022 (production action pass) — machine work landed 2026-09-26
+
+All Phase 1–4 items are merged to `master` (S1–S5, K1–K4, B1–B2, A1–A3, C1, D1, G1–G4, H1–H4 plus the cinema
+follow-through and the score-strip fix). Live on Pages: https://fubak.github.io/impact-depth/ .
+
+Operator gates remain **PENDING** (not self-approved): GPU >=55 FPS at the reference scene, lighting eye-pass,
+fleet visual ACCEPT (015), audio listen (014) incl. new cues/tension layer, soak playthrough, fun/feel sign-off on
+the pacing (first passive detection 60-150 s, loud <=15 s, 20 s wave breather), world-default flip, `solo-production` tag.
+
+Known follow-ups: `it.fails` pins in `tests/game/playtest/doctrines.test.ts` (Evade dies on seeds 7/42/91, Exfil
+sunk before FOB on all seeds); a burst of ~66 `GL_INVALID_OPERATION` (shadow sampler) messages at startup on a real GPU
+(pre-existing, gone with `?quality=low`); underwater torpedo action is fogged out at range (threat markers and the
+HIT toast are the cues); `hud.ts` and `app.ts` exceed 800 lines.
+
+Evidence commands: `npm run verify`, `npm run test:smoke`, `npm run test:e2e -- <url>` (7 journeys),
+`npm run test:e2e:hud`, `npm run test:playthrough` (CDP 9223; SwiftShader runs are NOT a visual pass).
 
 ## Current
 
