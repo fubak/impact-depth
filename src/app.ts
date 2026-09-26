@@ -40,6 +40,7 @@ import { RendererHost } from './render/renderer';
 import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-selection';
 import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
 import { GameScene } from './render/scene';
+import { hideBootOverlay, setBootProgress } from './ui/boot';
 import { Hud } from './ui/hud';
 import { PatrolOverlay } from './ui/overlays';
 import { LookDevPanel } from './ui/panel';
@@ -87,6 +88,7 @@ export class App {
   private cinemaUntil = 0;
   private cinemaId: string | null = null;
   private cinemaSnap = false;
+  private bootVisible = true;
 
   constructor() {
     this.runtime = parseRuntimeSelection(window.location.search);
@@ -171,9 +173,11 @@ export class App {
       onClose: () => this.panel.setVisible(false),
     });
     this.panel.setVisible(false);
-    void this.scene.whenAssetsReady().then(() => {
+    void this.whenAssetsReady().then(() => {
       this.panel.setAssetCredits([...this.scene.getAssetLicenses()]);
+      this.finishBoot();
     });
+    this.syncBootProgress();
 
     this.input = new InputController(canvas, {
       setViewMode: (mode) => this.changeView(mode),
@@ -196,6 +200,11 @@ export class App {
     window.addEventListener('resize', this.onResize);
     window.addEventListener('beforeunload', this.onUnload);
     this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /** Settles when the asset registry has finished its first preload pass. */
+  whenAssetsReady(): Promise<void> {
+    return this.scene.whenAssetsReady();
   }
 
   getEnvironmentDiagnostics() {
@@ -557,8 +566,24 @@ export class App {
     this.dispose();
   };
 
+  private syncBootProgress(): void {
+    if (!this.bootVisible) return;
+    const states = Object.values(this.scene.getAssetProbe().loaded);
+    const loaded = states.filter((state) => state !== 'pending').length;
+    setBootProgress(loaded, states.length);
+  }
+
+  private finishBoot(): void {
+    if (!this.bootVisible) return;
+    this.bootVisible = false;
+    const states = Object.values(this.scene.getAssetProbe().loaded);
+    setBootProgress(states.length, states.length);
+    hideBootOverlay();
+  }
+
   private readonly frame = (now: number): void => {
     if (!this.running) return;
+    this.syncBootProgress();
     const elapsed = (now - this.last) / 1000;
     this.last = now;
 
@@ -644,6 +669,7 @@ export class App {
     this.tutorial.dispose();
     this.audio.dispose();
     this.recoveryBanner.remove();
+    this.finishBoot();
     this.scene.dispose();
     this.renderer.dispose();
   }
