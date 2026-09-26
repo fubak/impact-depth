@@ -9,7 +9,7 @@ import {
   WORLD_SIZE,
 } from '../game/sim/constants';
 import { worldMetersToSim } from '../game/sim/coords';
-import type { AutopilotTactic, DepthOrder, GameState, SpeedOrder } from '../game/sim/types';
+import type { AutopilotTactic, DepthOrder, GameMessage, GameState, SpeedOrder } from '../game/sim/types';
 import { getTerrain, isLand } from '../game/sim/world';
 import { findPixelProximateContact, MAP_PROXIMATE_PX } from '../input/world-click';
 import { listFirmContacts, type FirmContact } from './sonar';
@@ -71,6 +71,30 @@ export type HudPanelPrefs = {
   contacts: boolean;
   legend: boolean;
 };
+
+/** Pure formatter: extracts new hit/sunk pops from messages since last seen. */
+export function formatScorePops(
+  messages: readonly GameMessage[],
+  seenIds: Set<string>,
+): { label: string | null; newIds: string[] } {
+  const hits = messages.filter((m) => m.text.startsWith('HIT · '));
+  const sinks = messages.filter((m) => m.text === 'SHIP SUNK' || m.text === 'SECTOR CLEARED');
+
+  const newHits = hits.filter((m) => !seenIds.has(m.id));
+  const newSinks = sinks.filter((m) => !seenIds.has(m.id));
+
+  const allNewIds = [...newHits.map((m) => m.id), ...newSinks.map((m) => m.id)];
+
+  if (allNewIds.length === 0) {
+    return { label: null, newIds: [] };
+  }
+
+  const parts: string[] = [];
+  if (newHits.length > 0) parts.push(`+${newHits.length} HIT`);
+  if (newSinks.length > 0) parts.push(`+${newSinks.length} SUNK`);
+
+  return { label: parts.join(' / '), newIds: allNewIds };
+}
 
 const FOLDED_PANELS: HudPanelPrefs = {
   gear: false,
@@ -249,6 +273,7 @@ export class Hud {
   private chromeKey = '';
   private lastActionAt = 0;
   private panels: HudPanelPrefs = loadPanelPrefs();
+  private seenPopIds: Set<string> = new Set();
 
   constructor(
     root: HTMLElement,
@@ -279,6 +304,16 @@ export class Hud {
     const opacity = settings.presentation.hudOpacity;
     this.root.style.opacity = String(opacity);
     this.help.style.opacity = String(Math.min(1, opacity + 0.05));
+
+    // Compute score pops and manage seen ids before chromeKey branch
+    const popResult = formatScorePops(game.messages, this.seenPopIds);
+    popResult.newIds.forEach((id) => this.seenPopIds.add(id));
+    const messageIds = new Set(game.messages.map((m) => m.id));
+    for (const id of this.seenPopIds) {
+      if (!messageIds.has(id)) {
+        this.seenPopIds.delete(id);
+      }
+    }
 
     if (this.landSeed !== game.terrainSeed) {
       this.landSeed = game.terrainSeed;
@@ -369,6 +404,7 @@ export class Hud {
         fobSafe,
         message,
         contacts,
+        scorePop: popResult.label,
       });
       return;
     }
@@ -432,6 +468,7 @@ export class Hud {
         <span>Wave <b data-field="wave">${game.stats.wave}</b></span>
         <span>Sunk <b data-field="sunk">${game.stats.shipsSunk}</b></span>
         <span>Time <b data-field="time">${Math.floor(game.stats.timeSurvived / 60)}:${String(Math.floor(game.stats.timeSurvived % 60)).padStart(2, '0')}</b></span>
+        <div class="score-pop" data-field="score-pop" aria-hidden="true">${popResult.label ?? ''}</div>
       </section>
       <section class="hud-block hud-contacts" data-tutorial="contacts" aria-label="Hydrophone contacts">
         <div class="panel-label" ${tipAttr('Same contacts as the sonar plot — select to aim')}>
@@ -664,6 +701,7 @@ export class Hud {
       fobSafe: boolean;
       message: GameState['messages'][number] | undefined;
       contacts: readonly FirmContact[];
+      scorePop: string | null;
     },
   ): void {
     const sub = game.submarine;
@@ -730,6 +768,7 @@ export class Hud {
       'time',
       `${Math.floor(game.stats.timeSurvived / 60)}:${String(Math.floor(game.stats.timeSurvived % 60)).padStart(2, '0')}`,
     );
+    set('score-pop', extras.scorePop ?? '');
     set('depth-label', `${formatDepth(v.depth)} → ${DEPTH_LABEL[extras.depthOrder]}`);
     set(
       'speed-label',
