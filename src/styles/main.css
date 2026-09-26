@@ -224,6 +224,9 @@ select:focus-visible {
 
 .ship.sub { fill: #5ec4c8; }
 .plot { fill: none; stroke: #9fd7ff; stroke-width: 0.7; }
+.exit { fill: none; stroke: #e2b657; stroke-width: 0.8; }
+.exit.pending { stroke-dasharray: 1.4 1; opacity: 0.55; }
+.exit.open { stroke-width: 1.1; opacity: 1; }
 
 .status-grid,
 .hud-score {
@@ -472,6 +475,11 @@ svg.map .land { pointer-events: none; }
 .map-legend .lg.land { background: #75684b; }
 .map-legend .lg.plot {
   border: 1px solid #9fd7ff;
+  background: transparent;
+  border-radius: 50%;
+}
+.map-legend .lg.exit {
+  border: 1px solid #e2b657;
   background: transparent;
   border-radius: 50%;
 }

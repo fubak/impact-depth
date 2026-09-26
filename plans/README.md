@@ -8,10 +8,10 @@
 local and CI targeting/fire checks fail and mission/presentation gaps remain.
 
 **Next selected plan:** [Plan 025: complete the action mission and prove release readiness](025-action-mission-completion-and-release-proof.md).
-Phase 1 (canvas click and exact-SHA Pages binding) has local evidence in
-[plan-025-phase1.md](../docs/release/plan-025-phase1.md). Phases 2–7 are not started.
-One phase per session. Operator gates remain pending; 025 feeds Plan 017 and does
-not tag `solo-production`.
+Phases 1–3 have local evidence in
+[plan-025-phase1.md](../docs/release/plan-025-phase1.md) and
+[plan-025-phase2-3.md](../docs/release/plan-025-phase2-3.md). Next is Phase 4.
+Operator gates remain pending; 025 feeds Plan 017 and does not tag `solo-production`.
 
 The older integration direction below is historical context, not evidence that those
 gates have passed.
@@ -104,9 +104,9 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 **Plan 024 status correction:** its row above records the earlier implementation report.
 The fresh review supersedes its patrol-E2E acceptance claim: browser CI is red.
 
-| Plan | Title                                                   | Dependency | Status                                       |
-| ---- | ------------------------------------------------------- | ---------- | -------------------------------------------- |
-| 025  | Complete the action mission and prove release readiness | 024 merged | PLANNED — seven phases; execute Phase 1 next |
+| Plan | Title                                                   | Dependency | Status                                  |
+| ---- | ------------------------------------------------------- | ---------- | --------------------------------------- |
+| 025  | Complete the action mission and prove release readiness | 024 merged | Phases 1–3 local evidence; Phase 4 next |
 
 Historical estimate before Plan 018 (not an estimate for the revised integration track): roughly 3–6 focused weeks,
 with licensed asset acquisition and operator QA as the long poles. Co-op (009) adds ~3–6 weeks

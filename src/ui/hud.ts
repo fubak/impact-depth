@@ -9,8 +9,10 @@ import {
   METERS_PER_UNIT,
   WORLD_SIZE,
 } from '../game/sim/constants';
+import { bowRelativeBearing, TUBE_ARC_RAD } from '../game/sim/systems';
 import { actionTimeScale } from '../game/sim/action-feel';
 import { defenseCallout } from '../game/sim/defense-callout';
+import { extractionCue, strikeStage } from '../game/sim/scenarios/convoy-strike';
 import { worldMetersToSim } from '../game/sim/coords';
 import type {
   AutopilotTactic,
@@ -87,8 +89,25 @@ export function bottomClearanceText(limit: number, z: number): string | null {
 }
 
 /** Player-facing patrol objective. Victory still requires the sim sink target. */
-export function objectiveText(scenario: 'patrol' | 'convoy-strike' = 'patrol'): string {
-  return scenario === 'convoy-strike' ? 'Sink the merchant, reach the exit' : 'Clear two waves';
+export function objectiveText(game?: {
+  scenario?: 'patrol' | 'convoy-strike';
+  phase?: string;
+  ships?: readonly { id: string }[];
+  stats?: { shipsSunk: number };
+  strikeExit?: { x: number; y: number } | null;
+  submarine?: { x: number; y: number };
+}): string {
+  if (!game || game.scenario !== 'convoy-strike' || !game.submarine || !game.stats || !game.ships) {
+    return 'Clear two waves';
+  }
+  const stage = strikeStage(game as GameState);
+  if (stage === 'extract' || stage === 'complete') {
+    const cue = extractionCue(game as GameState);
+    return cue
+      ? `Reach the exit ${String(cue.bearingDeg).padStart(3, '0')}° ${Math.ceil(cue.distance)}u`
+      : 'Reach the exit';
+  }
+  return 'Sink the merchant';
 }
 
 /** Pure formatter: extracts new hit/sunk pops from messages since last seen. */
@@ -210,7 +229,7 @@ function contactsMarkup(contacts: readonly FirmContact[], selectedTargetId: stri
     .join('');
 }
 
-function fireStatus(game: GameState): { ready: boolean; label: string; tip: string } {
+export function fireStatus(game: GameState): { ready: boolean; label: string; tip: string } {
   const sub = game.submarine;
   if (sub.sysTubes < 0.35)
     return { ready: false, label: 'TUBES DAMAGED', tip: 'Repair at FOB Argus' };
@@ -231,12 +250,18 @@ function fireStatus(game: GameState): { ready: boolean; label: string; tip: stri
         label: `RELOAD ${Math.ceil(sub.reloadMk14)}s`,
         tip: 'Mk-14 tube reloading',
       };
+    const target = game.ships.find((ship) => ship.id === game.selectedTargetId);
+    const outsideArc =
+      target !== undefined &&
+      Math.abs(bowRelativeBearing(sub.heading, sub.x, sub.y, target.x, target.y)) > TUBE_ARC_RAD;
     return {
       ready: true,
-      label: game.selectedTargetId ? 'MK-14 READY' : 'PICK TARGET',
-      tip: game.selectedTargetId
-        ? 'Straight-running torpedo — aim with target selected'
-        : 'Select a contact (list, map, or T) then fire',
+      label: !game.selectedTargetId ? 'PICK TARGET' : outsideArc ? 'ARC LIMIT' : 'MK-14 READY',
+      tip: outsideArc
+        ? 'Tubes launch within 60° of the bow. This shot leaves on the arc edge.'
+        : game.selectedTargetId
+          ? 'Straight-running torpedo — aim with target selected. 60° bow arc.'
+          : 'Select a contact (list, map, or T) then fire',
     };
   }
   if (game.weaponMode === 'seeker') {
@@ -365,9 +390,7 @@ export class Hud {
     const tubes = fireStatus(game);
     const target = game.ships.find((ship) => ship.id === game.selectedTargetId);
     const targetRange = target ? Math.hypot(target.x - sub.x, target.y - sub.y) : null;
-    const headingDeg = Math.round(
-      (((sub.displayHeading ?? sub.heading) * 180) / Math.PI + 360) % 360,
-    );
+    const headingDeg = headingDegrees(sub.displayHeading ?? sub.heading);
     const course =
       game.autopilot.waypoint != null
         ? `PLOT ${Math.round(game.autopilot.waypoint.x)},${Math.round(game.autopilot.waypoint.y)}`
@@ -486,7 +509,7 @@ export class Hud {
         </div>
       </section>
       <section class="hud-block hud-score" aria-label="Patrol score">
-        <span data-field="objective">${objectiveText(game.scenario)}</span>
+        <span data-field="objective">${objectiveText(game)}</span>
         <span data-field="callout">${defenseCallout(game) ?? ''}</span>
         <span data-field="compress">${actionTimeScale(game) === 4 ? '4×' : ''}</span>
         <span>Score <b data-field="score">${game.stats.score}</b></span>
@@ -689,6 +712,11 @@ export class Hud {
             )
             .join('')}</g>
           <g data-field="crates">${game.powerups.map((pickup) => `<rect class="crate" x="${pickup.x - 1}" y="${pickup.y - 1}" width="2" height="2"/>`).join('')}</g>
+          <g data-field="exit">${
+            game.strikeExit
+              ? `<circle class="exit ${strikeStage(game) === 'attack' ? 'pending' : 'open'}" cx="${game.strikeExit.x}" cy="${game.strikeExit.y}" r="4" data-exit="${strikeStage(game) === 'attack' ? 'later' : 'open'}"/>`
+              : ''
+          }</g>
           <g data-field="plot">${
             game.autopilot.waypoint
               ? `<circle class="plot" cx="${game.autopilot.waypoint.x}" cy="${game.autopilot.waypoint.y}" r="1.8"/>`
@@ -702,6 +730,11 @@ export class Hud {
           <li><i class="lg crate"></i> Crate</li>
           <li><i class="lg land"></i> Land</li>
           <li><i class="lg plot"></i> Plot</li>
+          ${
+            game.strikeExit
+              ? `<li><i class="lg exit"></i> ${strikeStage(game) === 'attack' ? 'Exit later' : 'Exit'}</li>`
+              : ''
+          }
         </ul>
       </section>
       <section class="hud-block hud-chrome" aria-label="Game controls">
@@ -789,7 +822,7 @@ export class Hud {
         : 'None — map / list / T',
       extras.target ? 'engaged' : '',
     );
-    set('objective', objectiveText(game.scenario));
+    set('objective', objectiveText(game));
     set('callout', defenseCallout(game) ?? '');
     set('compress', actionTimeScale(game) === 4 ? '4×' : '');
     set('score', String(game.stats.score));

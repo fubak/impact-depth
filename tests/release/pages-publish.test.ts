@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+// @ts-expect-error plain module shared with the workflow notes; no declaration file
 import { publishDecision } from '../../scripts/pages-publish-decision.mjs';
 
 const tip = 'bbbb';

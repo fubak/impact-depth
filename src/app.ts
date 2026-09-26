@@ -56,6 +56,7 @@ import {
   bindMasterVolume,
   ErrorToast,
   recordCapturedError,
+  presentationEvents,
   reducedMotionGates,
   resolveReducedMotion,
   resolveStartupQuality,
@@ -811,9 +812,9 @@ export class App {
       this.sim = adaptToLookDevSim(this.game);
     }
 
-    this.scene.syncGame(this.game, this.sim, this.settings, renderDt);
-    // Bursts share the sim clock: VfxPool.update ages particles with game.time.
+    // Wrecks adopt the live hull before syncGame drops ships that just sank.
     this.presentCombat(combat, this.game.time);
+    this.scene.syncGame(this.game, this.sim, this.settings, renderDt);
     const cinema = this.cinemaPresentation();
     this.cameras.update(this.sim, renderDt, {
       lightning: this.scene.weatherLightning,
@@ -871,7 +872,8 @@ export class App {
       for (const event of events) this.playCombatCue(event);
     }
     const gates = reducedMotionGates(this.reducedMotion);
-    this.scene.playCombatEvents(gates.emitFlash ? events : [], now);
+    // `now` is simulation seconds, including 4× compression. Wreck life follows that clock.
+    this.scene.playCombatEvents(presentationEvents(events, gates.emitFlash), now);
     const alert = this.game.ships.reduce((max, ship) => Math.max(max, ship.alert), 0);
     this.audio.setTension(this.game.phase === 'playing' ? alert : 0);
   }

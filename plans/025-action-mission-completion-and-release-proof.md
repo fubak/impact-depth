@@ -55,13 +55,13 @@ Checked-in JSON probes accompany the review. Treat new numerical design targets 
 
 **Primary files:** `src/game/sim/systems.ts`, `src/game/sim/scenarios/convoy-strike.ts`, `src/game/sim/types.ts`, `src/app.ts`, `src/render/scene.ts`, `src/render/presentation/wrecks.ts`, targeted tests.
 
-- [ ] Trace every automatic launch path. Enforce `assistanceAutoFire` at the shared authorization point while leaving steering assistance usable. Preserve automatic firing in modes that explicitly enable it.
-- [ ] Test Ambush and Intercept with assistance disabled across several reload opportunities: zero shots and unchanged ammunition without a fire command. Test enabled assistance and explicit manual launch separately. Cover changing mode/settings mid-engagement and restart/scenario defaults.
-- [ ] Show why a manual launch is unavailable: reload, ammunition, depth, damaged tubes, and arc as applicable. Expose a readable launcher arc and aim/lead cue without granting targeting knowledge beyond the game's contact rules. Keep HUD feedback synchronized with simulation launch eligibility.
-- [ ] Standardize presentation time in seconds. Remove the extra milliseconds conversion at the scene boundary. Handle first event, reset, pause, resume, and scenario restart without huge deltas or stale wrecks.
-- [ ] Add an integration test across app/event timing and wreck advancement: a wreck is visible during its intended lifetime and removed after six simulation seconds. Validate behavior at 1× and 4×; document whether visual motion should follow simulation time consistently.
+- [x] Trace every automatic launch path. Enforce `assistanceAutoFire` at the shared authorization point while leaving steering assistance usable. Preserve automatic firing in modes that explicitly enable it.
+- [x] Test Ambush and Intercept with assistance disabled across several reload opportunities: zero shots and unchanged ammunition without a fire command. Test enabled assistance and explicit manual launch separately. Cover changing mode/settings mid-engagement and restart/scenario defaults.
+- [x] Show why a manual launch is unavailable: reload, ammunition, depth, damaged tubes, and arc as applicable. Expose a readable launcher arc and aim/lead cue without granting targeting knowledge beyond the game's contact rules. Keep HUD feedback synchronized with simulation launch eligibility.
+- [x] Standardize presentation time in seconds. Remove the extra milliseconds conversion at the scene boundary. Handle first event, reset, pause, resume, and scenario restart without huge deltas or stale wrecks.
+- [x] Add an integration test across app/event timing and wreck advancement: a wreck is visible during its intended lifetime and removed after six simulation seconds. Validate behavior at 1× and 4×; document whether visual motion should follow simulation time consistently.
 - [ ] Preserve the sunk vessel's class silhouette, heading, and scale in a presentation snapshot before removal from the sim. Reuse safe asset instances/fallbacks; release per-instance resources without disposing shared assets.
-- [ ] Keep sinking feedback available under reduced-motion/flash settings without reintroducing prohibited camera motion/flashes. Test that suppressing flash does not accidentally suppress the wreck event.
+- [x] Keep sinking feedback available under reduced-motion/flash settings without reintroducing prohibited camera motion/flashes. Test that suppressing flash does not accidentally suppress the wreck event.
 - [ ] Verify repeated sinking/restart cycles leave bounded meshes, effects, and event subscriptions.
 
 **Exit:** movement assistance cannot expend ammunition when disabled; manual firing remains clear and responsive; wrecks visibly sink and clean up on schedule without resource growth.
@@ -70,14 +70,14 @@ Checked-in JSON probes accompany the review. Treat new numerical design targets 
 
 **Primary files:** strike scenario/objective systems, snapshot adapters, `src/ui/hud.ts`, minimap/world-marker presentation, `tests/game/convoy-strike.test.ts`, browser journey scripts.
 
-- [ ] Define authoritative mission stages: attack merchant, survive/withdraw, reach extraction, complete; preserve defeat and restart paths. Do not require killing escorts unless intentionally specified and communicated.
-- [ ] Expose objective stage, exit position/radius, and distance/bearing through the normal presentation snapshot. Add a clearly labeled extraction marker to the tactical/minimap view and an off-screen direction cue in relevant views.
-- [ ] Before the merchant sinks, make the planned escape destination discoverable but subordinate to the attack objective. After sinking, promote it with one clear transition cue. Show extraction availability and the completion boundary; avoid displaying an available exit when its prerequisites are unmet.
+- [x] Define authoritative mission stages: attack merchant, survive/withdraw, reach extraction, complete; preserve defeat and restart paths. Do not require killing escorts unless intentionally specified and communicated.
+- [x] Expose objective stage, exit position/radius, and distance/bearing through the normal presentation snapshot. Add a clearly labeled extraction marker to the tactical/minimap view and an off-screen direction cue in relevant views.
+- [x] Before the merchant sinks, make the planned escape destination discoverable but subordinate to the attack objective. After sinking, promote it with one clear transition cue. Show extraction availability and the completion boundary; avoid displaying an available exit when its prerequisites are unmet.
 - [ ] Place the exit and route in valid navigable water for the selected world. Ensure the four-unit completion radius and displayed boundary use the same coordinate conversion. Handle pause, camera changes, result state, and restart consistently.
-- [ ] Reclassify the teleporting test as isolated completion-rule coverage or replace it. Add a deterministic command-only mission test with normal acceleration, turning, reload, targeting, damage, and travel. Assert merchant sunk, actual exit entry, victory, and no unrelated state rewrites.
-- [ ] Add a production browser journey: menu → strike → tutorial completion/explicit skip → select/aim → launch → merchant sunk → follow visible extraction guidance → victory → retry. Navigation must use exposed player information and normal input, not hidden sim coordinates or debug APIs.
-- [ ] Add defeat/retry coverage and a fresh-session path. Assert one result screen, reset mission state, restored assistance defaults, and no stale markers/tutorial threats/wrecks.
-- [ ] Record simulation and wall-clock duration separately, launch count, damage, objective transitions, and outcome. Do not advertise bot completion time as human completion time.
+- [x] Reclassify the teleporting test as isolated completion-rule coverage or replace it. Add a deterministic command-only mission test with normal acceleration, turning, reload, targeting, damage, and travel. Assert merchant sunk, actual exit entry, victory, and no unrelated state rewrites.
+- [x] Add a production browser journey: menu → strike → tutorial completion/explicit skip → select/aim → launch → merchant sunk → follow visible extraction guidance → victory → retry. Navigation must use exposed player information and normal input, not hidden sim coordinates or debug APIs.
+- [x] Add defeat/retry coverage and a fresh-session path. Assert one result screen, reset mission state, restored assistance defaults, and no stale markers/tutorial threats/wrecks.
+- [x] Record simulation and wall-clock duration separately, launch count, damage, objective transitions, and outcome. Do not advertise bot completion time as human completion time.
 
 **Exit:** the entire strike is completable from visible information, and the browser proves the player journey without cheats. If extraction remains unreadable, do not compensate with an omniscient test bot.
 
@@ -167,4 +167,4 @@ Store generated diagnostics under ignored `artifacts/plan-025/phase-N/`. Check i
 - [ ] CI tests the exact deployable revision and failing runs cannot publish.
 - [ ] All inherited operator gates are individually recorded; no approval is inferred from this plan or a documentation push.
 
-**Next session:** execute Phase 1 only. Planning, committing this document, and pushing it do not execute any phase.
+**Next session:** Phase 4. Phases 1–3 have local evidence. Planning and pushing this document do not execute a phase. Do not self-approve Phases 6 or 7.

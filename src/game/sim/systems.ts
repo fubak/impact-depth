@@ -218,6 +218,20 @@ function spreadAlert(ships: Ship[], state: GameState): Ship[] {
   });
 }
 
+/** Signed bow-relative bearing, wrapped to [-π, π]. */
+export function bowRelativeBearing(
+  boatHeading: number,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+): number {
+  const desired = Math.atan2(toY - fromY, toX - fromX);
+  return Math.atan2(Math.sin(desired - boatHeading), Math.cos(desired - boatHeading));
+}
+
+export const TUBE_ARC_RAD = Math.PI / 3;
+
 /** Tubes can aim at most 60° off the bow. The HUD lead is still the desired bearing. */
 export function launchHeading(boatHeading: number, desiredHeading: number): number {
   const delta = Math.atan2(
@@ -757,7 +771,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         (next.autopilot.tactic === 'ambush' && distance > 3.2 && distance < 10) ||
         (next.autopilot.tactic === 'stalk' && distance > 4 && distance < 10) ||
         (next.autopilot.tactic === 'intercept' && distance < 9);
-      if (ready && inWindow) {
+      // Steering assistance stays on. Only this flag may spend ammunition.
+      if (ready && inWindow && next.assistanceAutoFire) {
         const firing =
           next.autopilot.tactic === 'intercept' && next.submarine.seekers > 0
             ? 'seeker'

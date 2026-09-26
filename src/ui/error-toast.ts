@@ -51,6 +51,15 @@ export function resolveStartupQuality(
 }
 
 /** Shake, hit-freeze and combat flash scale. Reduced motion zeroes all three. */
+/** Flash can be suppressed. A sinking still has to reach the wreck presenter. */
+export function presentationEvents<T extends { type: string }>(
+  events: readonly T[],
+  emitFlash: boolean,
+): T[] {
+  if (emitFlash) return [...events];
+  return events.filter((event) => event.type === 'shipSunk');
+}
+
 export function reducedMotionGates(reduced: boolean): {
   shakeScale: number;
   freezeScale: number;
@@ -62,8 +71,7 @@ export function reducedMotionGates(reduced: boolean): {
 
 /** Copyable one-block summary. Location is included when the browser provided one. */
 export function formatErrorSummary(record: ErrorRecord): string {
-  const where =
-    record.source !== '' ? ` @ ${record.source}:${record.line}:${record.column}` : '';
+  const where = record.source !== '' ? ` @ ${record.source}:${record.line}:${record.column}` : '';
   const head = `${record.kind}: ${record.message}${where}`;
   const body = record.stack && record.stack !== record.message ? `\n${record.stack}` : '';
   const text = `${head}${body}`;

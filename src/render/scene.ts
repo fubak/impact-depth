@@ -179,8 +179,8 @@ export class GameScene {
   ];
   private hitCursor = 0;
   private wrecks: Wreck[] = [];
-  private wreckClock = 0;
-  private readonly wreckMeshes = new Map<string, THREE.Mesh>();
+  private wreckClock: number | null = null;
+  private readonly wreckMeshes = new Map<string, THREE.Object3D>();
   private readonly trailAt = new Map<string, number>();
 
   constructor() {
@@ -576,8 +576,12 @@ export class GameScene {
    * Hit lights are the two allocated at init; this never adds a light.
    */
   playCombatEvents(events: readonly CombatEvent[], now: number): void {
-    const dt = this.wreckClock === 0 ? 0 : Math.max(0, (now - this.wreckClock) / 1000);
+    // `now` is already simulation seconds. Dividing by 1000 kept wrecks for ~100 minutes.
+    const dt = this.wreckClock === null ? 0 : Math.max(0, Math.min(1, now - this.wreckClock));
     this.wreckClock = now;
+    for (const event of events) {
+      if (event.type === 'shipSunk') this.adoptShipAsWreck(event.id);
+    }
     this.wrecks = advanceWrecks(this.wrecks, events, dt);
     this.syncWreckMeshes();
     this.decayHitLights(now);
@@ -588,14 +592,31 @@ export class GameScene {
     }
   }
 
+  /** Keep the hull that just sank. Shared glTF geometries are not disposed. */
+  private adoptShipAsWreck(id: string): void {
+    if (this.wreckMeshes.has(id)) return;
+    const entity = this.shipEntities.get(id);
+    if (!entity) return;
+    this.scene.remove(entity.wake, entity.beacon, entity.hit);
+    entity.wake.geometry.dispose();
+    (entity.wake.material as THREE.Material).dispose();
+    entity.beacon.geometry.dispose();
+    (entity.beacon.material as THREE.Material).dispose();
+    entity.hit.geometry.dispose();
+    (entity.hit.material as THREE.Material).dispose();
+    this.shipEntities.delete(id);
+    entity.mesh.name = `wreck-${id}`;
+    entity.mesh.userData.wreckBaseY = entity.mesh.position.y;
+    entity.mesh.userData.wreckBaseRoll = entity.mesh.rotation.z;
+    this.wreckMeshes.set(id, entity.mesh);
+  }
+
   private syncWreckMeshes(): void {
     const live = new Set(this.wrecks.map((wreck) => wreck.id));
     for (const [id, mesh] of this.wreckMeshes) {
       if (live.has(id)) continue;
       this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      const material = mesh.material;
-      if (material instanceof THREE.Material) material.dispose();
+      this.disposeGroup(mesh as THREE.Group);
       this.wreckMeshes.delete(id);
     }
     for (const wreck of this.wrecks) {
@@ -606,19 +627,28 @@ export class GameScene {
           new THREE.MeshStandardMaterial({ color: 0x3a332c, roughness: 0.86, metalness: 0.04 }),
         );
         mesh.name = `wreck-${wreck.id}`;
+        const world = simToWorldMeters(wreck.x, wreck.y);
+        mesh.position.set(world.x, 0, world.z);
+        mesh.userData.wreckBaseY = 0;
+        mesh.userData.wreckBaseRoll = 0;
         this.scene.add(mesh);
         this.wreckMeshes.set(wreck.id, mesh);
       }
       const pose = wreckPose(wreck.age);
-      const world = simToWorldMeters(wreck.x, wreck.y);
-      mesh.position.set(world.x, -pose.sink, world.z);
-      mesh.rotation.z = pose.list;
+      const baseY = (mesh.userData.wreckBaseY as number) ?? mesh.position.y;
+      const baseRoll = (mesh.userData.wreckBaseRoll as number) ?? 0;
+      mesh.position.y = baseY - pose.sink;
+      mesh.rotation.z = baseRoll + pose.list;
     }
+  }
+
+  wreckCount(): number {
+    return this.wreckMeshes.size;
   }
 
   private clearWrecks(): void {
     this.wrecks = [];
-    this.wreckClock = 0;
+    this.wreckClock = null;
     this.syncWreckMeshes();
   }
 

@@ -216,4 +216,25 @@ describe('GameScene combat presentation', () => {
       view.dispose();
     }
   }, 60_000);
+
+  it('keeps a wreck for six simulation seconds, including a one-second step', () => {
+    const view = new GameScene();
+    try {
+      const sunk: CombatEvent = { type: 'shipSunk', id: 'hull', kind: 'merchant', x: 20, y: 30 };
+      // Age follows simulation seconds, one presentation step at a time.
+      // At 4× compression those six seconds take 1.5s of wall clock.
+      let time = 0;
+      view.playCombatEvents([sunk], time);
+      expect(view.wreckCount()).toBe(1);
+      for (let step = 0; step < 5; step += 1) {
+        time += 1;
+        view.playCombatEvents([], time);
+      }
+      expect(view.wreckCount()).toBe(1);
+      view.playCombatEvents([], time + 1);
+      expect(view.wreckCount()).toBe(0);
+    } finally {
+      view.dispose();
+    }
+  });
 });

@@ -70,6 +70,42 @@ export function strikeMerchantGone(state: GameState): boolean {
   return !state.ships.some((ship) => ship.id === STRIKE_MERCHANT_ID);
 }
 
+export type StrikeStage = 'attack' | 'extract' | 'complete';
+
+/** Attack until the merchant is gone, then extraction, then victory. */
+export function strikeStage(state: GameState): StrikeStage | null {
+  if (state.scenario !== 'convoy-strike' || !state.strikeExit) return null;
+  if (state.phase === 'victory') return 'complete';
+  if (strikeMerchantGone(state) && state.stats.shipsSunk > 0) return 'extract';
+  return 'attack';
+}
+
+/**
+ * Degrees clockwise from north, same conversion as `headingDegrees` on the helm tape.
+ * Simulation heading 0 is +X. Distance is sim units.
+ */
+export function extractionCue(state: GameState): {
+  x: number;
+  y: number;
+  radius: number;
+  distance: number;
+  bearingDeg: number;
+} | null {
+  const exit = state.strikeExit;
+  if (!exit || state.scenario !== 'convoy-strike') return null;
+  const dx = exit.x - state.submarine.x;
+  const dy = exit.y - state.submarine.y;
+  const simHeading = Math.atan2(dy, dx);
+  const bearingDeg = Math.round(((-simHeading * 180) / Math.PI + 90 + 360) % 360);
+  return {
+    x: exit.x,
+    y: exit.y,
+    radius: STRIKE_EXIT_RADIUS,
+    distance: Math.hypot(dx, dy),
+    bearingDeg,
+  };
+}
+
 export function insideStrikeExit(state: GameState): boolean {
   const exit = state.strikeExit;
   if (!exit) return false;

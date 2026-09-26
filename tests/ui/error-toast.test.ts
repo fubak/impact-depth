@@ -143,7 +143,7 @@ describe('startup wiring', () => {
     expect(app).toContain('resolveStartupQuality(');
     expect(app).toContain('bindMasterVolume(this.audio');
     expect(app).toContain('reducedMotionGates(this.reducedMotion)');
-    expect(app).toContain('gates.emitFlash ? events : []');
+    expect(app).toContain('presentationEvents(events, gates.emitFlash)');
     expect(app).toContain('errors: this.errorCount');
     expect(main).toContain('installErrorHandlers');
     expect(main).toContain('noteCapturedError');
@@ -226,7 +226,11 @@ function fakeParent() {
   // Node < 21 has no global navigator; provide one for the test and remove it on restore.
   const hadNavigator = typeof globalThis.navigator !== 'undefined';
   if (!hadNavigator) {
-    Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: {} });
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      writable: true,
+      value: {},
+    });
   }
   const previousClipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, 'clipboard');
   globalThis.document = {
