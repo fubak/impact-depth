@@ -136,6 +136,8 @@ export class GameScene {
   private lastProbeIssueTime: number | null = null;
   private lastSurfaceDiagnostics: SurfaceDiagnostics | null = null;
   private immersionUnder = false;
+  private readonly underwaterColor = new THREE.Color(0.02, 0.1, 0.13);
+  private readonly underwaterFog = new THREE.FogExp2(0x051a21, 0.02);
   private lastProbeSubjects: Array<{
     entityId: string;
     x: number;
@@ -456,9 +458,10 @@ export class GameScene {
     this.immersionUnder = next.underwater;
     if (!next.underwater) return;
     const t = immersionFogFactor(camera.position.y, next.waterHeight, true);
-    const fog = new THREE.Color().setRGB(0.02, 0.1, 0.13);
-    this.scene.background = fog;
-    this.scene.fog = new THREE.FogExp2(fog.getHex(), 0.02 + t * 0.065);
+    this.scene.background = this.underwaterColor;
+    this.underwaterFog.color.copy(this.underwaterColor);
+    this.underwaterFog.density = 0.011 + t * 0.021;
+    this.scene.fog = this.underwaterFog;
     this.atmosphere.hemi.groundColor.setRGB(0.03, 0.1, 0.11);
     this.atmosphere.hemi.intensity *= 1 - t * 0.5;
     this.atmosphere.ambient.intensity *= 1 - t * 0.35;

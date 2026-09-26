@@ -21,16 +21,60 @@ export type CameraPresentation = {
 /** Metres above keel for orbit/chase pivot (hull geometric centre). */
 export const HULL_PIVOT_ABOVE_KEEL_M = 1.15;
 
+/** Orbit views circle the hull centre; `relative` spins with the sub's heading. */
+type OrbitView = {
+  theta: number;
+  phi: number;
+  radius: number;
+  minRadius: number;
+  maxRadius: number;
+  minPhi: number;
+  maxPhi: number;
+  relative: boolean;
+};
+
+const orbitDefaults = (): Partial<Record<ViewMode, OrbitView>> => ({
+  tactical: { theta: 2.45, phi: 1.12, radius: 72, minRadius: 30, maxRadius: 200, minPhi: 0.35, maxPhi: 1.82, relative: false },
+  chase: { theta: 0, phi: 1.32, radius: 26, minRadius: 12, maxRadius: 90, minPhi: 0.5, maxPhi: 1.75, relative: true },
+  free: { theta: 0.6, phi: 1.0, radius: 48, minRadius: 10, maxRadius: 200, minPhi: 0.15, maxPhi: 1.85, relative: false },
+  sonar: { theta: 0, phi: 0.12, radius: 95, minRadius: 30, maxRadius: 200, minPhi: 0.02, maxPhi: 1.2, relative: false },
+});
+
+/** Azimuth that places the eye directly astern of `heading`. */
+export const sternTheta = (heading: number): number => Math.atan2(-Math.cos(heading), -Math.sin(heading));
+
 export class CameraRig {
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private readonly perspective: THREE.PerspectiveCamera;
   private readonly mapCamera: THREE.OrthographicCamera;
-  /** Orbit: higher phi = more oblique / horizon-forward */
-  orbitTheta = 2.45;
-  orbitPhi = 1.12;
-  orbitRadius = 72;
+  /** Tactical orbit accessors (tests / e2e helpers). Higher phi = more oblique. */
+  get orbitTheta(): number {
+    return this.orbits.tactical!.theta;
+  }
+  set orbitTheta(value: number) {
+    this.orbits.tactical!.theta = value;
+  }
+  get orbitPhi(): number {
+    return this.orbits.tactical!.phi;
+  }
+  set orbitPhi(value: number) {
+    this.orbits.tactical!.phi = value;
+  }
+  get orbitRadius(): number {
+    return this.orbits.tactical!.radius;
+  }
+  set orbitRadius(value: number) {
+    this.orbits.tactical!.radius = value;
+  }
   periYaw = 0;
   periPitch = 0.02;
+  bridgeYaw = 0;
+  bridgePitch = 0;
+  mapTheta = 0;
+  private readonly orbits = orbitDefaults();
+  private readonly offset = new THREE.Vector3();
+  private readonly desiredOffset = new THREE.Vector3();
+  private offsetSeeded = false;
 
   private readonly target = new THREE.Vector3();
   private readonly desiredPos = new THREE.Vector3();
@@ -57,6 +101,7 @@ export class CameraRig {
   setMode(mode: ViewMode): void {
     this.activeMode = mode;
     this.snapLook = true;
+    if (!this.orbits[mode]) this.offsetSeeded = false;
     const next = mode === 'map' ? this.mapCamera : this.perspective;
     if (this.camera !== next) {
       this.currentPos.copy(this.camera.position);
@@ -77,8 +122,19 @@ export class CameraRig {
   }
 
   orbit(dx: number, dy: number): void {
-    this.orbitTheta -= dx * 0.005;
-    this.orbitPhi = THREE.MathUtils.clamp(this.orbitPhi - dy * 0.0035, 0.35, 1.82);
+    if (this.activeMode === 'map') {
+      this.mapTheta -= dx * 0.005;
+      return;
+    }
+    const view = this.orbits[this.activeMode];
+    if (!view) return;
+    view.theta -= dx * 0.005;
+    view.phi = THREE.MathUtils.clamp(view.phi - dy * 0.0035, view.minPhi, view.maxPhi);
+  }
+
+  bridgeLook(dx: number, dy: number): void {
+    this.bridgeYaw = THREE.MathUtils.clamp(this.bridgeYaw - dx * 0.0035, -Math.PI, Math.PI);
+    this.bridgePitch = THREE.MathUtils.clamp(this.bridgePitch - dy * 0.0025, -0.7, 0.8);
   }
 
   periLook(dx: number, dy: number): void {
@@ -87,7 +143,19 @@ export class CameraRig {
   }
 
   zoom(delta: number): void {
-    this.orbitRadius = THREE.MathUtils.clamp(this.orbitRadius + delta * 0.05, 40, 160);
+    if (this.activeMode === 'map') {
+      this.mapCamera.zoom = THREE.MathUtils.clamp(this.mapCamera.zoom * Math.exp(-delta * 0.001), 0.4, 4);
+      this.mapCamera.updateProjectionMatrix();
+      return;
+    }
+    const view = this.orbits[this.activeMode];
+    if (view) {
+      view.radius = THREE.MathUtils.clamp(view.radius + delta * 0.05, view.minRadius, view.maxRadius);
+      return;
+    }
+    const [min, max] = this.activeMode === 'periscope' ? [12, 40] : [40, 80];
+    this.perspective.fov = THREE.MathUtils.clamp(this.perspective.fov + delta * 0.02, min, max);
+    this.perspective.updateProjectionMatrix();
   }
 
   getImmersion(): ImmersionState {
@@ -116,40 +184,27 @@ export class CameraRig {
     const pivotY = hullY + HULL_PIVOT_ABOVE_KEEL_M;
     this.target.set(v.x, pivotY, v.z);
 
-    if (this.activeMode === 'tactical' || this.activeMode === 'free') {
-      const x =
-        this.target.x + Math.sin(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
-      const y = this.target.y + Math.cos(this.orbitPhi) * this.orbitRadius;
-      const z =
-        this.target.z + Math.cos(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
-      this.desiredPos.set(x, y, z);
-      this.desiredLook.copy(this.target);
-    } else if (this.activeMode === 'chase') {
-      const stern = -12;
-      this.desiredPos.set(
-        v.x + Math.cos(v.heading) * stern,
-        pivotY + 2.6,
-        v.z + Math.sin(v.heading) * stern,
+    const orbit = this.orbits[this.activeMode];
+    if (orbit) {
+      const theta = orbit.relative ? sternTheta(v.heading) + orbit.theta : orbit.theta;
+      const flat = Math.sin(orbit.phi) * orbit.radius;
+      this.desiredOffset.set(
+        Math.sin(theta) * flat,
+        Math.cos(orbit.phi) * orbit.radius,
+        Math.cos(theta) * flat,
       );
       this.desiredLook.copy(this.target);
-      const locked = sim.selectedTargetId
-        ? sim.ships.find((ship) => ship.id === sim.selectedTargetId)
-        : undefined;
-      if (locked) {
-        this.desiredLook.x = v.x * 0.7 + locked.x * 0.3;
-        this.desiredLook.z = v.z * 0.7 + locked.z * 0.3;
-        this.desiredLook.y = pivotY;
-      }
     } else if (this.activeMode === 'bridge') {
       this.desiredPos.set(
-        v.x + Math.cos(v.heading) * 0.9,
-        hullY + 3.2,
-        v.z + Math.sin(v.heading) * 0.9,
+        v.x + Math.cos(v.heading) * 4.4,
+        hullY + 2.4,
+        v.z + Math.sin(v.heading) * 4.4,
       );
+      const bridgeHeading = v.heading + this.bridgeYaw;
       this.desiredLook.set(
-        v.x + Math.cos(v.heading) * 90,
-        hullY + 1.4,
-        v.z + Math.sin(v.heading) * 90,
+        v.x + Math.cos(bridgeHeading) * 90,
+        hullY + 2.4 + Math.sin(this.bridgePitch) * 90,
+        v.z + Math.sin(bridgeHeading) * 90,
       );
     } else if (this.activeMode === 'periscope') {
       // Mast/optic tracks the hull + mast reach. Sampled water is for immersion
@@ -182,31 +237,39 @@ export class CameraRig {
     } else if (this.activeMode === 'map') {
       this.desiredPos.set(v.x, 150, v.z);
       this.desiredLook.set(v.x, 0, v.z);
-    } else {
-      this.desiredPos.set(v.x, 95, v.z + 0.01);
-      this.desiredLook.set(v.x, 0, v.z);
-    }
-
-    if (this.activeMode !== 'map' && presentation?.sampleTerrainY) {
-      const bed = presentation.sampleTerrainY(this.desiredPos.x, this.desiredPos.z);
-      this.desiredPos.y = clampCameraAboveTerrain(this.desiredPos.y, bed);
     }
 
     const k = 1 - Math.exp(-5.5 * dt);
-    this.currentPos.lerp(
-      this.desiredPos,
-      this.activeMode === 'periscope' ? Math.min(1, k * 1.8) : k,
-    );
+    if (orbit) {
+      // Eye = live hull centre + smoothed offset, so the sub never drifts off-centre.
+      if (!this.offsetSeeded) {
+        this.offset.copy(this.currentPos).sub(this.target);
+        this.offsetSeeded = true;
+      }
+      this.offset.lerp(this.desiredOffset, k);
+      this.currentPos.copy(this.target).add(this.offset);
+      this.lookAt.copy(this.target);
+      this.snapLook = false;
+    } else {
+      if (this.activeMode !== 'map' && presentation?.sampleTerrainY) {
+        const bed = presentation.sampleTerrainY(this.desiredPos.x, this.desiredPos.z);
+        this.desiredPos.y = clampCameraAboveTerrain(this.desiredPos.y, bed);
+      }
+      this.currentPos.lerp(
+        this.desiredPos,
+        this.activeMode === 'periscope' ? Math.min(1, k * 1.8) : k,
+      );
+      if (this.snapLook || this.activeMode === 'map') {
+        this.lookAt.copy(this.desiredLook);
+        this.snapLook = false;
+      } else {
+        const kl = 1 - Math.exp(-(this.activeMode === 'periscope' ? 9 : 5.5) * dt);
+        this.lookAt.lerp(this.desiredLook, kl);
+      }
+    }
     if (this.activeMode !== 'map' && presentation?.sampleTerrainY) {
       const bed = presentation.sampleTerrainY(this.currentPos.x, this.currentPos.z);
       this.currentPos.y = clampCameraAboveTerrain(this.currentPos.y, bed);
-    }
-    if (this.snapLook || this.activeMode === 'map') {
-      this.lookAt.copy(this.desiredLook);
-      this.snapLook = false;
-    } else {
-      const kl = 1 - Math.exp(-(this.activeMode === 'periscope' ? 9 : 5.5) * dt);
-      this.lookAt.lerp(this.desiredLook, kl);
     }
     this.camera.position.copy(this.currentPos);
     const lightning = presentation?.lightning ?? 0;
@@ -219,7 +282,8 @@ export class CameraRig {
       this.camera.position.x += Math.sin(sim.time * 47) * shake * 0.55;
       this.camera.position.y += Math.cos(sim.time * 31) * shake * 0.35;
     }
-    this.camera.up.set(0, 1, 0);
+    if (this.activeMode === 'map') this.camera.up.set(Math.sin(this.mapTheta), 0, -Math.cos(this.mapTheta));
+    else this.camera.up.set(0, 1, 0);
     if (this.activeMode === 'periscope') {
       this.camera.lookAt(this.lookAt);
       this.camera.rotateZ(v.roll * 0.35);
