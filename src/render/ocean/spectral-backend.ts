@@ -233,6 +233,10 @@ export class SpectralBackend implements EnvironmentBackend {
   private coastalGeneration = 0;
   private lastCoastalSnapX = Number.NaN;
   private lastCoastalSnapZ = Number.NaN;
+  private readonly fogScratch = new THREE.Color();
+  private readonly sunDirScratch = new THREE.Vector3();
+  private readonly sunColorScratch = new THREE.Color();
+  private readonly skyScratch = new THREE.Color();
 
   /** Snap cell for coastal fields — rebuild only when the follow region moves. */
   static readonly COASTAL_SNAP_M = 256;
@@ -441,19 +445,19 @@ export class SpectralBackend implements EnvironmentBackend {
       cascade.setFoamStorm(storm);
     }
 
-    const fog = new THREE.Color(frame.fogColor.r, frame.fogColor.g, frame.fogColor.b);
-    const sunDir = new THREE.Vector3(frame.sunDir.x, frame.sunDir.y, frame.sunDir.z);
-    const sunColor = new THREE.Color(frame.sunColor.r, frame.sunColor.g, frame.sunColor.b);
-    const sky = new THREE.Color(frame.skyColor.r, frame.skyColor.g, frame.skyColor.b);
+    this.fogScratch.setRGB(frame.fogColor.r, frame.fogColor.g, frame.fogColor.b);
+    this.sunDirScratch.set(frame.sunDir.x, frame.sunDir.y, frame.sunDir.z);
+    this.sunColorScratch.setRGB(frame.sunColor.r, frame.sunColor.g, frame.sunColor.b);
+    this.skyScratch.setRGB(frame.skyColor.r, frame.skyColor.g, frame.skyColor.b);
 
     this.ocean.update(
       frame.time,
       frame.ocean,
       frame.fogDensity,
-      fog,
-      sunDir,
-      sunColor,
-      sky,
+      this.fogScratch,
+      this.sunDirScratch,
+      this.sunColorScratch,
+      this.skyScratch,
       frame.dt,
       frame.sandColorHex,
     );

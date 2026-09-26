@@ -95,7 +95,14 @@ export function configureSurfaceMaterial(
   material.metalness = Math.min(material.metalness, 0.22);
   material.roughness = Math.max(material.roughness, 0.4);
   material.envMapIntensity = material.envMapIntensity || 0.55;
-  if (material.map) material.map.colorSpace = THREE.SRGBColorSpace;
+  if (material.map) {
+    material.map.colorSpace = THREE.SRGBColorSpace;
+    material.map.anisotropy = 4;
+  }
+  if (material.normalMap) material.normalMap.anisotropy = 4;
+  if (material.roughnessMap) material.roughnessMap.anisotropy = 4;
+  if (material.metalnessMap) material.metalnessMap.anisotropy = 4;
+  if (material.aoMap) material.aoMap.anisotropy = 4;
   if (material instanceof THREE.MeshPhysicalMaterial) {
     material.transmission = 0;
     material.anisotropy = 0;

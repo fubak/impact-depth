@@ -62,6 +62,7 @@ export class Seabed {
     const verts = (segments + 1) * (segments + 1);
     const positions = new Float32Array(verts * 3);
     const colors = new Float32Array(verts * 3);
+    const uvs = new Float32Array(verts * 2);
     const indices: number[] = [];
 
     for (let iz = 0; iz <= segments; iz++) {
@@ -87,6 +88,7 @@ export class Seabed {
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     this.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    this.geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     this.geometry.setIndex(indices);
 
     this.material = new THREE.MeshStandardMaterial({
@@ -125,6 +127,7 @@ export class Seabed {
     this.originZ = oz;
     const pos = this.geometry.attributes.position as THREE.BufferAttribute;
     const col = this.geometry.attributes.color as THREE.BufferAttribute;
+    const uv = this.geometry.attributes.uv as THREE.BufferAttribute;
     const sand = new THREE.Color(sandHex).multiplyScalar(0.92);
     const dark = sand.clone().multiplyScalar(0.78);
     const reef = new THREE.Color(0x4a8870).lerp(sand, 0.4);
@@ -140,8 +143,10 @@ export class Seabed {
 
       const c = seabedAlbedoColor(wx, wz, y, sand, dark, reef, deepTeal);
       col.setXYZ(i, c.r, c.g, c.b);
+      uv.setXY(i, wx / this.size, wz / this.size);
     }
     pos.needsUpdate = true;
+    uv.needsUpdate = true;
     col.needsUpdate = true;
     this.geometry.computeVertexNormals();
   }

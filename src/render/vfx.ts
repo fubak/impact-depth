@@ -47,12 +47,18 @@ function createRadialTexture(): THREE.Texture {
   return tex;
 }
 
+const WAKE_MIN_INTERVAL = 1 / 30;
+const MAX_STEP = 0.25;
+
 /** Fixed-size visual-only pool; effects are never written back to game state. */
 export class VfxPool {
   readonly group = new THREE.Group();
   private readonly particles: Particle[] = [];
+  private readonly free: THREE.Sprite[] = [];
+  private readonly lastEmit = new Map<string, number>();
   private readonly texture: THREE.Texture;
   private cap: number;
+  private lastNow: number | undefined;
 
   constructor(cap = 120) {
     this.cap = cap;
@@ -60,8 +66,14 @@ export class VfxPool {
     this.group.name = 'vfx-pool';
   }
 
-  emit(kind: EffectKind, position: THREE.Vector3, now: number): void {
-    if (this.particles.length >= this.cap) this.remove(this.particles[0]!);
+  /** Optional `key` throttles wake emission per source to ~30 Hz. */
+  emit(kind: EffectKind, position: THREE.Vector3, now: number, key?: string): void {
+    if (key !== undefined && kind === 'wake') {
+      const last = this.lastEmit.get(key);
+      if (last !== undefined && now >= last && now - last < WAKE_MIN_INTERVAL) return;
+      this.lastEmit.set(key, now);
+    }
+    if (this.particles.length >= this.cap) this.evictOne();
     const color =
       kind === 'explosion'
         ? 0xffa33b
@@ -71,15 +83,10 @@ export class VfxPool {
             ? 0x9ce9c0
             : 0xe8fbff;
     const baseScale = kind === 'wake' ? 0.4 : 1.1;
-    const material = new THREE.SpriteMaterial({
-      map: this.texture,
-      color,
-      transparent: true,
-      opacity: kind === 'wake' ? 0.36 : 0.82,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const sprite = new THREE.Sprite(material);
+    const sprite = this.free.pop() ?? this.createSprite();
+    const material = sprite.material as THREE.SpriteMaterial;
+    material.color.setHex(color);
+    material.opacity = kind === 'wake' ? 0.36 : 0.82;
     sprite.position.copy(position);
     sprite.scale.setScalar(baseScale);
     this.group.add(sprite);
@@ -100,32 +107,56 @@ export class VfxPool {
 
   setCap(cap: number): void {
     this.cap = cap;
-    while (this.particles.length > cap) this.remove(this.particles[0]!);
+    while (this.particles.length > cap) this.evictOne();
   }
 
   update(now: number): void {
-    for (const particle of [...this.particles]) {
+    const dt = this.lastNow === undefined ? 0 : Math.min(MAX_STEP, Math.max(0, now - this.lastNow));
+    this.lastNow = now;
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const particle = this.particles[i]!;
       const life = (now - particle.born) / particle.ttl;
       if (life >= 1) {
-        this.remove(particle);
+        this.removeAt(i);
         continue;
       }
       particle.sprite.scale.setScalar(
         particle.baseScale * (1 + life * (particle.kind === 'plume' ? 5 : 3)),
       );
-      particle.sprite.position.y += particle.kind === 'plume' ? 0.018 : 0.004;
+      particle.sprite.position.y += (particle.kind === 'plume' ? 1.08 : 0.24) * dt;
       (particle.sprite.material as THREE.SpriteMaterial).opacity = (1 - life) * 0.7;
     }
+    for (const [key, t] of this.lastEmit) if (now - t > 2 || t > now) this.lastEmit.delete(key);
   }
 
   dispose(): void {
-    for (const particle of [...this.particles]) this.remove(particle);
+    while (this.particles.length > 0) this.removeAt(this.particles.length - 1);
+    for (const sprite of this.free) (sprite.material as THREE.Material).dispose();
+    this.free.length = 0;
     this.texture.dispose();
   }
 
-  private remove(particle: Particle): void {
+  private createSprite(): THREE.Sprite {
+    return new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: this.texture,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+  }
+
+  /** Oldest wake first so explosions/plumes survive wake floods; else oldest overall. */
+  private evictOne(): void {
+    const wake = this.particles.findIndex((p) => p.kind === 'wake');
+    this.removeAt(wake >= 0 ? wake : 0);
+  }
+
+  private removeAt(index: number): void {
+    const [particle] = this.particles.splice(index, 1);
+    if (!particle) return;
     this.group.remove(particle.sprite);
-    (particle.sprite.material as THREE.Material).dispose();
-    this.particles.splice(this.particles.indexOf(particle), 1);
+    this.free.push(particle.sprite);
   }
 }

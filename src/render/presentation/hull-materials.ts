@@ -67,9 +67,12 @@ export function applyHullPresentation(
   material: THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial,
   presentation: HullPresentation,
 ): void {
+  const previousTransparent = material.transparent;
   restoreMaterialBaseline(material);
   const peri = presentation.peri;
   material.transparent = peri;
+  // r185 bakes opaque/transparent into the program key; a flip needs a recompile.
+  if (material.transparent !== previousTransparent) material.needsUpdate = true;
   material.opacity = peri ? 0.35 : 1;
   material.depthWrite = !peri;
   material.metalness = Math.min(material.metalness, 0.18);

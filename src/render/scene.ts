@@ -728,6 +728,7 @@ export class GameScene {
           p.z - Math.sin(torpedo.heading),
         ),
         game.time,
+        `torpedo:${torpedo.id}`,
       );
     }
     for (const charge of game.depthCharges) {

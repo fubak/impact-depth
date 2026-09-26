@@ -50,6 +50,21 @@ describe('hull material baselines', () => {
     expect((b.material as THREE.MeshStandardMaterial).transparent).toBe(false);
   });
 
+  it('bumps material.version only when periscope transparency actually flips', () => {
+    const material = standard();
+    const step = (peri: boolean): number => {
+      const before = material.version;
+      applyHullPresentation(material, { peri, depthMetres: 3 });
+      return material.version - before;
+    };
+    expect(step(false)).toBe(0);
+    expect(step(true)).toBe(1);
+    expect(step(true)).toBe(0);
+    expect(step(false)).toBe(1);
+    expect(step(false)).toBe(0);
+    expect(step(true)).toBe(1);
+  });
+
   it('does not bake cyan self-light into imported hulls', () => {
     const material = standard();
     configureSurfaceMaterial(material);

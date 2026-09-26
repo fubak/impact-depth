@@ -36,6 +36,8 @@ export class CameraRig {
   private readonly desiredPos = new THREE.Vector3();
   private readonly currentPos = new THREE.Vector3();
   private readonly lookAt = new THREE.Vector3();
+  private readonly desiredLook = new THREE.Vector3();
+  private snapLook = true;
   private readonly projectScratch = new THREE.Vector3();
   private activeMode: ViewMode = 'tactical';
   readonly raycaster = new THREE.Raycaster();
@@ -54,6 +56,7 @@ export class CameraRig {
 
   setMode(mode: ViewMode): void {
     this.activeMode = mode;
+    this.snapLook = true;
     const next = mode === 'map' ? this.mapCamera : this.perspective;
     if (this.camera !== next) {
       this.currentPos.copy(this.camera.position);
@@ -120,7 +123,7 @@ export class CameraRig {
       const z =
         this.target.z + Math.cos(this.orbitTheta) * Math.sin(this.orbitPhi) * this.orbitRadius;
       this.desiredPos.set(x, y, z);
-      this.lookAt.copy(this.target);
+      this.desiredLook.copy(this.target);
     } else if (this.activeMode === 'chase') {
       const stern = -12;
       this.desiredPos.set(
@@ -128,14 +131,14 @@ export class CameraRig {
         pivotY + 2.6,
         v.z + Math.sin(v.heading) * stern,
       );
-      this.lookAt.copy(this.target);
+      this.desiredLook.copy(this.target);
       const locked = sim.selectedTargetId
         ? sim.ships.find((ship) => ship.id === sim.selectedTargetId)
         : undefined;
       if (locked) {
-        this.lookAt.x = v.x * 0.7 + locked.x * 0.3;
-        this.lookAt.z = v.z * 0.7 + locked.z * 0.3;
-        this.lookAt.y = pivotY;
+        this.desiredLook.x = v.x * 0.7 + locked.x * 0.3;
+        this.desiredLook.z = v.z * 0.7 + locked.z * 0.3;
+        this.desiredLook.y = pivotY;
       }
     } else if (this.activeMode === 'bridge') {
       this.desiredPos.set(
@@ -143,7 +146,11 @@ export class CameraRig {
         hullY + 3.2,
         v.z + Math.sin(v.heading) * 0.9,
       );
-      this.lookAt.set(v.x + Math.cos(v.heading) * 90, hullY + 1.4, v.z + Math.sin(v.heading) * 90);
+      this.desiredLook.set(
+        v.x + Math.cos(v.heading) * 90,
+        hullY + 1.4,
+        v.z + Math.sin(v.heading) * 90,
+      );
     } else if (this.activeMode === 'periscope') {
       // Mast/optic tracks the hull + mast reach. Sampled water is for immersion
       // hysteresis only — do not pin the eye above crests.
@@ -166,7 +173,7 @@ export class CameraRig {
         lookDist = Math.max(12, Math.hypot(dx, dz));
         lookY = -locked.depth + 2.2 + Math.sin(this.periPitch) * 12 + v.pitch * 4;
       }
-      this.lookAt.set(
+      this.desiredLook.set(
         v.x + Math.cos(heading) * lookDist,
         lookY,
         v.z + Math.sin(heading) * lookDist,
@@ -174,10 +181,10 @@ export class CameraRig {
       this.camera.rotation.order = 'YXZ';
     } else if (this.activeMode === 'map') {
       this.desiredPos.set(v.x, 150, v.z);
-      this.lookAt.set(v.x, 0, v.z);
+      this.desiredLook.set(v.x, 0, v.z);
     } else {
       this.desiredPos.set(v.x, 95, v.z + 0.01);
-      this.lookAt.set(v.x, 0, v.z);
+      this.desiredLook.set(v.x, 0, v.z);
     }
 
     if (this.activeMode !== 'map' && presentation?.sampleTerrainY) {
@@ -193,6 +200,13 @@ export class CameraRig {
     if (this.activeMode !== 'map' && presentation?.sampleTerrainY) {
       const bed = presentation.sampleTerrainY(this.currentPos.x, this.currentPos.z);
       this.currentPos.y = clampCameraAboveTerrain(this.currentPos.y, bed);
+    }
+    if (this.snapLook || this.activeMode === 'map') {
+      this.lookAt.copy(this.desiredLook);
+      this.snapLook = false;
+    } else {
+      const kl = 1 - Math.exp(-(this.activeMode === 'periscope' ? 9 : 5.5) * dt);
+      this.lookAt.lerp(this.desiredLook, kl);
     }
     this.camera.position.copy(this.currentPos);
     const lightning = presentation?.lightning ?? 0;

@@ -70,6 +70,26 @@ export function evaluateAtmosphere(settings: AtmosphereSettings): AtmosphereStat
   return { sunDir, sunColor, moonDir, fogColor, skyTop, skyHorizon, ambient, isNight };
 }
 
+const SHADOW_TEXEL = 280 / 2048;
+const _right = new THREE.Vector3();
+const _up = new THREE.Vector3();
+
+/** Snap a world point to the shadow map texel grid in light space (keeps depth axis). */
+export function snapToShadowTexel(
+  point: THREE.Vector3,
+  lightDir: THREE.Vector3,
+  texel = SHADOW_TEXEL,
+): THREE.Vector3 {
+  const ref = Math.abs(lightDir.y) > 0.99 ? _up.set(1, 0, 0) : _up.set(0, 1, 0);
+  _right.crossVectors(ref, lightDir).normalize();
+  const upAxis = new THREE.Vector3().crossVectors(lightDir, _right).normalize();
+  const px = point.dot(_right);
+  const py = point.dot(upAxis);
+  const dx = Math.round(px / texel) * texel - px;
+  const dy = Math.round(py / texel) * texel - py;
+  return point.clone().addScaledVector(_right, dx).addScaledVector(upAxis, dy);
+}
+
 export class Atmosphere {
   readonly group = new THREE.Group();
   readonly hemi: THREE.HemisphereLight;
@@ -90,6 +110,9 @@ export class Atmosphere {
   private followZ = 0;
   private lastSunDir = new THREE.Vector3(0.4, 0.8, 0.2);
   private cloudTime = 0;
+  private readonly fog = new THREE.FogExp2(0xffffff, 0.001);
+  private readonly background = new THREE.Color();
+  private readonly snapped = new THREE.Vector3();
 
   constructor() {
     this.hemi = new THREE.HemisphereLight(0xd8f0ff, 0x5a9a78, 0.72);
@@ -273,8 +296,12 @@ export class Atmosphere {
     const state = evaluateAtmosphere(settings);
     this.cloudTime += dt;
     const fogDensity = presentation?.fogDensity ?? settings.fogDensity;
-    scene.background = state.skyHorizon.clone();
-    scene.fog = new THREE.FogExp2(state.fogColor.getHex(), fogDensity);
+    this.background.copy(state.skyHorizon);
+    scene.background = this.background;
+    this.fog.color.copy(state.fogColor);
+    // Reassert every frame: OutdoorLighting.update scales fog.density in place.
+    this.fog.density = fogDensity;
+    scene.fog = this.fog;
     scene.environmentIntensity = state.isNight ? 0.28 : 0.62;
 
     const flash = Math.max(0, presentation?.lightning ?? 0);
@@ -287,18 +314,13 @@ export class Atmosphere {
 
     this.lastSunDir.copy(state.sunDir);
     const intensityScale = settings.sunIntensity ?? 1;
-    this.sun.position.set(
-      this.followX + state.sunDir.x * 140,
-      state.sunDir.y * 140,
-      this.followZ + state.sunDir.z * 140,
-    );
+    this.placeSun(this.followX, this.followZ);
     this.sun.intensity = state.isNight
       ? 0.22 * intensityScale
       : (1.35 + Math.max(0, state.sunDir.y) * 1.8) * intensityScale;
     this.sun.color.copy(state.sunColor);
-    this.sun.castShadow = !state.isNight && state.sunDir.y > 0.1;
-    this.sun.target.position.set(this.followX, 0, this.followZ);
-    this.sun.target.updateMatrixWorld();
+    // castShadow stays true (toggling recompiles lit materials); fade instead.
+    this.sun.shadow.intensity = state.isNight ? 0 : smoothstep(0.02, 0.12, state.sunDir.y);
 
     this.moon.position.set(
       this.followX + state.moonDir.x * 110,
@@ -356,6 +378,18 @@ export class Atmosphere {
     return state;
   }
 
+  private placeSun(x: number, z: number): void {
+    const d = this.lastSunDir;
+    this.snapped.copy(snapToShadowTexel(this.snapped.set(x, 0, z), d));
+    this.sun.target.position.copy(this.snapped);
+    this.sun.position.set(
+      this.snapped.x + d.x * 140,
+      this.snapped.y + d.y * 140,
+      this.snapped.z + d.z * 140,
+    );
+    this.sun.target.updateMatrixWorld();
+  }
+
   reset(): void {
     this.cloudTime = 0;
   }
@@ -365,13 +399,7 @@ export class Atmosphere {
     this.followZ = z;
     this.sky.position.set(x, 0, z);
     this.clouds.position.set(x, 0, z);
-    this.sun.position.set(
-      x + this.lastSunDir.x * 140,
-      this.lastSunDir.y * 140,
-      z + this.lastSunDir.z * 140,
-    );
-    this.sun.target.position.set(x, 0, z);
-    this.sun.target.updateMatrixWorld();
+    this.placeSun(x, z);
 
     this.fill.position.set(
       x - this.lastSunDir.x * 90,

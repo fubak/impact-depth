@@ -36,9 +36,9 @@ export class RendererHost {
   private contextStatus: 'ready' | 'lost' | 'restoring' | 'failed' = 'ready';
   private recoveryHandler: ((signal: AbortSignal) => Promise<void>) | null = null;
   private statusHandler:
-    | ((status: 'ready' | 'lost' | 'restoring' | 'failed', reason?: string) => void)
-    | null = null;
+    ((status: 'ready' | 'lost' | 'restoring' | 'failed', reason?: string) => void) | null = null;
   private recoveryAbort: AbortController | null = null;
+  private lastQualityProfile: QualityProfile | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -84,6 +84,12 @@ export class RendererHost {
     this.statusHandler?.('restoring');
     configureWebGlRenderer(this.renderer);
     disableShadowsOnSoftwareRenderer(this.renderer);
+    // Re-apply the last quality profile settings after renderer configuration
+    if (this.lastQualityProfile) {
+      this.renderer.shadowMap.enabled = this.lastQualityProfile.shadows;
+      this.shadowCadence = Math.max(1, this.lastQualityProfile.shadowCadence);
+      this.renderer.shadowMap.autoUpdate = this.shadowCadence === 1;
+    }
     void (this.recoveryHandler?.(abort.signal) ?? Promise.resolve())
       .then(() => {
         if (abort.signal.aborted) return;
@@ -106,6 +112,7 @@ export class RendererHost {
 
   setQuality(profile: QualityProfile): void {
     if (this.maxDpr === profile.dpr && this.renderer.shadowMap.enabled === profile.shadows) return;
+    this.lastQualityProfile = profile;
     this.maxDpr = profile.dpr;
     this.renderer.shadowMap.enabled = profile.shadows;
     this.shadowCadence = Math.max(1, profile.shadowCadence);
