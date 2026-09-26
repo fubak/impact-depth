@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import manifest from '../../public/assets/manifest.json';
-import { GameAudio, mapEngineMix } from '../../src/game/audio/audio';
+import { GameAudio, cueDistanceGain, mapEngineMix } from '../../src/game/audio/audio';
 import type { GamePhase, GameState } from '../../src/game/sim/types';
 
 const shippedWavs = Object.keys(import.meta.glob('../../public/assets/audio/*.wav', { eager: true })).map(
@@ -496,6 +496,86 @@ describe('GameAudio continuous engine layer', () => {
     expect(live).toHaveLength(1);
     expect(live[0]?.kind).toBe('buffer');
     expect(live[0]?.loop).toBe(true);
+  });
+});
+
+function toneGains(nodes: MockNode[], frequency?: number): number[] {
+  return nodes
+    .filter(
+      (n) =>
+        n.kind === 'oscillator' &&
+        n.start.mock.calls.length > 0 &&
+        (frequency === undefined || n.frequency.value === frequency),
+    )
+    .map((n) => n.destination?.gain.setValueAtTime.mock.calls[0]?.[0] as number)
+    .filter((g) => typeof g === 'number');
+}
+
+describe('GameAudio combat cues', () => {
+  let mocks: ReturnType<typeof installAudioMocks>;
+
+  beforeEach(() => {
+    mocks = installAudioMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('plays a nearby hit louder than a distant one so proximity reads as danger', () => {
+    const audio = new GameAudio();
+    audio.unlock();
+    audio.playCue('hit', { distance: 5 });
+    audio.playCue('hit', { distance: 60 });
+    const [near, far] = toneGains(mocks.nodes, 90);
+    expect(near).toBeGreaterThan(far as number);
+    expect(cueDistanceGain(5)).toBeGreaterThan(cueDistanceGain(60));
+  });
+
+  it('scales cue loudness by intensity', () => {
+    const audio = new GameAudio();
+    audio.unlock();
+    audio.playCue('launch', { intensity: 1 });
+    audio.playCue('launch', { intensity: 0.25 });
+    const [loud, soft] = toneGains(mocks.nodes, 120);
+    expect(loud).toBeGreaterThan(soft as number);
+  });
+
+  it('plays one explosion when observe and playCue(sink) fire in the same frame', () => {
+    const audio = new GameAudio();
+    audio.unlock();
+    const before = createPlayingState();
+    audio.observe(before);
+    const oscBefore = mocks.context.createOscillator.mock.calls.length;
+    audio.playCue('sink');
+    const after = createPlayingState();
+    (after.stats as { shipsSunk: number }).shipsSunk = 1;
+    audio.observe(after);
+    expect(mocks.context.createOscillator.mock.calls.length - oscBefore).toBe(1);
+  });
+
+  it('still plays observe explosion when no cue preceded it', () => {
+    const audio = new GameAudio();
+    audio.unlock();
+    audio.observe(createPlayingState());
+    const oscBefore = mocks.context.createOscillator.mock.calls.length;
+    const after = createPlayingState();
+    (after.stats as { shipsSunk: number }).shipsSunk = 1;
+    audio.observe(after);
+    expect(mocks.context.createOscillator.mock.calls.length - oscBefore).toBe(1);
+  });
+
+  it('setTension(1) raises the pulse gain and returns it to zero at setTension(0)', () => {
+    const audio = new GameAudio();
+    audio.unlock();
+    audio.setTension(0);
+    audio.setTension(1);
+    const pulse = mocks.nodes.find((n) => n.kind === 'oscillator' && n.frequency.value === 55);
+    expect(pulse).toBeDefined();
+    const pulseGain = pulse?.destination as MockNode;
+    expect(lastRampTarget(pulseGain.gain)).toBeGreaterThan(0);
+    audio.setTension(0);
+    expect(lastRampTarget(pulseGain.gain)).toBe(0);
   });
 });
 
