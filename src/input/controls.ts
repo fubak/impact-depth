@@ -17,6 +17,7 @@ export type InputCallbacks = {
   togglePanel: () => void;
   orbit: (dx: number, dy: number) => void;
   periLook: (dx: number, dy: number) => void;
+  bridgeLook: (dx: number, dy: number) => void;
   zoom: (delta: number) => void;
   getViewMode: () => ViewMode;
   interact: (button: 0 | 2, x: number, y: number) => void;
@@ -78,8 +79,10 @@ export class InputController {
       if (Math.abs(dx) + Math.abs(dy) > 3) this.pointerMoved = true;
       this.lastX = e.clientX;
       this.lastY = e.clientY;
-      if (this.cb.getViewMode() === 'periscope') this.cb.periLook(dx, dy);
-      else if (this.cb.getViewMode() === 'tactical') this.cb.orbit(dx, dy);
+      const mode = this.cb.getViewMode();
+      if (mode === 'periscope') this.cb.periLook(dx, dy);
+      else if (mode === 'bridge') this.cb.bridgeLook(dx, dy);
+      else this.cb.orbit(dx, dy);
     };
     this.onPointerUp = (e) => {
       // Only canvas drags become world clicks. HUD buttons must not also plot a
@@ -97,10 +100,8 @@ export class InputController {
     };
     target.addEventListener('contextmenu', (e) => e.preventDefault());
     this.onWheel = (e) => {
-      if (this.cb.getViewMode() === 'tactical') {
-        e.preventDefault();
-        this.cb.zoom(e.deltaY);
-      }
+      e.preventDefault();
+      this.cb.zoom(e.deltaY);
     };
 
     window.addEventListener('keydown', this.onKeyDown);

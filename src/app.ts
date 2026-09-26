@@ -177,6 +177,7 @@ export class App {
       togglePanel: () => this.panel.toggle(),
       orbit: (dx, dy) => this.cameras.orbit(dx, dy),
       periLook: (dx, dy) => this.cameras.periLook(dx, dy),
+      bridgeLook: (dx, dy) => this.cameras.bridgeLook(dx, dy),
       zoom: (d) => this.cameras.zoom(d),
       getViewMode: () => this.sim.viewMode,
       interact: (button, x, y) => this.handleWorldInteraction(button, x, y),
