@@ -64,6 +64,46 @@ describe('torpedo impact and tactics', () => {
     expect(alertedEscort.holdContact).toBeGreaterThan(0);
   });
 
+  it('each sinking salvages one Mk-14 up to the magazine limit', () => {
+    let state = startMission(createGame(19));
+    const doomed = state.ships[0]!;
+    state = {
+      ...state,
+      submarine: { ...state.submarine, torpedoes: 3 },
+      ships: state.ships.map((s) => (s.id === doomed.id ? { ...s, sinking: 0.001 } : s)),
+    };
+    state = updateGame(state, [], FIXED_DT);
+    expect(state.submarine.torpedoes).toBe(4);
+    state = {
+      ...state,
+      submarine: { ...state.submarine, torpedoes: state.submarine.maxTorpedoes },
+      ships: state.ships.map((s, i) => (i === 0 ? { ...s, sinking: 0.001 } : s)),
+    };
+    state = updateGame(state, [], FIXED_DT);
+    expect(state.submarine.torpedoes).toBe(state.submarine.maxTorpedoes);
+  });
+
+  it('a fresh hull survives an escort\'s opening hedgehog volley so the player can react', () => {
+    let state = startMission(createGame(19));
+    const escort = state.ships.find((s) => s.kind === 'cruiser')!;
+    state = {
+      ...state,
+      ships: state.ships.map((s) =>
+        s.id === escort.id
+          ? { ...s, x: state.submarine.x + 0.8, y: state.submarine.y, alert: 1, holdContact: 8, weaponCooldown: 0 }
+          : { ...s, x: s.x + 200, y: s.y + 200 },
+      ),
+      submarine: { ...state.submarine, invuln: 0, hp: 100, noise: 0.6, silentRunning: false },
+    };
+    let minHp = state.submarine.hp;
+    for (let i = 0; i < Math.ceil(4 / FIXED_DT); i++) {
+      state = updateGame(state, [], FIXED_DT);
+      minHp = Math.min(minHp, state.submarine.hp);
+    }
+    expect(minHp).toBeLessThan(100);
+    expect(minHp).toBeGreaterThan(75);
+  });
+
   it('ambush autopilot closes range and can fire a shot', () => {
     let state = startMission(createGame(19));
     state = setDepthOrder(state, 'periscope');
