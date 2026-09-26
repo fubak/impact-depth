@@ -7,6 +7,21 @@ export function dropHeldKeys(keys: Set<string>): void {
   keys.clear();
 }
 
+/**
+ * A press is a click when the pointer comes up within `threshold` pixels of
+ * where it went down. Intermediate jitter must not cancel that click.
+ * A real drag (orbit) ends farther away and must not plot a waypoint.
+ */
+export function pointerUpIsClick(
+  downX: number,
+  downY: number,
+  upX: number,
+  upY: number,
+  threshold = 3,
+): boolean {
+  return Math.hypot(upX - downX, upY - downY) <= threshold;
+}
+
 /** Canvas-drag click only — HUD pointerups must not become world picks/plots. */
 export function shouldDispatchWorldInteract(
   dragging: boolean,
@@ -35,7 +50,8 @@ export class InputController {
   private dragging = false;
   private lastX = 0;
   private lastY = 0;
-  private pointerMoved = false;
+  private downX = 0;
+  private downY = 0;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
   private readonly onKeyUp: (e: KeyboardEvent) => void;
   private readonly onPointerDown: (e: PointerEvent) => void;
@@ -82,16 +98,16 @@ export class InputController {
       );
       if (tag) return;
       this.dragging = true;
+      this.downX = e.clientX;
+      this.downY = e.clientY;
       this.lastX = e.clientX;
       this.lastY = e.clientY;
-      this.pointerMoved = false;
       this.target.setPointerCapture?.(e.pointerId);
     };
     this.onPointerMove = (e) => {
       if (!this.dragging) return;
       const dx = e.clientX - this.lastX;
       const dy = e.clientY - this.lastY;
-      if (Math.abs(dx) + Math.abs(dy) > 3) this.pointerMoved = true;
       this.lastX = e.clientX;
       this.lastY = e.clientY;
       const mode = this.cb.getViewMode();
@@ -102,11 +118,11 @@ export class InputController {
     this.onPointerUp = (e) => {
       // Only canvas drags become world clicks. HUD buttons must not also plot a
       // waypoint under the cursor (that was overwriting Ambush/Stalk on the same click).
-      if (shouldDispatchWorldInteract(this.dragging, this.pointerMoved, e.button)) {
+      const dragged = !pointerUpIsClick(this.downX, this.downY, e.clientX, e.clientY);
+      if (shouldDispatchWorldInteract(this.dragging, dragged, e.button)) {
         this.cb.interact(e.button as 0 | 2, e.clientX, e.clientY);
       }
       this.dragging = false;
-      this.pointerMoved = false;
       try {
         this.target.releasePointerCapture?.(e.pointerId);
       } catch {

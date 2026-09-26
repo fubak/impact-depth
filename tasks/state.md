@@ -4,10 +4,13 @@
 > Longer claims ledger: `docs/release/solo-production-status.md`  
 > Persistent notes: `memory/MEMORY.md`
 
-## Plan 025 — planned after fresh review, 2026-09-26
+## Plan 025 — Phase 1 local evidence 2026-09-26
 
-**Current next action:** execute Phase 1 of [Plan 025](../plans/025-action-mission-completion-and-release-proof.md).
-This supersedes older resume instructions below. Planning only; no implementation phase is complete.
+**Current next action:** Phase 2 of [Plan 025](../plans/025-action-mission-completion-and-release-proof.md) after this phase's CI run is green. Do not start Phase 2 in the same session.
+
+Phase 1: canvas clicks use a real mouse event because `locator.click` stalls on `#scene` after scrolling. A click that ends within 3px of the press still plots; a drag does not. Three consecutive patrol E2E runs on `http://127.0.0.1:8105/` passed all 7 journeys. Pages checks out the CI `head_sha`, writes `dist/BUILD_SHA`, and does not publish a stale or failed run. Notes: [plan-025-phase1.md](../docs/release/plan-025-phase1.md).
+
+## Plan 025 — review context (planning record)
 
 The [independent review of merged cf0ab5a](../docs/release/plan-025-fresh-review.md)
 passed verify (651 tests), build, and assets. Local patrol E2E failed targeting/fire

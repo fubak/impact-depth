@@ -24,15 +24,15 @@ Execute one phase per session. Stay in this plan until its engineering work is c
 
 ## Baseline and evidence limits
 
-| Check | Observed at baseline | Required interpretation |
-| --- | --- | --- |
-| Verify/build/assets | 651 tests, 116 files; typecheck/lint/build/assets passed | Re-run after implementation; these do not replace browser proof |
-| Patrol E2E | Local targeting/fire PLOT timeout; CI targeting/fire canvas-click timeout | Same failing journey, root cause not established; later local journeys untested |
-| Pages | Skipped following red CI | Correctly withheld; checkout still needs exact-revision binding |
-| Evade | Seeds 1/7/19/42/91 survived at 100 HP | Preserve this sample and broaden only for specific risks |
-| Exfil | Four seeds arrived; seed 7 still 31.67 units away at 180 s, 9.64 HP | Arrival is not yet reliable under the sampled combat conditions |
-| Strike | Command-only probe won in 20.33 s, four shots, 100 HP | Perfect inputs plus hidden exit coordinates; not human pacing evidence |
-| Existing strike test | Teleports to exit; reports 8.9 s victory | Retain only as an isolated victory-rule test if renamed; not mission proof |
+| Check                | Observed at baseline                                                      | Required interpretation                                                         |
+| -------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Verify/build/assets  | 651 tests, 116 files; typecheck/lint/build/assets passed                  | Re-run after implementation; these do not replace browser proof                 |
+| Patrol E2E           | Local targeting/fire PLOT timeout; CI targeting/fire canvas-click timeout | Same failing journey, root cause not established; later local journeys untested |
+| Pages                | Skipped following red CI                                                  | Correctly withheld; checkout still needs exact-revision binding                 |
+| Evade                | Seeds 1/7/19/42/91 survived at 100 HP                                     | Preserve this sample and broaden only for specific risks                        |
+| Exfil                | Four seeds arrived; seed 7 still 31.67 units away at 180 s, 9.64 HP       | Arrival is not yet reliable under the sampled combat conditions                 |
+| Strike               | Command-only probe won in 20.33 s, four shots, 100 HP                     | Perfect inputs plus hidden exit coordinates; not human pacing evidence          |
+| Existing strike test | Teleports to exit; reports 8.9 s victory                                  | Retain only as an isolated victory-rule test if renamed; not mission proof      |
 
 Checked-in JSON probes accompany the review. Treat new numerical design targets below as provisional test goals, not measured facts or release claims.
 
@@ -40,14 +40,14 @@ Checked-in JSON probes accompany the review. Treat new numerical design targets 
 
 **Primary files:** `scripts/e2e-patrol.mjs`, input/world interaction modules, `src/app.ts`, `.github/workflows/ci.yml` and `.github/workflows/pages.yml`.
 
-- [ ] Reproduce targeting/fire against a production preview. Capture browser/version, viewport, camera, canvas bounds, pointer coordinates, resolved world hit, command dispatch, resulting waypoint, navigation events, trace, and screenshot on failure. Keep diagnostic output bounded and free of secrets.
-- [ ] Separate click-delivery/navigation waiting problems from missing world-interaction commands and incorrect water-plane projection. Fix the proven cause; do not merely increase timeouts, use forced clicks, suppress navigation waits without explanation, or skip the assertion.
-- [ ] Preserve HUD click isolation: buttons must not plot a course. Validate water plotting and target selection in the supported gameplay views, including after camera switches and resize.
-- [ ] Run every existing patrol journey. Once green, perform three consecutive complete runs on the fixed revision to establish that the repaired intermittent path is stable; record all attempts, not only the successful one. Repeat this diagnostic series only if subsequent changes affect the path or a failure recurs.
-- [ ] For automatic Pages runs, check out the successful CI run's `head_sha` or publish its already-built artifact. Assert artifact/build SHA equals the successful CI SHA. Preserve repository Pages base-path handling.
-- [ ] For manual dispatch, validate the selected revision with the same required gates before publishing, or require evidence from a successful run for exactly that revision. Do not leave manual dispatch as an unvalidated bypass.
-- [ ] Prevent an older completed run from replacing a newer deployment: check freshness and serialize deployment appropriately. Document the intended behavior when commits A and B overlap and finish out of order.
-- [ ] Verify failed/cancelled CI cannot deploy; test A/B revision selection through workflow fixtures or a controlled branch exercise, without publishing an untested build.
+- [x] Reproduce targeting/fire against a production preview. Capture browser/version, viewport, camera, canvas bounds, pointer coordinates, resolved world hit, command dispatch, resulting waypoint, navigation events, trace, and screenshot on failure. Keep diagnostic output bounded and free of secrets.
+- [x] Separate click-delivery/navigation waiting problems from missing world-interaction commands and incorrect water-plane projection. Fix the proven cause; do not merely increase timeouts, use forced clicks, suppress navigation waits without explanation, or skip the assertion.
+- [x] Preserve HUD click isolation: buttons must not plot a course. Validate water plotting and target selection in the supported gameplay views, including after camera switches and resize.
+- [x] Run every existing patrol journey. Once green, perform three consecutive complete runs on the fixed revision to establish that the repaired intermittent path is stable; record all attempts, not only the successful one. Repeat this diagnostic series only if subsequent changes affect the path or a failure recurs.
+- [x] For automatic Pages runs, check out the successful CI run's `head_sha` or publish its already-built artifact. Assert artifact/build SHA equals the successful CI SHA. Preserve repository Pages base-path handling.
+- [x] For manual dispatch, validate the selected revision with the same required gates before publishing, or require evidence from a successful run for exactly that revision. Do not leave manual dispatch as an unvalidated bypass.
+- [x] Prevent an older completed run from replacing a newer deployment: check freshness and serialize deployment appropriately. Document the intended behavior when commits A and B overlap and finish out of order.
+- [x] Verify failed/cancelled CI cannot deploy; test A/B revision selection through workflow fixtures or a controlled branch exercise, without publishing an untested build.
 
 **Exit:** all patrol journeys pass with useful failure diagnostics; the deployed artifact can be traced to its tested SHA; the CI failure cause and fix are documented. A green unit suite alone does not close this phase.
 
@@ -147,15 +147,15 @@ At each implementation phase exit, follow the repository contract: `npm ci`, `np
 
 Store generated diagnostics under ignored `artifacts/plan-025/phase-N/`. Check in concise, sanitized release reports and deterministic result JSON under `docs/release/`; do not commit browser profiles, huge traces, cookies, or raw environment data. Each report names its commit, environment, invocation, duration/time basis, outcome, limitations, and links to retained artifacts. Missing operator evidence stays PENDING.
 
-| Gate | Required evidence | Owner |
-| --- | --- | --- |
-| Input/release correctness | Complete browser journeys, diagnosed regression, exact-SHA artifact | Implementer + CI |
-| Firing/wreck rules | Boundary integration tests plus visible sinking | Implementer |
-| Mission completion | Command-only simulation and normal-input browser victory/retry | Implementer + CI |
-| Tutorial/UI | Actual exercises, viewport captures, newcomer observation | Implementer + playtester |
-| World/navigation | Factory matrix, five-seed arrival/progress results | Implementer |
-| Pacing/fun | Human session notes/recordings and explicit decision | Operator/playtesters |
-| Audio/art/GPU/soak | Existing plan-specific evidence and acceptance | Operator under 014/015/017/018 |
+| Gate                      | Required evidence                                                   | Owner                          |
+| ------------------------- | ------------------------------------------------------------------- | ------------------------------ |
+| Input/release correctness | Complete browser journeys, diagnosed regression, exact-SHA artifact | Implementer + CI               |
+| Firing/wreck rules        | Boundary integration tests plus visible sinking                     | Implementer                    |
+| Mission completion        | Command-only simulation and normal-input browser victory/retry      | Implementer + CI               |
+| Tutorial/UI               | Actual exercises, viewport captures, newcomer observation           | Implementer + playtester       |
+| World/navigation          | Factory matrix, five-seed arrival/progress results                  | Implementer                    |
+| Pacing/fun                | Human session notes/recordings and explicit decision                | Operator/playtesters           |
+| Audio/art/GPU/soak        | Existing plan-specific evidence and acceptance                      | Operator under 014/015/017/018 |
 
 ## Completion checklist
 
