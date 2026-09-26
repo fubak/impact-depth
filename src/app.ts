@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { loadSettings, saveSettings } from './core/settings';
 import { advanceAccumulator, FIXED_DT } from './core/sim';
 import type { LookDevSettings, SimState, ViewMode } from './core/types';
+import { deriveCombatEvents, type CombatEvent } from './game/adapt/combat-events';
 import { adaptToLookDevSim } from './game/adapt/lookdev';
 import type { GameCommand } from './game/commands/types';
 import {
@@ -89,6 +90,8 @@ export class App {
   private cinemaId: string | null = null;
   private cinemaSnap = false;
   private bootVisible = true;
+  private readonly combatLog: CombatEvent[] = [];
+  private errorCount = 0;
 
   constructor() {
     this.runtime = parseRuntimeSelection(window.location.search);
@@ -221,6 +224,39 @@ export class App {
 
   getAudioDiagnostics() {
     return this.audio.getDiagnostics();
+  }
+
+  /** Live patrol snapshot. `incoming` is the count of enemy torpedoes still running. */
+  getGameSummary() {
+    const sub = this.game.submarine;
+    return {
+      phase: this.game.phase,
+      wave: this.game.stats.wave,
+      time: this.game.time,
+      hp: sub.hp,
+      maxHp: sub.maxHp,
+      torpedoes: sub.torpedoes,
+      decoys: sub.decoys,
+      cmCharges: sub.cmCharges,
+      shipsSunk: this.game.stats.shipsSunk,
+      score: this.game.stats.score,
+      viewMode: this.game.viewMode,
+      ships: this.game.ships.map((ship) => ({
+        id: ship.id,
+        kind: ship.kind,
+        alert: ship.alert,
+        hp: ship.hp,
+        maxHp: ship.maxHp,
+        range: Math.hypot(ship.x - sub.x, ship.y - sub.y),
+      })),
+      incoming: this.game.torpedoes.filter((torpedo) => torpedo.owner === 'enemy').length,
+      errors: this.errorCount,
+    };
+  }
+
+  /** Newest combat cues, capped at 64. Oldest events drop first. */
+  getCombatEventLog(): CombatEvent[] {
+    return this.combatLog.slice();
   }
 
   getPresentationGauntlet() {
@@ -596,22 +632,24 @@ export class App {
     this.accum = tick.accum;
     const renderDt = tick.elapsedUsed;
 
+    const combat: CombatEvent[] = [];
     if (this.game.phase === 'playing') {
-      const sunkBefore = this.game.stats.shipsSunk;
       const chargesBefore = this.game.depthCharges.length;
       for (let i = 0; i < tick.steps; i++) {
+        const prev = this.game;
         const command: GameCommand = { type: 'helm', ...this.input.intent };
         this.game = updateGame(this.game, [command], FIXED_DT);
+        combat.push(...deriveCombatEvents(prev, this.game));
       }
-      if (this.game.stats.shipsSunk > sunkBefore) this.hitFreeze = 0.4;
-      if (chargesBefore > this.game.depthCharges.length) {
+      if (!this.reducedMotion && chargesBefore > this.game.depthCharges.length) {
         this.cameraShake = Math.max(this.cameraShake, 0.85);
-        this.scene.debugBurstPresentationFx();
       }
       this.sim = adaptToLookDevSim(this.game);
     }
 
     this.scene.syncGame(this.game, this.sim, this.settings, renderDt);
+    // Bursts share the sim clock: VfxPool.update ages particles with game.time.
+    this.presentCombat(combat, this.game.time);
     const cinema = this.cinemaPresentation();
     this.cameras.update(this.sim, renderDt, {
       lightning: this.scene.weatherLightning,
@@ -658,6 +696,75 @@ export class App {
 
     this.raf = requestAnimationFrame(this.frame);
   };
+
+  /** Dispatch one frame of fixed-step cues. `now` is sim seconds. */
+  private presentCombat(events: readonly CombatEvent[], now: number): void {
+    if (events.length > 0) {
+      this.combatLog.push(...events);
+      if (this.combatLog.length > 64) this.combatLog.splice(0, this.combatLog.length - 64);
+      this.applyCombatFeel(events);
+      for (const event of events) this.playCombatCue(event);
+    }
+    this.scene.playCombatEvents(events, now);
+    const alert = this.game.ships.reduce((max, ship) => Math.max(max, ship.alert), 0);
+    this.audio.setTension(this.game.phase === 'playing' ? alert : 0);
+  }
+
+  /** Hit shake 0.5, player-hit shake 0.9, sink freeze 0.4 s. All zero under reduced motion. */
+  private applyCombatFeel(events: readonly CombatEvent[]): void {
+    if (this.reducedMotion) return;
+    for (const event of events) {
+      if (event.type === 'torpedoHit') this.cameraShake = Math.max(this.cameraShake, 0.5);
+      else if (event.type === 'playerHit') this.cameraShake = Math.max(this.cameraShake, 0.9);
+      else if (event.type === 'shipSunk') this.hitFreeze = Math.max(this.hitFreeze, 0.4);
+    }
+  }
+
+  private playCombatCue(event: CombatEvent): void {
+    const sub = this.game.submarine;
+    const distanceOf = (x: number, y: number): number => Math.hypot(x - sub.x, y - sub.y);
+    switch (event.type) {
+      case 'torpedoLaunch':
+        this.audio.playCue(event.owner === 'enemy' ? 'incoming' : 'launch', {
+          distance: distanceOf(event.x, event.y),
+        });
+        return;
+      case 'torpedoHit':
+        this.audio.playCue('hit', { distance: distanceOf(event.x, event.y) });
+        return;
+      case 'shipSunk':
+        this.audio.playCue('sink', { distance: distanceOf(event.x, event.y) });
+        return;
+      case 'chargeBlast':
+        this.audio.playCue(event.near ? 'hullHit' : 'distantBoom', {
+          distance: distanceOf(event.x, event.y),
+        });
+        return;
+      case 'playerHit':
+        this.audio.playCue('hullHit');
+        return;
+      case 'countermeasure':
+        this.audio.playCue('decoy', { distance: distanceOf(event.x, event.y) });
+        return;
+      case 'waveStart':
+        this.audio.playCue('waveStart');
+        return;
+      case 'victory':
+        this.audio.playCue('victory');
+        return;
+      case 'gameover':
+        this.audio.playCue('gameover');
+        return;
+      case 'torpedoExpired':
+      case 'sonarPing':
+      case 'pickup':
+        return;
+      default: {
+        const unreachable: never = event;
+        return unreachable;
+      }
+    }
+  }
 
   dispose(): void {
     this.running = false;
