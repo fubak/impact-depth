@@ -30,7 +30,11 @@ import {
   formatSurfaceDiagnostics,
   type SurfaceDiagnostics,
 } from './presentation/surface-diagnostics';
-import { immersionFogFactor, updateImmersion } from './presentation/immersion';
+import {
+  immersionFogFactor,
+  playerUnderwaterSubject,
+  updateImmersion,
+} from './presentation/immersion';
 import {
   PROBE_CADENCE_HZ,
   PROBE_SPATIAL_TOLERANCE_M,
@@ -144,6 +148,8 @@ export class GameScene {
   private lastProbeIssueTime: number | null = null;
   private lastSurfaceDiagnostics: SurfaceDiagnostics | null = null;
   private immersionUnder = false;
+  private playerHullPeri = false;
+  private playerHullDepth = 0;
   private readonly underwaterColor = new THREE.Color(0.02, 0.1, 0.13);
   private readonly underwaterFog = new THREE.FogExp2(0x051a21, 0.02);
   private lastProbeSubjects: Array<{
@@ -470,6 +476,22 @@ export class GameScene {
     return this.lastWaterHeight;
   }
 
+  /**
+   * Player hull only. Contacts stay on presentHullObject without the underwater
+   * subject flag, so their caustic, emissive and fog path is unchanged.
+   */
+  private presentPlayerHull(): void {
+    presentHullObject(this.sub, {
+      peri: this.playerHullPeri,
+      depthMetres: this.playerHullDepth,
+      underwaterSubject: playerUnderwaterSubject(
+        this.immersionUnder,
+        this.playerHullDepth,
+        this.playerHullPeri,
+      ),
+    });
+  }
+
   /** Dense volume fog when the eye is below the sampled surface (hysteresis). */
   applyImmersion(camera: THREE.Camera): void {
     const next = updateImmersion({
@@ -478,6 +500,7 @@ export class GameScene {
       previousUnderwater: this.immersionUnder,
     });
     this.immersionUnder = next.underwater;
+    this.presentPlayerHull();
     if (!next.underwater) return;
     const t = immersionFogFactor(camera.position.y, next.waterHeight, true);
     this.scene.background = this.underwaterColor;
@@ -1066,7 +1089,9 @@ export class GameScene {
     const peri = sim.viewMode === 'periscope';
     // Procedural hull stays visible until glTF hot-swaps after preload.
     this.sub.visible = this.sub.userData.assetSource !== 'pending';
-    presentHullObject(this.sub, { peri, depthMetres: v.depth });
+    this.playerHullPeri = peri;
+    this.playerHullDepth = v.depth;
+    this.presentPlayerHull();
     this.subHit.position.copy(this.sub.position);
     // Dual cue: surface ring always, plus a hull-tied ring so deep boats stay locatable.
     this.subBeacon.position.set(v.x, Math.max(subY + 3.5, 1.2), v.z);

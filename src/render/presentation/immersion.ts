@@ -68,6 +68,33 @@ export function immersionFogFactor(eyeY: number, waterHeight: number, underwater
   return clamp01((depth + IMMERSION_HYSTERESIS) / 12);
 }
 
+/** Chase orbit is ~26 m. The player hull skips exponential fog inside this radius. */
+export const PLAYER_HULL_FOG_EXEMPT_M = 30;
+/** Metres over which the exemption hands back to scene fog. */
+export const PLAYER_HULL_FOG_FADE_M = 8;
+
+/**
+ * Player boat while the eye is under the surface. Periscope keeps its own
+ * transparency ghost; contacts never use this path.
+ */
+export function playerUnderwaterSubject(
+  underwater: boolean,
+  depthMetres: number,
+  peri: boolean,
+): boolean {
+  return underwater && depthMetres > 0.5 && !peri;
+}
+
+/**
+ * 0 = no fog on the player hull, 1 = full scene fog. Above water the weight
+ * stays 1 so the surface grade is unchanged at the same distance.
+ */
+export function playerHullFogWeight(distanceMetres: number, underwater: boolean): number {
+  if (!underwater || !Number.isFinite(distanceMetres)) return 1;
+  if (distanceMetres <= PLAYER_HULL_FOG_EXEMPT_M) return 0;
+  return clamp01((distanceMetres - PLAYER_HULL_FOG_EXEMPT_M) / PLAYER_HULL_FOG_FADE_M);
+}
+
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
