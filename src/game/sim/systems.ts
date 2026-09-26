@@ -33,7 +33,14 @@ import {
   ACTIVE_PING_DURATION,
   DC_ENGAGE_RANGE,
 } from './constants';
-import { getTerrain, isCrushedBySeamount, isLand, snapToNavigable } from './world';
+import {
+  getTerrain,
+  isCrushedBySeamount,
+  isLand,
+  SEAMOUNT_CRUSH_DEPTH,
+  snapToNavigable,
+  terrainHeight,
+} from './world';
 import { updateAutopilot } from './autopilot';
 import { makeClear, resolveClearStep, steerAvoid, shipClearRadius } from './pathfinding';
 import { passiveRange, updateSonar } from './sonar';
@@ -211,7 +218,7 @@ function makeThreat(
   }
   const threatStats = {
     depthCharge: { fuse: 1.5, damage: 45, radius: 2.2 },
-    hedgehog: { fuse: 0.95, damage: 27, radius: 0.85 },
+    hedgehog: { fuse: 0.95, damage: 12, radius: 0.85 },
     shell: { fuse: 0.35, damage: 22, radius: 0.8 },
     bomb: { fuse: 1.1, damage: 28, radius: 1.8 },
   };
@@ -787,7 +794,13 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         ? SEAMOUNT_CRUSH_DPS * dt
         : 0;
     const hp = clamp(sub.hp - crush, 0, sub.maxHp);
-    return { ...state, submarine: { ...sub, x, y, z: clampDepth(sub.z), hp } };
+    // Depth orders stop just above the rock: a Deep click over a shoal must not be a death sentence.
+    const seabedLimit = Math.max(
+      SEAMOUNT_CRUSH_DEPTH,
+      clampDepth(1 - terrainHeight(terrain, x, y) + 0.2) - 0.03,
+    );
+    const targetDepth = Math.min(sub.targetDepth, seabedLimit);
+    return { ...state, submarine: { ...sub, x, y, z: clampDepth(sub.z), targetDepth, hp } };
   },
   sonar: (state, _commands, dt) => updateSonar(state, dt),
   enemies(state, _commands, dt) {
@@ -915,7 +928,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
               y: threat.charge.y + Math.sin((index * Math.PI) / 3) * 0.45,
             });
         }
-        return { ...next, weaponCooldown: 2.8 + ((state.seed + ship.patrolIndex) % 2) * 0.4 };
+        return { ...next, weaponCooldown: 3.8 + ((state.seed + ship.patrolIndex) % 2) * 0.4 };
       }
       if (shallow && distance < (ship.kind === 'battleship' ? 10 : 7) && ship.kind !== 'merchant') {
         const threat = makeThreat(state, 'shell', ship.id);
@@ -1111,9 +1124,15 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     const shipsSunk = state.stats.shipsSunk + sunk;
     const waveCleared = ships.length === 0;
     const victory = waveCleared && shipsSunk >= VICTORY_TARGET;
+    // Each kill salvages a Mk-14 so a long fight keeps its teeth without docking.
+    const submarine = {
+      ...state.submarine,
+      torpedoes: Math.min(state.submarine.maxTorpedoes, state.submarine.torpedoes + sunk),
+    };
     return {
       ...state,
       ships,
+      submarine,
       selectedTargetId: null,
       aimPoint: null,
       stats: {
