@@ -88,4 +88,23 @@ describe('POV cameras can enter the water', () => {
     }
     expect(rig.camera.position.y).toBeGreaterThanOrEqual(7);
   });
+
+  it('chase cinema follows the fish then snapToTarget returns to the hull', () => {
+    const rig = new CameraRig(16 / 9);
+    const sim = state(4);
+    rig.setMode('chase');
+    for (let i = 0; i < 40; i++) {
+      rig.update(sim, 1 / 30, {
+        waterHeight: 0.2,
+        cinema: { x: 40, y: -8, z: 12, heading: 0 },
+      });
+    }
+    expect(rig.camera.position.x).toBeGreaterThan(20);
+    expect(rig.camera.position.z).toBeGreaterThan(6);
+    for (let i = 0; i < 4; i++) {
+      rig.update(sim, 1 / 30, { waterHeight: 0.2, snapToTarget: true });
+    }
+    expect(rig.camera.position.x).toBeLessThan(5);
+    expect(rig.camera.position.z).toBeLessThan(5);
+  });
 });

@@ -28,7 +28,8 @@ import {
   updateGame,
 } from './game/sim/api';
 import { actionTimeScale } from './game/sim/action-feel';
-import { worldMetersToSim } from './game/sim/coords';
+import { hasContact } from './game/sim/contact';
+import { depthToMeters, simToWorldMeters, worldMetersToSim } from './game/sim/coords';
 import { GameAudio } from './game/audio/audio';
 import type { GameState, Point } from './game/sim/types';
 import { InputController } from './input/controls';
@@ -83,6 +84,9 @@ export class App {
   private activeQuality: RuntimeSelection['quality'];
   private hitFreeze = 0;
   private cameraShake = 0;
+  private cinemaUntil = 0;
+  private cinemaId: string | null = null;
+  private cinemaSnap = false;
 
   constructor() {
     this.runtime = parseRuntimeSelection(window.location.search);
@@ -258,6 +262,9 @@ export class App {
 
   private beginPatrol(): void {
     this.missionGeneration += 1;
+    this.cinemaId = null;
+    this.cinemaUntil = 0;
+    this.cinemaSnap = false;
     this.scene.resetEnvironment(this.missionGeneration);
     this.game = { ...startMission(this.game), settings: this.settings, viewMode: 'chase' };
     this.cameras.setMode('chase');
@@ -271,6 +278,9 @@ export class App {
 
   private restartPatrol(): void {
     this.missionGeneration += 1;
+    this.cinemaId = null;
+    this.cinemaUntil = 0;
+    this.cinemaSnap = false;
     this.scene.resetEnvironment(this.missionGeneration);
     this.game = {
       ...createGame(this.game.seed),
@@ -284,8 +294,7 @@ export class App {
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     if (e.code === 'KeyF' && this.game.phase === 'playing') {
-      this.game = fireWeapon(this.game);
-      this.sim = adaptToLookDevSim(this.game);
+      this.applyFire((g) => fireWeapon(g));
     }
     if (e.code === 'KeyR' && this.game.phase === 'playing') {
       this.game = toggleSilentRunning(this.game);
@@ -345,7 +354,12 @@ export class App {
     if (action === 'screen') this.game = deployCountermeasure(this.game);
     if (action === 'spread') this.game = toggleTorpedoSpread(this.game);
     if (action === 'sonar') this.game = sonarPulse(this.game);
-    if (action === 'fire') this.game = fireWeapon(this.game);
+    if (action === 'fire') {
+      this.applyFire((g) => fireWeapon(g));
+      this.audio.unlock();
+      this.audio.sfxClick();
+      return;
+    }
     if (action === 'silent') this.game = toggleSilentRunning(this.game);
     if (action === 'scope') this.game = toggleScope(this.game);
     if (action === 'snorkel') this.game = toggleSnorkel(this.game);
@@ -401,21 +415,16 @@ export class App {
     const decision = resolveWorldClick(rayHit, screenProximate);
     if (button === 2) {
       if (decision.action === 'select') {
-        this.game = updateGame(
-          this.game,
-          [{ type: 'selectTarget', id: decision.id }, { type: 'fireWeapon' }],
-          0,
+        this.applyFire((g) =>
+          updateGame(g, [{ type: 'selectTarget', id: decision.id }, { type: 'fireWeapon' }], 0),
         );
       } else {
         const point = this.pickWaterSimPoint(clientX, clientY, rect);
         if (!point) return;
-        this.game = updateGame(
-          this.game,
-          [{ type: 'setAimPoint', point }, { type: 'fireWeapon' }],
-          0,
+        this.applyFire((g) =>
+          updateGame(g, [{ type: 'setAimPoint', point }, { type: 'fireWeapon' }], 0),
         );
       }
-      this.sim = adaptToLookDevSim(this.game);
       return;
     }
     if (decision.action === 'select') {
@@ -426,6 +435,55 @@ export class App {
     const point = this.pickWaterSimPoint(clientX, clientY, rect);
     if (!point) return;
     this.plot(point.x, point.y);
+  }
+
+  private applyFire(mutate: (state: GameState) => GameState): void {
+    const before = this.game;
+    this.game = mutate(before);
+    const prev = new Set(before.torpedoes.filter((t) => t.owner === 'player').map((t) => t.id));
+    const fresh = this.game.torpedoes.find((t) => t.owner === 'player' && !prev.has(t.id));
+    if (fresh) {
+      this.cinemaUntil = performance.now() + 600;
+      this.cinemaId = fresh.id;
+      this.cinemaSnap = false;
+    }
+    this.sim = adaptToLookDevSim(this.game);
+  }
+
+  private cinemaPresentation(): {
+    cinema?: { x: number; y: number; z: number; heading: number };
+    snapToTarget?: boolean;
+  } {
+    const escortFix = this.game.ships.some((ship) => hasContact(ship, this.game));
+    if (escortFix && this.cinemaId) {
+      this.cinemaId = null;
+      this.cinemaUntil = 0;
+      this.cinemaSnap = true;
+    }
+    if (this.cinemaId && performance.now() > this.cinemaUntil) {
+      this.cinemaId = null;
+      this.cinemaSnap = true;
+    }
+    const fish = this.cinemaId
+      ? this.game.torpedoes.find((t) => t.id === this.cinemaId)
+      : undefined;
+    if (this.cinemaId && !fish) {
+      this.cinemaId = null;
+      this.cinemaSnap = true;
+    }
+    const snapToTarget = this.cinemaSnap;
+    this.cinemaSnap = false;
+    if (!fish) return snapToTarget ? { snapToTarget } : {};
+    const world = simToWorldMeters(fish.x, fish.y);
+    return {
+      cinema: {
+        x: world.x,
+        y: -depthToMeters(fish.z),
+        z: world.z,
+        heading: fish.heading,
+      },
+      snapToTarget,
+    };
   }
 
   /** Intersect the active camera ray with the y=0 sea plane, then convert to sim coords. */
@@ -529,6 +587,7 @@ export class App {
     }
 
     this.scene.syncGame(this.game, this.sim, this.settings, renderDt);
+    const cinema = this.cinemaPresentation();
     this.cameras.update(this.sim, renderDt, {
       lightning: this.scene.weatherLightning,
       shake: this.cameraShake,
@@ -536,6 +595,8 @@ export class App {
       waterHeight: this.scene.sampledWaterHeight,
       sampleTerrainY: (x, z) =>
         presentationBedY(this.game.worldVersion, this.game.terrainSeed, x, z),
+      cinema: cinema.cinema,
+      snapToTarget: cinema.snapToTarget,
     });
     const batteryFrac =
       this.game.submarine.maxBattery > 0

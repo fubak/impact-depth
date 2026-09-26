@@ -20,7 +20,7 @@ function ticks(state: GameState, seconds: number): GameState {
 }
 
 describe('playtest detection', () => {
-  it('an active ping reveals a silent boat that passive sonar has not heard', () => {
+  it('an active ping unsettles a silent boat\'s neighbours but never hands them a fix', () => {
     let state = startMission(createGame(11));
     const boat = state.submarine;
     const escort = state.ships.find((ship) => ship.kind !== 'merchant') ?? state.ships[0]!;
@@ -53,10 +53,12 @@ describe('playtest detection', () => {
     const stillQuiet = ticks(state, 1);
     expect(stillQuiet.ships[0]!.alert).toBe(0);
 
-    const revealed = sonarPulse(state);
-    expect(revealed.ships[0]!.alert).toBeGreaterThan(0);
-    const hunted = ticks(revealed, 1);
-    expect(hunted.ships[0]!.holdContact).toBeGreaterThan(0);
+    const pinged = ticks(sonarPulse(state), 1);
+    // The ping is loud, so a nearby escort gets nervous...
+    expect(pinged.ships[0]!.alert).toBeGreaterThan(0);
+    // ...but active sonar alone must not give escorts the boat's position to hunt.
+    expect(pinged.ships[0]!.holdContact).toBe(0);
+    expect(pinged.ships[0]!.lastKnownX).toBeUndefined();
   });
 
   it('a detected enemy submarine fires a torpedo', () => {
