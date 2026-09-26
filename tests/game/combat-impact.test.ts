@@ -41,6 +41,29 @@ describe('torpedo impact and tactics', () => {
     expect(state.messages.some((m) => /HIT/.test(m.text))).toBe(true);
   });
 
+  it('a torpedo hit alerts the victim and nearby warships so the hunt is on', () => {
+    let state = startMission(createGame(19));
+    for (let i = 0; i < 60; i++) state = updateGame(state, [], FIXED_DT);
+    const victim = state.ships.find((s) => s.kind === 'merchant')!;
+    const escort = state.ships.find((s) => s.kind !== 'merchant' && s.id !== victim.id)!;
+    state = {
+      ...state,
+      selectedTargetId: victim.id,
+      ships: state.ships.map((s) =>
+        s.id === escort.id ? { ...s, x: victim.x + 8, y: victim.y, alert: 0, holdContact: 0 } : { ...s, alert: 0, holdContact: 0 },
+      ),
+      submarine: { ...state.submarine, x: victim.x - 2.4, y: victim.y, heading: 0, z: 0.28, targetDepth: 0.28 },
+    };
+    expect(state.ships.every((s) => s.alert === 0)).toBe(true);
+    state = fireWeapon(state);
+    for (let i = 0; i < 300 && state.torpedoes.length > 0; i++) state = updateGame(state, [], FIXED_DT);
+    expect(state.messages.some((m) => /HIT/.test(m.text))).toBe(true);
+    const alertedEscort = state.ships.find((s) => s.id === escort.id)!;
+    // A silent, unseen shooter is only "found" because the impact gave the position away.
+    expect(alertedEscort.alert).toBeGreaterThan(0.5);
+    expect(alertedEscort.holdContact).toBeGreaterThan(0);
+  });
+
   it('ambush autopilot closes range and can fire a shot', () => {
     let state = startMission(createGame(19));
     state = setDepthOrder(state, 'periscope');
