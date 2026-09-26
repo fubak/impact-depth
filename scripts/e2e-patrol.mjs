@@ -11,6 +11,7 @@ import { chromium } from 'playwright';
 import {
   CHROMIUM_ARGS,
   DEFAULT_URL,
+  DEFAULT_PATROL_MODE,
   E2E_TIMEOUT_MS,
   MODE_LABEL,
   VIEWPORT,
@@ -237,7 +238,7 @@ try {
     await page.reload({ waitUntil: 'load', timeout: E2E_TIMEOUT_MS });
     await page.waitForSelector('button[data-action="begin"]', { timeout: E2E_TIMEOUT_MS });
     await beginPatrolAndSkipTutorial(page);
-    await assertMode(page, 'tactical');
+    await assertMode(page, DEFAULT_PATROL_MODE);
   });
 
   await runJourney('compact-viewport-reachability', async () => {
