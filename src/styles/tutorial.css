@@ -1,0 +1,8 @@
+/* Quick-start card. The shared overlay chrome stays in main.css. */
+.tutorial-card.tutorial-quick {
+  width: min(480px, calc(100% - 32px));
+}
+
+.tutorial-card.tutorial-quick .panel-label {
+  color: var(--sonar);
+}

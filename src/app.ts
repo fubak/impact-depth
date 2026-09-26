@@ -41,13 +41,20 @@ import { RendererHost } from './render/renderer';
 import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-selection';
 import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
 import { GameScene } from './render/scene';
+import { entityDepthY } from './render/presentation/coordinates';
 import { hideBootOverlay, setBootProgress } from './ui/boot';
 import { Hud } from './ui/hud';
 import { PatrolOverlay } from './ui/overlays';
 import { LookDevPanel } from './ui/panel';
 import { PeriscopeOverlay } from './ui/periscope';
 import { SonarScope } from './ui/sonar';
-import { TutorialOverlay } from './ui/tutorial';
+import {
+  computeThreatMarkers,
+  ThreatIndicatorLayer,
+  type ThreatProjection,
+} from './ui/threat-indicators';
+import { TutorialOverlay, patrolClockRuns, phaseWhileTutorial } from './ui/tutorial';
+import './styles/threats.css';
 
 function $(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -69,6 +76,10 @@ export class App {
   private readonly sonar: SonarScope;
   private readonly peri: PeriscopeOverlay;
   private readonly tutorial: TutorialOverlay;
+  private readonly threatRoot: HTMLElement;
+  private readonly threats: ThreatIndicatorLayer;
+  private readonly threatForward = new THREE.Vector3();
+  private tutorialHeldPause = false;
   private readonly audio = new GameAudio();
   private readonly pauseBanner: HTMLElement;
   private readonly appRoot: HTMLElement;
@@ -164,7 +175,13 @@ export class App {
       () => this.beginPatrol(),
       () => this.restartPatrol(),
     );
-    this.tutorial = new TutorialOverlay($('tutorial-overlay'));
+    this.tutorial = new TutorialOverlay($('tutorial-overlay'), (open) =>
+      this.holdForTutorial(open),
+    );
+    this.threatRoot = document.createElement('div');
+    this.threatRoot.id = 'threat-indicators';
+    this.appRoot.append(this.threatRoot);
+    this.threats = new ThreatIndicatorLayer(this.threatRoot);
 
     this.panel = new LookDevPanel($('lookdev'), this.settings, {
       onChange: (s) => {
@@ -426,7 +443,58 @@ export class App {
     this.sim = adaptToLookDevSim(this.game);
   }
 
+  /** Tutorial holds the sim with the same paused phase the Pause control uses. */
+  private holdForTutorial(open: boolean): void {
+    const next = phaseWhileTutorial(this.game.phase, open, this.tutorialHeldPause);
+    this.tutorialHeldPause = next.heldByTutorial;
+    if (next.phase !== this.game.phase) {
+      this.game = setPhase(this.game, next.phase);
+      this.sim = adaptToLookDevSim(this.game);
+    }
+    this.pauseBanner.hidden = this.tutorialHeldPause || this.game.phase !== 'paused';
+  }
+
+  /**
+   * Edge chevrons from the live camera. `projectNdc.clipW` is an out-of-frustum
+   * flag, not clip-space w, so a point behind the lens is the view-direction dot.
+   * Those contacts keep the raw mirrored pixels and `behind: true`.
+   */
+  private syncThreats(): void {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    this.cameras.camera.getWorldDirection(this.threatForward);
+    const markers = computeThreatMarkers(
+      this.game,
+      (x, y, z) => this.projectThreat(x, y, z, width, height),
+      { width, height },
+    );
+    this.threats.render(markers);
+  }
+
+  private projectThreat(
+    x: number,
+    y: number,
+    z: number,
+    width: number,
+    height: number,
+  ): ThreatProjection {
+    const world = simToWorldMeters(x, y);
+    const altitude = entityDepthY(z);
+    const ndc = this.cameras.projectNdc(world.x, altitude, world.z);
+    const sx = (ndc.ndcX * 0.5 + 0.5) * width;
+    const sy = (-ndc.ndcY * 0.5 + 0.5) * height;
+    const camera = this.cameras.camera.position;
+    const ahead =
+      (world.x - camera.x) * this.threatForward.x +
+      (altitude - camera.y) * this.threatForward.y +
+      (world.z - camera.z) * this.threatForward.z;
+    const behind = ahead <= 0;
+    const onScreen = !behind && sx >= 0 && sx <= width && sy >= 0 && sy <= height;
+    return { sx, sy, onScreen, behind };
+  }
+
   private inputPause(): void {
+    if (this.tutorial.isOpen()) return;
     if (this.game.phase !== 'playing' && this.game.phase !== 'paused') return;
     this.game = setPhase(this.game, this.game.phase === 'paused' ? 'playing' : 'paused');
     this.sim = adaptToLookDevSim(this.game);
@@ -633,7 +701,7 @@ export class App {
     const renderDt = tick.elapsedUsed;
 
     const combat: CombatEvent[] = [];
-    if (this.game.phase === 'playing') {
+    if (patrolClockRuns(this.game.phase, this.tutorial.isOpen())) {
       const chargesBefore = this.game.depthCharges.length;
       for (let i = 0; i < tick.steps; i++) {
         const prev = this.game;
@@ -674,6 +742,7 @@ export class App {
       this.renderer.render(this.scene.scene, this.cameras.camera);
     }
 
+    this.syncThreats();
     this.hud.render(this.game, this.sim, this.settings);
     this.audio.observe(this.game);
     this.peri.render(this.sim, this.settings, this.cameras.periYaw);
@@ -774,6 +843,7 @@ export class App {
     window.removeEventListener('keydown', this.onKeyDown);
     this.input.dispose();
     this.tutorial.dispose();
+    this.threatRoot.remove();
     this.audio.dispose();
     this.recoveryBanner.remove();
     this.finishBoot();
