@@ -9,7 +9,7 @@ const FUNNEL = 0x3a322c;
 const hullAlbedo =
   typeof document === 'undefined'
     ? null
-    : new THREE.TextureLoader().load('/assets/textures/hull-metal-albedo.png');
+    : new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}assets/textures/hull-metal-albedo.png`);
 if (hullAlbedo) {
   hullAlbedo.colorSpace = THREE.SRGBColorSpace;
   hullAlbedo.wrapS = THREE.RepeatWrapping;

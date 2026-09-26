@@ -98,7 +98,7 @@ export class Seabed {
       metalness: 0.02,
       flatShading: false,
     });
-    const sandTexture = new THREE.TextureLoader().load('/assets/textures/seabed-sand-albedo.png');
+    const sandTexture = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}assets/textures/seabed-sand-albedo.png`);
     sandTexture.colorSpace = THREE.SRGBColorSpace;
     sandTexture.wrapS = THREE.RepeatWrapping;
     sandTexture.wrapT = THREE.RepeatWrapping;

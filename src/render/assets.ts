@@ -136,7 +136,7 @@ export class AssetRegistry {
 
   async preload(): Promise<void> {
     try {
-      const response = await fetch('/assets/manifest.json');
+      const response = await fetch(`${import.meta.env.BASE_URL}assets/manifest.json`);
       if (!response.ok) {
         this.finishReady();
         return;
@@ -150,7 +150,7 @@ export class AssetRegistry {
             return;
           }
           try {
-            const gltf = await this.loader.loadAsync(`/assets/${url}`);
+            const gltf = await this.loader.loadAsync(`${import.meta.env.BASE_URL}assets/${url}`);
             this.templates.set(kind, this.normalize(gltf.scene, kind));
             this.loadState.set(kind, 'gltf');
           } catch {

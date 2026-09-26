@@ -4,7 +4,7 @@ import type { AtmosphereState } from '../atmosphere';
 import { SkyLighting, type SkyLightingDiagnostics, type SkyLightingState } from './sky-lighting';
 import { pickSkyLightingSource } from './sky-source';
 
-export const HDR_PUBLIC_PATH = '/assets/environment/v1/kloofendal_48d_partly_cloudy_puresky_1k.hdr';
+export const HDR_PUBLIC_PATH = `${import.meta.env.BASE_URL}assets/environment/v1/kloofendal_48d_partly_cloudy_puresky_1k.hdr`;
 
 export type OutdoorLightingInput = {
   atmosphere: AtmosphereState;

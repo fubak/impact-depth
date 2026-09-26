@@ -794,7 +794,7 @@ export class Ocean {
     const phases = BASE_WAVES.map((w) => w.phase);
     const islands = islandShoreUniforms();
 
-    const normalMap = new THREE.TextureLoader().load('/assets/textures/water-normal.png');
+    const normalMap = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}assets/textures/water-normal.png`);
     normalMap.wrapS = THREE.RepeatWrapping;
     normalMap.wrapT = THREE.RepeatWrapping;
     normalMap.colorSpace = THREE.NoColorSpace;
