@@ -7,6 +7,9 @@ export const SMOKE_TIMEOUT_MS = Number(process.env.BROWSER_SMOKE_TIMEOUT_MS || 4
 export const E2E_TIMEOUT_MS = Number(process.env.BROWSER_E2E_TIMEOUT_MS || 45000);
 export const POLL_MS = 100;
 
+/** Default patrol view mode after beginPatrol (OD4). */
+export const DEFAULT_PATROL_MODE = 'chase';
+
 /** Chromium launch args suitable for headless CI containers. */
 export const CHROMIUM_ARGS = ['--no-sandbox', '--disable-dev-shm-usage'];
 
@@ -713,5 +716,5 @@ export async function restartPatrolViaReload(page) {
   await page.reload({ waitUntil: 'load', timeout: E2E_TIMEOUT_MS });
   await page.waitForSelector('button[data-action="begin"]', { timeout: E2E_TIMEOUT_MS });
   await beginPatrolAndSkipTutorial(page);
-  await assertMode(page, 'tactical');
+  await assertMode(page, DEFAULT_PATROL_MODE);
 }
