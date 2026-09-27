@@ -11,11 +11,15 @@
 
 ## Weapons
 
-- Tubes aim within 60° of the bow. The fish is spawned at the boat's center and runs at constant speed. No drag, buoyancy, or tube offset.
-- Mk-14 holds heading and chases target depth. Mk-18 and enemy fish also turn. Sub depth is 0.32, surface ships 0.02. A hit needs `|dz| <= 0.2`.
-- Deck gun, inside 8.5 units and shallower than 0.14, applies damage with no projectile. Charges sink at a constant rate until the fuse ends.
+- Tubes aim within 60° of the bow. Fish launch from the bow tube (`sub + heading·0.9`), start at `sub.speed + 2`, and accelerate 7 u/s² to `runSpeed`.
+- Mk-14 holds heading and chases target depth. Mk-18 and enemy fish run a passive seeker: ±0.6 rad cone, Mk-18 picks the noisiest ship inside 11 u (fire-control target preferred), enemy fish acquire inside `5 + 12·sub.noise`. No lock → run straight. Lead pursuit, turn-rate limited. A hit needs `|dz| <= 0.2`.
+- Deck gun fires real ballistic shells inside 8.5 units and shallower than 0.14 — shell arcs exist and `shellLaunch` is a CombatEvent. Depth charges sink to their pistol depth and detonate there (not the launch depth); hedgehogs are contact-fuzed pattern drops.
+- Ships flood, burn (fire decays 0.03/s and bleeds hp), lose propulsion on stern hits (`speedFactor`), and sink over class `sinkDuration` — kills count only at removal; sinking hulls stay on the plots while they go down.
+- Escorts listen for the boat's *realized* speed (`ship.actualSpeed`), not the helm order: baffles ×0.3 astern, flow noise ×0.5 above 0.7 of class max, deep blind zone inside 1.3 u. Doctrine: `screen → prosecute → attackRun → reattack → search` with a smoothed predicted datum and max two runners.
+- Rudder authority scales with way made — a stopped boat barely turns; dive planes lag depth-rate orders; emergency blow drives a 6 s powered ascent.
 - Assistance auto-fire spends ammo only when `assistanceAutoFire` is on. Patrol defaults on. Convoy strike defaults off.
 - Quiet escort sweep cap is 18. Loud alert stays ≤15 s. Do not restore the old 60–150 s passive band by raising the cap.
+- Bloom ships on the high quality profile only; `?bloom=0` forces off, `?bloom=1` forces on at any quality.
 - Key M is 4×. Key V is Deep. Victory copy is "Clear two waves". `VICTORY_TARGET` is still 8.
 
 ## Mission

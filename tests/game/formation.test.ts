@@ -80,6 +80,9 @@ describe('convoy/escort formation seeding', () => {
 describe('convoy/escort formation seeking behavior', () => {
   it('steers escorts toward their formation slot when the player is undetected', () => {
     let state = startMission(createGame(7));
+    // Wave 1's escort is an unanchored roving patrol by design; later convoy
+    // waves still carry formation escorts, so exercise the doctrine on one.
+    state = { ...state, ships: seedWave(7, 2) };
     const isolatePlayer = (input: typeof state) => ({
       ...input,
       submarine: { ...input.submarine, x: 1, y: 1, noise: 0.05, silentRunning: true },
@@ -131,6 +134,8 @@ describe('convoy/escort formation seeking behavior', () => {
 
   it('falls back to wander when the formation anchor is missing (e.g. sunk)', () => {
     let state = startMission(createGame(11));
+    // Same wave-1 roving-patrol caveat: use a convoy wave with real formation.
+    state = { ...state, ships: seedWave(11, 2) };
     const escort = state.ships.find((ship) => ship.formationRole);
     expect(escort).toBeTruthy();
     // Remove the anchor entirely to simulate it having sunk/despawned.

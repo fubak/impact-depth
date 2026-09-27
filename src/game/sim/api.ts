@@ -33,7 +33,7 @@ export const startMission = (state: GameState): GameState => {
     ...state,
     phase: 'playing',
     viewMode: 'chase',
-    ships: seedWave(state.seed, 1, state.ships[0], state.worldVersion),
+    ships: seedWave(state.seed, 1, state.ships[0], state.worldVersion, state.submarine),
     powerups: seedPowerups(state.seed, 7, state.worldVersion),
     submarine: { ...state.submarine, invuln: 8 },
   };

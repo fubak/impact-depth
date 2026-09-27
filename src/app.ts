@@ -43,6 +43,7 @@ import { presentationBedY } from './render/presentation/world-bed';
 import { RendererHost } from './render/renderer';
 import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-selection';
 import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
+import { bloomEnabledFor } from './render/post';
 import { GameScene } from './render/scene';
 import { entityDepthY } from './render/presentation/coordinates';
 import {
@@ -174,6 +175,9 @@ export class App {
     this.errorToast = new ErrorToast(this.appRoot);
     this.renderer = new RendererHost(canvas);
     this.renderer.setQuality(QUALITY_PROFILES[this.runtime.quality]);
+    this.renderer.setBloomEnabled(
+      bloomEnabledFor(this.activeQuality, window.location.search),
+    );
     this.renderer.setExposure(this.settings.atmosphere.exposure);
     this.scene = new GameScene();
     this.scene.setPresentationWorld(this.runtime.world, this.game.terrainSeed);
@@ -896,10 +900,12 @@ export class App {
       this.game.submarine.maxBattery > 0
         ? this.game.submarine.battery / this.game.submarine.maxBattery
         : 1;
-    this.renderer.setExposure(
-      this.settings.atmosphere.exposure * (0.52 + 0.48 * Math.max(0, Math.min(1, batteryFrac))),
-    );
     this.scene.applyImmersion(this.cameras.camera);
+    this.renderer.setExposure(
+      this.settings.atmosphere.exposure *
+        (0.52 + 0.48 * Math.max(0, Math.min(1, batteryFrac))) *
+        this.scene.immersionExposureFactor,
+    );
     if (this.renderer.canSubmit) {
       this.scene.preRenderWater(this.renderer.renderer, this.cameras.camera);
       this.renderer.render(this.scene.scene, this.cameras.camera);
@@ -919,6 +925,9 @@ export class App {
     if (profile !== this.activeQuality && this.renderer.canSubmit) {
       this.activeQuality = profile;
       this.renderer.setQuality(QUALITY_PROFILES[profile]);
+      this.renderer.setBloomEnabled(
+        bloomEnabledFor(profile, window.location.search),
+        );
       this.scene.setQuality(QUALITY_PROFILES[profile]);
     }
     if (this.panel.isVisible()) {

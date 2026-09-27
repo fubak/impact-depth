@@ -68,6 +68,46 @@ export function immersionFogFactor(eyeY: number, waterHeight: number, underwater
   return clamp01((depth + IMMERSION_HYSTERESIS) / 12);
 }
 
+/** Metres at which the underwater grade has essentially fully darkened. */
+export const IMMERSION_GRADE_DEPTH_M = 30;
+/** Bright turquoise just under the surface. */
+export const IMMERSION_SHALLOW_COLOR = { r: 0.16, g: 0.42, b: 0.47 };
+/** Near-navy at depth. */
+export const IMMERSION_DEEP_COLOR = { r: 0.008, g: 0.028, b: 0.07 };
+/** Exposure multiplier at full depth grade. */
+export const IMMERSION_DEEP_EXPOSURE = 0.6;
+
+/**
+ * Depth grade 0 (eye at the surface) … 1 (≈30 m down). Smooth through the
+ * waterline so the dive never pops.
+ */
+export function immersionDepthFactor(depthMetres: number): number {
+  if (!Number.isFinite(depthMetres) || depthMetres <= 0) return 0;
+  const t = Math.min(1, depthMetres / IMMERSION_GRADE_DEPTH_M);
+  return t * t * (3 - 2 * t); // smoothstep
+}
+
+export function immersionFogColor(
+  depthMetres: number,
+): { r: number; g: number; b: number } {
+  const t = immersionDepthFactor(depthMetres);
+  return {
+    r: IMMERSION_SHALLOW_COLOR.r + (IMMERSION_DEEP_COLOR.r - IMMERSION_SHALLOW_COLOR.r) * t,
+    g: IMMERSION_SHALLOW_COLOR.g + (IMMERSION_DEEP_COLOR.g - IMMERSION_SHALLOW_COLOR.g) * t,
+    b: IMMERSION_SHALLOW_COLOR.b + (IMMERSION_DEEP_COLOR.b - IMMERSION_SHALLOW_COLOR.b) * t,
+  };
+}
+
+/** Fog density rises with depth: clear turquoise near the top, opaque navy deep. */
+export function immersionFogDensity(depthMetres: number): number {
+  return 0.011 + immersionDepthFactor(depthMetres) * 0.03;
+}
+
+/** Tone-mapping exposure multiplier: 1 at the surface → ~0.6 at depth. */
+export function immersionExposure(depthMetres: number): number {
+  return 1 - (1 - IMMERSION_DEEP_EXPOSURE) * immersionDepthFactor(depthMetres);
+}
+
 /** Chase orbit is ~26 m. The player hull skips exponential fog inside this radius. */
 export const PLAYER_HULL_FOG_EXEMPT_M = 30;
 /** Metres over which the exemption hands back to scene fog. */

@@ -54,8 +54,10 @@ export function canHearSubmarine(ship: Ship, state: GameState): boolean {
       Math.cos(Math.atan2(sub.y - ship.y, sub.x - ship.x) - ship.heading),
     );
     if (Math.abs(astern) > Math.PI - BAFFLE_ARC) range *= 0.3;
-    // Flow noise over the arrays at high speed.
-    if (ship.speed > FLOW_NOISE_RATIO * shipMaxSpeed[ship.kind]) range *= 0.5;
+    // Flow noise over the arrays at high speed. `speed` is the helm order —
+    // what matters is the speed the hull is actually making.
+    const speedNow = ship.actualSpeed ?? ship.speed;
+    if (speedNow > FLOW_NOISE_RATIO * shipMaxSpeed[ship.kind]) range *= 0.5;
   }
   return distance <= range;
 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
+import { PostPipeline } from './post';
 
 /**
  * r185 WebGL presentation. `PCFSoftShadowMap` is no longer in the shader
@@ -39,6 +40,7 @@ export class RendererHost {
     ((status: 'ready' | 'lost' | 'restoring' | 'failed', reason?: string) => void) | null = null;
   private recoveryAbort: AbortController | null = null;
   private lastQualityProfile: QualityProfile | null = null;
+  private readonly post: PostPipeline;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -50,6 +52,7 @@ export class RendererHost {
     });
     configureWebGlRenderer(this.renderer);
     disableShadowsOnSoftwareRenderer(this.renderer);
+    this.post = new PostPipeline(this.renderer);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxDpr));
     this.resize();
     this.canvas.addEventListener('webglcontextlost', this.onContextLost);
@@ -95,6 +98,7 @@ export class RendererHost {
         if (abort.signal.aborted) return;
         this.contextStatus = 'ready';
         this.recoveryAbort = null;
+        this.post.reset();
         this.resize();
         this.statusHandler?.('ready');
       })
@@ -124,10 +128,22 @@ export class RendererHost {
   resize(): void {
     const width = Math.max(1, window.innerWidth);
     const height = Math.max(1, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxDpr));
+    const dpr = Math.min(window.devicePixelRatio || 1, this.maxDpr);
+    this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(width, height, false);
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
+    this.post.setPixelRatio(dpr);
+    this.post.setSize(width, height);
+  }
+
+  /** Bloom post chain; the app decides per quality profile and URL flag. */
+  setBloomEnabled(enabled: boolean): void {
+    this.post.setEnabled(enabled);
+  }
+
+  get bloomActive(): boolean {
+    return this.post.isEnabled;
   }
 
   render(scene: THREE.Scene, camera: THREE.Camera): void {
@@ -135,7 +151,11 @@ export class RendererHost {
     if (this.renderer.shadowMap.enabled && this.shadowCadence > 1) {
       this.renderer.shadowMap.needsUpdate = this.frame % this.shadowCadence === 0;
     }
-    this.renderer.render(scene, camera);
+    if (this.post.isEnabled) {
+      this.post.render(scene, camera);
+    } else {
+      this.renderer.render(scene, camera);
+    }
     this.frame += 1;
   }
 
@@ -167,6 +187,7 @@ export class RendererHost {
     this.recoveryAbort?.abort();
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.post.dispose();
     this.renderer.dispose();
   }
 }

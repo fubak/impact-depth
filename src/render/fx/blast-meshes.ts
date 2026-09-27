@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BLOOM_LAYER } from '../post';
 
 /**
  * Pooled mesh effects that sit beside the particle system: expanding gas
@@ -14,7 +15,7 @@ const RING_POOL = 6;
 const GAS_BUBBLE_LIFE = 2.4;
 const DOME_LIFE = 1.3;
 const PLUME_LIFE = 2.1;
-const RING_LIFE = 1.1;
+const RING_LIFE = 0.9;
 
 /** Cheap deterministic hash-noise shared by the blast shaders. */
 const NOISE_GLSL = /* glsl */ `
@@ -36,7 +37,7 @@ float blastNoise(vec3 p) {
   return mix(
     mix(mix(a, b, f.x), mix(c, d, f.x), f.y),
     mix(mix(e, f2, f.x), mix(g, h, f.x), f.y),
-    f.z,
+    f.z
   );
 }
 `;
@@ -72,8 +73,8 @@ void main() {
   float facing = abs(dot(normalize(vNormal), normalize(vView)));
   float n = blastNoise(vPos * 2.4 + vec3(uSeed * 1.7));
   // Patchy interior + a silhouette that dissolves toward the rim.
-  float a = (0.10 + 0.34 * facing + 0.22 * n) * uAlpha;
-  a *= smoothstep(0.05, 0.5, facing);
+  float a = (0.15 + 0.42 * facing + 0.26 * n) * uAlpha;
+  a *= smoothstep(0.05, 0.55, facing);
   gl_FragColor = vec4(0.82, 0.95, 1.0, a);
 }
 `;
@@ -82,14 +83,18 @@ const RING_FRAG = /* glsl */ `
 uniform float uAlpha;
 uniform float uSeed;
 varying vec2 vUv;
+${NOISE_GLSL}
 void main() {
   vec2 p = vUv - 0.5;
   float r = length(p) * 2.0;
   float a = atan(p.y, p.x);
-  // Ragged dashes: the band is broken by slow angular noise.
-  float dashes = 0.45 + 0.55 * (0.5 + 0.5 * sin(a * 9.0 + uSeed) * sin(a * 4.0 - uSeed * 1.3));
-  float band = smoothstep(0.74, 0.88, r) * (1.0 - smoothstep(0.9, 1.0, r));
-  float alpha = band * dashes * uAlpha;
+  // Broken foam: angular noise erases whole arcs so the ring reads as ragged
+  // wash, not a drawn ellipse.
+  vec2 dir = vec2(cos(a), sin(a));
+  float churn = blastNoise(vec3(dir * 3.4, uSeed));
+  float gaps = smoothstep(0.32, 0.62, churn);
+  float band = smoothstep(0.8, 0.9, r) * (1.0 - smoothstep(0.93, 1.0, r));
+  float alpha = band * gaps * uAlpha;
   if (alpha < 0.008) discard;
   gl_FragColor = vec4(0.92, 0.97, 1.0, alpha);
 }
@@ -165,6 +170,7 @@ export class BlastMeshes {
       mesh.name = 'blast-dome';
       mesh.visible = false;
       mesh.renderOrder = 5;
+      mesh.layers.enable(BLOOM_LAYER);
       this.group.add(mesh);
       slots.push({ mesh, born: 0, active: false, data: { radius: 1 } });
     }
@@ -188,6 +194,7 @@ export class BlastMeshes {
       mesh.name = 'blast-plume';
       mesh.visible = false;
       mesh.renderOrder = 5;
+      mesh.layers.enable(BLOOM_LAYER);
       this.group.add(mesh);
       slots.push({ mesh, born: 0, active: false, data: { height: 1, radius: 1 } });
     }
@@ -210,6 +217,7 @@ export class BlastMeshes {
       mesh.rotation.x = -Math.PI / 2;
       mesh.visible = false;
       mesh.renderOrder = 5;
+      mesh.layers.enable(BLOOM_LAYER);
       this.group.add(mesh);
       slots.push({ mesh, born: 0, active: false, data: { radius: 1 } });
     }
@@ -341,11 +349,11 @@ export class BlastMeshes {
         slot.mesh.visible = false;
         continue;
       }
-      const grow = 1 - Math.pow(1 - Math.min(1, age / 0.9), 2);
+      const grow = 1 - Math.pow(1 - Math.min(1, age / 0.75), 2);
       const radius = Math.max(0.01, slot.data.radius * grow);
       slot.mesh.scale.setScalar(radius);
       (slot.mesh.material as THREE.ShaderMaterial).uniforms.uAlpha!.value =
-        0.45 * Math.max(0, 1 - age / RING_LIFE);
+        0.15 * Math.max(0, 1 - age / RING_LIFE);
     }
   }
 

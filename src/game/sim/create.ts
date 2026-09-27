@@ -1,4 +1,11 @@
-import { DEFAULT_CRUISE, FOB_RADIUS, WAVE_SPAWN_INNER, WORLD_CENTER } from './constants';
+import {
+  DEFAULT_CRUISE,
+  FOB_RADIUS,
+  WAVE_SPAWN_INNER,
+  WAVE_SPAWN_STEP,
+  WORLD_CENTER,
+  WORLD_SIZE,
+} from './constants';
 import { WAVE1_SPAWN_RADIUS } from './action-feel';
 import { SINK_DURATION } from './ship-damage';
 import type { FormationRole, GameState, Point, Powerup, Ship, ShipKind, Submarine } from './types';
@@ -137,12 +144,20 @@ function seedPatrolPath(
   return points;
 }
 
+/**
+ * Radius of the wave-1 escort's opening sweep loop around the player's start
+ * area — inside the quiet-sweep pulse reach (3.2 × jitter), so the boat is
+ * found once the escort arrives and loiters, but never immediately.
+ */
+const WAVE1_SWEEP_DIST = 3.0;
+
 /** Deterministic wave data; doctrine is intentionally left to Plan 005. */
 export function seedWave(
   seed: number,
   wave: number,
   firstFreighter?: Ship,
   worldVersion: WorldVersion = 'legacy-v1',
+  player?: Point,
 ): Ship[] {
   const terrain = worldVersion === 'legacy-v1' ? createTerrain(seed) : null;
   // Wave 1: fewer escorts so the opening patrol is tense but fair.
@@ -159,8 +174,17 @@ export function seedWave(
   ];
   const ships = kinds.map((kind, index) => {
     const angle = ((seed * 17 + wave * 29 + index * 137) % 360) * (Math.PI / 180);
-    // Each hull gets its own ring so a wave does not stack on one patch of water.
-    const radius = (wave === 1 ? WAVE1_SPAWN_RADIUS : WAVE_SPAWN_INNER) + index * 7;
+    // Later waves spread across three staggered rings so a big wave fills the
+    // circle instead of marching a single hull ever farther out. The wave-1
+    // escort spawns close to the player's lane: it walks an independent sweep
+    // leg instead of screening the convoy, and its route must reach hearing
+    // range inside the opening minute.
+    const radius =
+      wave === 1
+        ? escortKinds.has(kind)
+          ? WAVE1_SPAWN_RADIUS + 8
+          : WAVE1_SPAWN_RADIUS + index * 7
+        : WAVE_SPAWN_INNER + (index % 3) * WAVE_SPAWN_STEP;
     const spawnX = WORLD_CENTER + 2 + Math.cos(angle) * radius;
     const spawnY = WORLD_CENTER + Math.sin(angle) * radius;
     const point =
@@ -172,7 +196,7 @@ export function seedWave(
     const weaponCooldown = wave === 1 ? 5 + (index % 4) * 0.8 : 0;
     const patrolRadius =
       wave === 1 && kind !== 'merchant' ? 8 : kind === 'merchant' ? 14 : kind === 'sub' ? 11 : 16;
-    const path = seedPatrolPath(
+    let path = seedPatrolPath(
       terrain,
       point.x,
       point.y,
@@ -183,6 +207,24 @@ export function seedWave(
       worldVersion,
       kind,
     );
+    // Wave 1: the escort's roving patrol opens with a tight sweep loop around
+    // the player's start waters — roughly one sweep period of loiter inside
+    // pulse reach — so a quiet boat is found by the next sweep pulse once the
+    // escort arrives, instead of the screen orbiting the convoy forever at
+    // standoff range.
+    if (wave === 1 && escortKinds.has(kind) && player) {
+      const b0 = Math.atan2(point.y - player.y, point.x - player.x);
+      const loop = Array.from({ length: 8 }, (_, k) => {
+        const lx = player.x + Math.cos(b0 + (k * Math.PI) / 4) * WAVE1_SWEEP_DIST;
+        const ly = player.y + Math.sin(b0 + (k * Math.PI) / 4) * WAVE1_SWEEP_DIST;
+        const sx = Math.min(WORLD_SIZE - 2, Math.max(2, lx));
+        const sy = Math.min(WORLD_SIZE - 2, Math.max(2, ly));
+        return worldVersion === 'legacy-v1'
+          ? snapToNavigable(terrain!, sx, sy, 0.1)
+          : snapWorld(getWorld(worldVersion, seed), sx, sy, shipProfile(kind));
+      });
+      path = [...loop, ...path];
+    }
     if (index === 0 && firstFreighter) {
       return {
         ...firstFreighter,
@@ -228,7 +270,9 @@ export function seedWave(
   let wingSideIndex = 0;
   return ships.map((ship, index) => {
     if (index === 0) return ship;
-    if (escortKinds.has(ship.kind)) {
+    // Wave-1 escorts run a roving patrol (biased path above) rather than
+    // screening the convoy — the opening is a stalk, not a formed escort.
+    if (escortKinds.has(ship.kind) && wave !== 1) {
       const role = formationRoleCycle[escortCycleIndex % formationRoleCycle.length]!;
       escortCycleIndex += 1;
       const along = role === 'lead' ? 12 : role === 'trail' ? -12 : 0;

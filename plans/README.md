@@ -97,6 +97,7 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 | Plan | Title                                                   | Dependency | Status                              |
 | ---- | ------------------------------------------------------- | ---------- | ----------------------------------- |
 | 025  | Complete the action mission and prove release readiness | 024 merged | 1–4 and munitions on master; 5 next |
+| 026  | Realism and action upgrade                              | 025        | Phases 1–4 landed in df4f424; 5–6 + docs this session; operator gates pending |
 
 Historical estimate before Plan 018 (not an estimate for the revised integration track): roughly 3–6 focused weeks,
 with licensed asset acquisition and operator QA as the long poles. Co-op (009) adds ~3–6 weeks

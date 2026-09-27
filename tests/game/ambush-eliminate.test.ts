@@ -48,6 +48,7 @@ describe('ambush full engagement', () => {
     let hits = 0;
     let minRange = Infinity;
     let sawDestroyed = false;
+    let wasSinking = false;
     const log: string[] = [];
     const limit = Math.ceil(180 / FIXED_DT);
 
@@ -67,7 +68,9 @@ describe('ambush full engagement', () => {
         const range = Math.hypot(state.submarine.x - live.x, state.submarine.y - live.y);
         minRange = Math.min(minRange, range);
       }
-      if (i % Math.ceil(10 / FIXED_DT) === 0 || !live || live.sinking) {
+      const justStartedSinking =
+        live !== undefined && live.sinking !== undefined && !wasSinking;
+      if (i % Math.ceil(10 / FIXED_DT) === 0 || !live || justStartedSinking) {
         log.push(
           `t=${(i * FIXED_DT).toFixed(0)}s phase=${state.autopilot.phase} tactic=${state.autopilot.tactic} ` +
             `range=${live ? Math.hypot(state.submarine.x - live.x, state.submarine.y - live.y).toFixed(1) : 'SUNK'} ` +
@@ -75,6 +78,7 @@ describe('ambush full engagement', () => {
             `depth=${state.submarine.z.toFixed(2)} shotT=${state.autopilot.shotTimer.toFixed(1)}`,
         );
       }
+      wasSinking = live?.sinking !== undefined;
       if (!live || (live.sinking !== undefined && live.sinking <= 0)) break;
       if (live.sinking !== undefined) {
         // Wait for sink completion through damage system

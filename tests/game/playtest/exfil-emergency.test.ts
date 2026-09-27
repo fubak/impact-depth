@@ -34,6 +34,12 @@ function damagedExfil(seed = 1): GameState {
   state = {
     ...state,
     ships: [],
+    // Hold the board "clearing" for longer than the scenario horizon so no
+    // reinforcement wave lands — this fixture means a truly empty ocean.
+    messages: [
+      ...state.messages,
+      { id: 'wave-inbound-99', text: 'WAVE 99 INBOUND', ttl: HORIZON * 3 },
+    ],
     submarine: { ...state.submarine, hp: 20, sysFlood: 0 },
   };
   return setAutopilot(state, 'exfil');

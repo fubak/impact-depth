@@ -4,7 +4,11 @@
 
 ## Now
 
-**Next:** Phase 5 (world factory and exfil seed 7). Do not self-approve Phases 6–7 or any operator gate.
+**Plan 026 machine work landed.** Phases 1–4 (ordnance physics, vessel dynamics, escort doctrine, instanced-particle combat VFX) are in `df4f424`. This session added Phase 5 — bloom post pipeline (`?bloom=0` off, on by default at `quality=high`), depth-graded underwater fog/exposure, sun shafts, marine snow — and Phase 6: HUD target-card damage states (FLOODING / ON FIRE / DEAD IN WATER / SINKING), staggered wave rings that keep large waves inside the 30–55 u envelope, wave-1 roving-escort sweep that finds a quiet boat in ~16–25 s, and flow noise keyed on realized speed. Campaign balance is pinned by `tests/game/playtest/campaign-balance.test.ts` (wave-1 sweep + wave-2 kills across 5 seeds).
+
+**Pending operator gates:** GPU FPS with bloom enabled, lighting/explosion eye-pass, fun/feel, soak, world default, `solo-production` tag.
+
+**Next (Plan 025 leftovers):** Phase 5 world factory and exfil seed 7. Do not self-approve Phases 6–7 or any operator gate.
 
 Phases 1–3 are in `feedf32` and the parents. Evidence: [phase 1](../docs/release/plan-025-phase1.md), [phases 2–3](../docs/release/plan-025-phase2-3.md). This commit adds:
 

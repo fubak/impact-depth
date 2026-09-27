@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BLOOM_LAYER } from '../post';
 
 /**
  * Instanced billboard particle system: one CPU struct-of-arrays simulation,
@@ -445,6 +446,8 @@ export class ParticleSystem {
     this.atlas = createAtlasTexture();
     this.additive = makeBucket(this.atlas, n, true, 'particles-additive');
     this.alpha = makeBucket(this.atlas, n, false, 'particles-alpha');
+    // Additive emitters feed the bloom source pass; alpha particles don't.
+    this.additive.mesh.layers.enable(BLOOM_LAYER);
     this.group.add(this.additive.mesh, this.alpha.mesh);
   }
 

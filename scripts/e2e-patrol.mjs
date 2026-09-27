@@ -208,6 +208,16 @@ try {
   });
 
   await runJourney('pause-resume', async () => {
+    // Lethal escorts can legitimately end a passive scripted patrol during the
+    // long targeting-fire stretch — restore a live patrol before testing pause.
+    const phase = await page
+      .evaluate(() => window.__silentDepths?.game?.phase ?? null)
+      .catch(() => null);
+    if (phase !== 'playing') {
+      await page.reload({ waitUntil: 'load', timeout: E2E_TIMEOUT_MS });
+      await page.waitForSelector('button[data-action="begin"]', { timeout: E2E_TIMEOUT_MS });
+      await beginPatrolAndSkipTutorial(page);
+    }
     await page.keyboard.press('Space');
     await pollUntil(
       page,

@@ -36,5 +36,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts', 'tests/**/*.test.mjs'],
+    // Sim-heavy playtests are CPU-bound single steps; on a contended box too
+    // many workers starve the main thread and trip the 60s worker RPC timeout.
+    maxWorkers: 2,
+    pool: 'threads',
   },
 });

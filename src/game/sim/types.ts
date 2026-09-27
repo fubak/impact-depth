@@ -87,6 +87,8 @@ export interface Ship {
   flooding: number;
   /** On-fire intensity (0..1); set by surface hits. */
   fire: number;
+  /** Speed actually made good last step — flow noise listens to this, not the order. */
+  actualSpeed?: number;
   /** Propulsion factor — stern hits wreck the screws. */
   speedFactor: number;
   /** Seconds the hull stays afloat once lethally hit. */

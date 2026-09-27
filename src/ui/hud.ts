@@ -218,6 +218,20 @@ function orderedDepth(target: number): DepthOrder {
   return best;
 }
 
+/** Target card line: identity, range, hull, then damage states the crew would report. */
+function targetCardText(ship: GameState['ships'][number], range: number | null): string {
+  const states: string[] = [];
+  if (ship.sinking !== undefined) states.push('SINKING');
+  else {
+    if (ship.flooding > 0.05) states.push('FLOODING');
+    if (ship.fire > 0.05) states.push('ON FIRE');
+    if (ship.speedFactor < 0.2) states.push('DEAD IN WATER');
+  }
+  const hp = Math.round((ship.hp / Math.max(1, ship.maxHp)) * 100);
+  const base = `${ship.name} · ${Math.ceil(range ?? 0)}u · ${hp}% HP`;
+  return states.length ? `${base} · ${states.join(' · ')}` : base;
+}
+
 function contactsMarkup(contacts: readonly FirmContact[], selectedTargetId: string | null): string {
   if (!contacts.length) return '<p class="empty">Listening… no firm contacts</p>';
   return contacts
@@ -503,9 +517,7 @@ export class Hud {
             .filter(Boolean)
             .join(' · ')}</b></div>
           <div class="order-row"${tipAttr('Selected contact for fire and doctrine')}><span>Target</span><b data-field="target" class="${target ? 'engaged' : ''}">${
-            target
-              ? `${target.name} · ${Math.ceil(targetRange ?? 0)}u · ${Math.round((target.hp / Math.max(1, target.maxHp)) * 100)}% HP`
-              : 'None — map / list / T'
+            target ? targetCardText(target, targetRange) : 'None — map / list / T'
           }</b></div>
         </div>
       </section>
@@ -823,9 +835,7 @@ export class Hud {
     );
     set(
       'target',
-      extras.target
-        ? `${extras.target.name} · ${Math.ceil(extras.targetRange ?? 0)}u · ${Math.round((extras.target.hp / Math.max(1, extras.target.maxHp)) * 100)}% HP`
-        : 'None — map / list / T',
+      extras.target ? targetCardText(extras.target, extras.targetRange) : 'None — map / list / T',
       extras.target ? 'engaged' : '',
     );
     set('objective', objectiveText(game));

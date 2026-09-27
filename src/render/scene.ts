@@ -38,6 +38,9 @@ import {
   type SurfaceDiagnostics,
 } from './presentation/surface-diagnostics';
 import {
+  immersionExposure,
+  immersionFogColor,
+  immersionFogDensity,
   immersionFogFactor,
   playerUnderwaterSubject,
   updateImmersion,
@@ -103,6 +106,7 @@ import {
 import { VfxPool } from './vfx';
 import { BlastMeshes } from './fx/blast-meshes';
 import { ShipEmitters, type EmitterShipView } from './fx/ship-emitters';
+import { UnderwaterFx } from './fx/underwater-rays';
 import {
   combatEventBursts,
   combatEventHitLight,
@@ -135,6 +139,7 @@ export class GameScene {
   private readonly assets = new AssetRegistry();
   private readonly vfx = new VfxPool(3000);
   private readonly blastMeshes = new BlastMeshes();
+  private readonly underwaterFx = new UnderwaterFx();
   private readonly shipEmitters = new ShipEmitters(this.vfx);
   readonly rangeRings: THREE.Group;
   readonly labelsRoot = new THREE.Group();
@@ -160,6 +165,8 @@ export class GameScene {
   private lastProbeIssueTime: number | null = null;
   private lastSurfaceDiagnostics: SurfaceDiagnostics | null = null;
   private immersionUnder = false;
+  /** Depth-graded exposure multiplier applied by the app each frame. */
+  immersionExposureFactor = 1;
   private playerHullPeri = false;
   private playerHullDepth = 0;
   private readonly underwaterColor = new THREE.Color(0.02, 0.1, 0.13);
@@ -178,6 +185,7 @@ export class GameScene {
   private lastSeaState = 0.32;
   private lastWaveHeight = 0.55;
   private lastSunDir = { x: 0.4, y: 0.8, z: 0.2 };
+  private lastIsNight = false;
   private lastHistoryDt = 1 / 60;
   private lastEffectWakes: SurfaceWakeBody[] = [];
   private lastEffectCrests: SurfaceCrestSample[] = [];
@@ -317,6 +325,7 @@ export class GameScene {
     this.scene.add(this.vfx.group);
     this.scene.add(this.blastMeshes.group);
     this.scene.add(this.shipEmitters.group);
+    this.scene.add(this.underwaterFx.group);
     this.hitLights = [0, 1, 2, 3].map(() => {
       const light = new THREE.PointLight(0xffb060, 0, 48, 2);
       light.name = 'combat-hit-light';
@@ -336,6 +345,7 @@ export class GameScene {
     excludeFromWaterCapture(this.vfx.group);
     excludeFromWaterCapture(this.blastMeshes.group);
     excludeFromWaterCapture(this.shipEmitters.group);
+    excludeFromWaterCapture(this.underwaterFx.group);
     excludeFromWaterCapture(this.subBeacon);
     excludeFromWaterCapture(this.subHit);
     void this.assets.preload().then(() => {
@@ -530,12 +540,28 @@ export class GameScene {
     });
     this.immersionUnder = next.underwater;
     this.presentPlayerHull();
-    if (!next.underwater) return;
+    const depthM = Math.max(0, next.waterHeight - camera.position.y);
+    this.underwaterFx.update({
+      camera,
+      underwater: next.underwater,
+      waterHeight: next.waterHeight,
+      sunDir: this.lastSunDir,
+      isNight: this.lastIsNight,
+      time: this.presentationTime,
+      dt: this.lastHistoryDt,
+    });
+    if (!next.underwater) {
+      this.immersionExposureFactor = 1;
+      return;
+    }
     const t = immersionFogFactor(camera.position.y, next.waterHeight, true);
+    const graded = immersionFogColor(depthM);
+    this.underwaterColor.setRGB(graded.r, graded.g, graded.b);
     this.scene.background = this.underwaterColor;
     this.underwaterFog.color.copy(this.underwaterColor);
-    this.underwaterFog.density = 0.011 + t * 0.021;
+    this.underwaterFog.density = immersionFogDensity(depthM);
     this.scene.fog = this.underwaterFog;
+    this.immersionExposureFactor = immersionExposure(depthM);
     this.atmosphere.hemi.groundColor.setRGB(0.03, 0.1, 0.11);
     this.atmosphere.hemi.intensity *= 1 - t * 0.5;
     this.atmosphere.ambient.intensity *= 1 - t * 0.35;
@@ -562,6 +588,7 @@ export class GameScene {
     this.outdoorLighting.bind(renderer, this.scene);
     this.optics.reset();
     this.caustics.reset(this.missionGeneration);
+    this.underwaterFx.reset();
     await renderer.compileAsync(this.scene, camera);
     if (signal.aborted) throw signal.reason;
   }
@@ -574,6 +601,7 @@ export class GameScene {
     this.optics.setQuality(profile.name);
     this.caustics.setQuality(profile.name);
     this.surfaceEffects.setQuality(profile.name);
+    this.underwaterFx.setQuality(profile.name);
   }
 
   getOutdoorLightingDiagnostics() {
@@ -913,6 +941,7 @@ export class GameScene {
     for (const light of this.fireLights) light.intensity = 0;
     this.blastMeshes.reset();
     this.shipEmitters.reset();
+    this.underwaterFx.reset();
   }
 
   resize(width: number, height: number, dpr = 1): void {
@@ -1284,6 +1313,7 @@ export class GameScene {
     this.lastSeaState = settings.ocean.seaState;
     this.lastWaveHeight = settings.ocean.waveHeight;
     this.lastSunDir = { x: atmo.sunDir.x, y: atmo.sunDir.y, z: atmo.sunDir.z };
+    this.lastIsNight = atmo.isNight;
     // Soften world fog while deep so surface contacts stay readable from below.
     if (this.scene.fog instanceof THREE.FogExp2 && sim.vessel.depth > 2.5) {
       const punch = Math.min(0.78, (sim.vessel.depth - 2.5) / 14);
@@ -1893,6 +1923,7 @@ export class GameScene {
     this.vfx.dispose();
     this.blastMeshes.dispose();
     this.shipEmitters.dispose();
+    this.underwaterFx.dispose();
     this.worldFoam.dispose();
     this.crestSpray.dispose();
     this.rangeRings.traverse((obj) => {

@@ -968,6 +968,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         heading,
         x,
         y,
+        actualSpeed: moveSpeed,
         alert,
         holdContact,
         lastKnownX,

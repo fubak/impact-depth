@@ -226,7 +226,7 @@ export function combatEventMeshFx(event: CombatEvent): MeshFxCue[] {
       const world = simToWorldMeters(event.x, event.y);
       const cues: MeshFxCue[] = [];
       if (event.surface) {
-        cues.push({ type: 'ring', x: world.x, z: world.z, radius: 18 + event.yield * 0.3 });
+        cues.push({ type: 'ring', x: world.x, z: world.z, radius: 4 + event.yield * 0.05 });
         cues.push({ type: 'surfaceFoam', x: world.x, z: world.z, strength: 1.4 });
       } else {
         cues.push({
@@ -244,7 +244,7 @@ export function combatEventMeshFx(event: CombatEvent): MeshFxCue[] {
       const world = simToWorldMeters(event.x, event.y);
       return [
         { type: 'slick', x: world.x, z: world.z },
-        { type: 'ring', x: world.x, z: world.z, radius: 14 },
+        { type: 'ring', x: world.x, z: world.z, radius: 7 },
         { type: 'surfaceFoam', x: world.x, z: world.z, strength: 1.3 },
       ];
     }

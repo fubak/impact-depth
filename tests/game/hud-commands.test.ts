@@ -485,3 +485,48 @@ describe('HUD declutter (D1)', () => {
     expect(after).toBeLessThan(before);
   });
 });
+
+describe('HUD target card damage states', () => {
+  const renderTargetCard = (ship: ReturnType<typeof playing>['ships'][number]) => {
+    const root = stubEl();
+    const hud = new Hud(root, stubEl(), {
+      command() {},
+      plot() {},
+      select() {},
+      isMuted: () => false,
+    });
+    const base = startMission(createGame(1));
+    hud.render(
+      { ...base, ships: [ship], selectedTargetId: ship.id },
+      createInitialSim(),
+      DEFAULT_SETTINGS,
+    );
+    return (root as unknown as { innerHTML: string }).innerHTML;
+  };
+
+  it('reports flooding, fire, and propulsion loss on the selected target', () => {
+    const ship = {
+      ...startMission(createGame(1)).ships[0]!,
+      flooding: 0.4,
+      fire: 0.3,
+      speedFactor: 0.1,
+    };
+    const html = renderTargetCard(ship);
+    expect(html).toContain('FLOODING');
+    expect(html).toContain('ON FIRE');
+    expect(html).toContain('DEAD IN WATER');
+  });
+
+  it('a sinking hull reports SINKING instead of per-system states', () => {
+    const ship = {
+      ...startMission(createGame(1)).ships[0]!,
+      flooding: 0.4,
+      fire: 0.3,
+      speedFactor: 0.1,
+      sinking: 0,
+    };
+    const html = renderTargetCard(ship);
+    expect(html).toContain('SINKING');
+    expect(html).not.toContain('FLOODING');
+  });
+});

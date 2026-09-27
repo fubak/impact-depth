@@ -121,7 +121,7 @@ try {
   let extractAt = 0;
   // Wall-clock budget is generous: the software renderer advances sim time far
   // slower than real time, and escorts legitimately screen the merchant now.
-  while (Date.now() - fightStart < 300000) {
+  while (Date.now() - fightStart < Number(process.env.STRIKE_FIGHT_MS || 600000)) {
     const cue = await readCue(page);
     if (cue.objective.startsWith('Reach the exit')) {
       extractAt = Date.now();
