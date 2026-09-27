@@ -83,25 +83,56 @@ describe('torpedo impact and tactics', () => {
     expect(state.submarine.torpedoes).toBe(state.submarine.maxTorpedoes);
   });
 
-  it('a fresh hull survives an escort\'s opening hedgehog volley so the player can react', () => {
-    let state = startMission(createGame(19));
-    const escort = state.ships.find((s) => s.kind === 'cruiser')!;
-    state = {
-      ...state,
-      ships: state.ships.map((s) =>
-        s.id === escort.id
-          ? { ...s, x: state.submarine.x + 0.8, y: state.submarine.y, alert: 1, holdContact: 8, weaponCooldown: 0 }
-          : { ...s, x: s.x + 200, y: s.y + 200 },
-      ),
-      submarine: { ...state.submarine, invuln: 0, hp: 100, noise: 0.6, silentRunning: false },
+  it('an escort\'s opening depth-charge run leaves a window to react — but punishes holding still', () => {
+    const stage = (speed: number) => {
+      const base = startMission(createGame(19));
+      const escort = base.ships.find((s) => s.kind === 'cruiser')!;
+      return {
+        ...base,
+        ships: base.ships.map((s) =>
+          s.id === escort.id
+            ? {
+                ...s,
+                // Escort faces away with the boat directly astern, so the run drops
+                // the stern/K-gun pattern on it instead of hedgehogs.
+                x: base.submarine.x - 0.8,
+                y: base.submarine.y,
+                heading: Math.PI,
+                alert: 1,
+                holdContact: 8,
+                weaponCooldown: 0,
+              }
+            : { ...s, x: s.x + 200, y: s.y + 200 },
+        ),
+        submarine: {
+          ...base.submarine,
+          invuln: 0,
+          hp: 100,
+          noise: 0.6,
+          silentRunning: false,
+          speed,
+          targetSpeed: speed,
+        },
+      };
     };
-    let minHp = state.submarine.hp;
-    for (let i = 0; i < Math.ceil(4 / FIXED_DT); i++) {
-      state = updateGame(state, [], FIXED_DT);
-      minHp = Math.min(minHp, state.submarine.hp);
+
+    // Charges need seconds to sink to pistol depth: a boat holding still takes
+    // no damage for the first 2 s — that sink time *is* the reaction window.
+    let still = stage(0);
+    for (let i = 0; i < Math.ceil(2 / FIXED_DT); i++) {
+      still = updateGame(still, [], FIXED_DT);
+      expect(still.submarine.hp).toBe(100);
     }
-    expect(minHp).toBeLessThan(100);
-    expect(minHp).toBeGreaterThan(75);
+    expect(still.depthCharges.some((c) => c.kind === 'depthCharge')).toBe(true);
+
+    // A boat that keeps moving outruns the drop and survives comfortably.
+    let moving = stage(2.5);
+    let minHp = moving.submarine.hp;
+    for (let i = 0; i < Math.ceil(6 / FIXED_DT); i++) {
+      moving = updateGame(moving, [], FIXED_DT);
+      minHp = Math.min(minHp, moving.submarine.hp);
+    }
+    expect(minHp).toBeGreaterThanOrEqual(75);
   });
 
   it('ambush autopilot closes range and can fire a shot', () => {

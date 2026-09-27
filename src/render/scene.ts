@@ -2,7 +2,13 @@ import * as THREE from 'three';
 import type { LookDevSettings, SimState } from '../core/types';
 
 import type { CombatEvent } from '../game/adapt/combat-events';
-import { advanceWrecks, wreckPose, type Wreck } from './presentation/wrecks';
+import {
+  advanceWrecks,
+  sinkingPose,
+  wreckPose,
+  type SinkPoseStyle,
+  type Wreck,
+} from './presentation/wrecks';
 import type { GameState, ShipKind } from '../game/sim/types';
 import { worldMetersToSim } from '../game/sim/coords';
 import { getWorld, worldHeight } from '../game/world/queries';
@@ -95,9 +101,12 @@ import {
   createWakeRibbon,
 } from './vessels';
 import { VfxPool } from './vfx';
+import { BlastMeshes } from './fx/blast-meshes';
+import { ShipEmitters, type EmitterShipView } from './fx/ship-emitters';
 import {
   combatEventBursts,
   combatEventHitLight,
+  combatEventMeshFx,
   HIT_LIGHT_PULSE_S,
   torpedoTrailMarks,
   TRAIL_INTERVAL_S,
@@ -124,7 +133,9 @@ export class GameScene {
   private readonly shipEntities = new Map<string, ShipVisual>();
   private readonly entities = new Map<string, THREE.Group>();
   private readonly assets = new AssetRegistry();
-  private readonly vfx = new VfxPool(120);
+  private readonly vfx = new VfxPool(3000);
+  private readonly blastMeshes = new BlastMeshes();
+  private readonly shipEmitters = new ShipEmitters(this.vfx);
   readonly rangeRings: THREE.Group;
   readonly labelsRoot = new THREE.Group();
   readonly tacticalGrid: THREE.GridHelper;
@@ -174,9 +185,12 @@ export class GameScene {
   private readonly splashIds = new Set<string>();
   private readonly hitLights: THREE.PointLight[];
   private readonly hitPulse = [
-    { until: 0, peak: 0 },
-    { until: 0, peak: 0 },
+    { until: 0, peak: 0, underwater: false },
+    { until: 0, peak: 0, underwater: false },
+    { until: 0, peak: 0, underwater: false },
+    { until: 0, peak: 0, underwater: false },
   ];
+  private readonly fireLights: THREE.PointLight[];
   private hitCursor = 0;
   private wrecks: Wreck[] = [];
   private wreckClock: number | null = null;
@@ -301,9 +315,18 @@ export class GameScene {
     this.scene.add(this.tacticalGrid);
     this.scene.add(this.labelsRoot);
     this.scene.add(this.vfx.group);
-    this.hitLights = [0, 1].map(() => {
+    this.scene.add(this.blastMeshes.group);
+    this.scene.add(this.shipEmitters.group);
+    this.hitLights = [0, 1, 2, 3].map(() => {
       const light = new THREE.PointLight(0xffb060, 0, 48, 2);
       light.name = 'combat-hit-light';
+      light.castShadow = false;
+      this.scene.add(light);
+      return light;
+    });
+    this.fireLights = [0, 1].map(() => {
+      const light = new THREE.PointLight(0xff6a1a, 0, 26, 2);
+      light.name = 'combat-fire-light';
       light.castShadow = false;
       this.scene.add(light);
       return light;
@@ -311,6 +334,8 @@ export class GameScene {
     excludeFromWaterCapture(this.tacticalGrid);
     excludeFromWaterCapture(this.labelsRoot);
     excludeFromWaterCapture(this.vfx.group);
+    excludeFromWaterCapture(this.blastMeshes.group);
+    excludeFromWaterCapture(this.shipEmitters.group);
     excludeFromWaterCapture(this.subBeacon);
     excludeFromWaterCapture(this.subHit);
     void this.assets.preload().then(() => {
@@ -559,6 +584,15 @@ export class GameScene {
     return this.vfx.getDiagnostics();
   }
 
+  /** Live particle view for tests/gauntlets (world metres). */
+  debugVfxParticles(): ReturnType<VfxPool['debugParticles']> {
+    return this.vfx.debugParticles();
+  }
+
+  getBlastDiagnostics(): ReturnType<BlastMeshes['getDiagnostics']> {
+    return this.blastMeshes.getDiagnostics();
+  }
+
   getContactHeights(): Array<{ id: string; y: number; kind: string }> {
     const rows: Array<{ id: string; y: number; kind: string }> = [];
     for (const [id, entity] of this.shipEntities) {
@@ -580,20 +614,60 @@ export class GameScene {
     const dt = this.wreckClock === null ? 0 : Math.max(0, Math.min(1, now - this.wreckClock));
     this.wreckClock = now;
     for (const event of events) {
-      if (event.type === 'shipSunk') this.adoptShipAsWreck(event.id, event.kind);
+      if (event.type === 'shipSunk')
+        this.adoptShipAsWreck(
+          event.id,
+          event.kind,
+          event.sinkStyle ?? 'bow',
+          event.listSide ?? 1,
+        );
     }
     this.wrecks = advanceWrecks(this.wrecks, events, dt);
     this.syncWreckMeshes();
     this.decayHitLights(now);
     for (const event of events) {
-      for (const burst of combatEventBursts(event)) this.vfx.emitBurst(burst, now);
+      for (const burst of combatEventBursts(event)) {
+        burst.bedY = presentationBedY(
+          this.currentWorldVersion,
+          this.currentTerrainSeed,
+          burst.x,
+          burst.z,
+        );
+        this.vfx.emitBurst(burst, now);
+      }
+      for (const cue of combatEventMeshFx(event)) {
+        if (cue.type === 'gasBubbles') {
+          this.blastMeshes.spawnGasBubble(cue.x, cue.y, cue.z, cue.yieldPower, now);
+        } else if (cue.type === 'dome') {
+          this.blastMeshes.spawnDome(cue.x, cue.z, cue.radius, now);
+        } else if (cue.type === 'plume') {
+          this.blastMeshes.spawnPlume(cue.x, cue.z, cue.height, cue.radius, now);
+        } else if (cue.type === 'ring') {
+          this.blastMeshes.spawnRing(cue.x, cue.z, cue.radius, now);
+        } else if (cue.type === 'slick') {
+          this.shipEmitters.spawnSlick(cue.x, cue.z, now);
+        } else {
+          this.surfaceEffects.emitImpact({
+            x: cue.x,
+            y: SURFACE_SPLASH_Y,
+            z: cue.z,
+            strength: cue.strength,
+            kind: 'burst',
+          });
+        }
+      }
       const flash = combatEventHitLight(event);
-      if (flash) this.pulseHitLight(flash.x, flash.y, flash.z, flash.intensity, now);
+      if (flash) this.pulseHitLight(flash.x, flash.y, flash.z, flash.intensity, flash.underwater, now);
     }
   }
 
   /** Keep the hull that just sank. Shared glTF geometries are not disposed. */
-  private adoptShipAsWreck(id: string, kind: ShipKind): void {
+  private adoptShipAsWreck(
+    id: string,
+    kind: ShipKind,
+    style: SinkPoseStyle,
+    listSide: number,
+  ): void {
     if (this.wreckMeshes.has(id)) return;
     const entity = this.shipEntities.get(id);
     if (!entity) return;
@@ -607,8 +681,12 @@ export class GameScene {
     (entity.hit.material as THREE.Material).dispose();
     this.shipEntities.delete(id);
     entity.mesh.name = `wreck-${id}`;
-    entity.mesh.userData.wreckBaseY = entity.mesh.position.y;
-    entity.mesh.userData.wreckBaseRoll = entity.mesh.rotation.z;
+    // The live hull is already posed at sinkingPose(1); store the pre-sink
+    // baseline so wreckPose() continues the same absolute pose with no pop.
+    const atSurface = sinkingPose(1, style, listSide, kind);
+    entity.mesh.userData.wreckBaseY = entity.mesh.position.y + atSurface.sink;
+    entity.mesh.userData.wreckBaseRoll = entity.mesh.rotation.z - atSurface.list;
+    entity.mesh.userData.wreckBasePitch = entity.mesh.rotation.x - atSurface.pitch;
     this.wreckMeshes.set(id, entity.mesh);
   }
 
@@ -630,19 +708,23 @@ export class GameScene {
         const world = simToWorldMeters(wreck.x, wreck.y);
         const depth = wreck.kind === 'sub' ? 0.32 : 0.04;
         mesh.position.set(world.x, entityDepthY(depth), world.z);
-        mesh.userData.wreckBaseY = mesh.position.y;
+        mesh.userData.wreckBaseY =
+          mesh.position.y +
+          sinkingPose(1, wreck.style, wreck.listSide, wreck.kind).sink;
         mesh.userData.wreckBaseRoll = 0;
+        mesh.userData.wreckBasePitch = 0;
         mesh.userData.wreckKind = wreck.kind;
         this.scene.add(mesh);
         this.wreckMeshes.set(wreck.id, mesh);
       }
       const kind = (mesh.userData.wreckKind as ShipKind | undefined) ?? wreck.kind;
-      const pose = wreckPose(wreck.age, kind);
+      const pose = wreckPose(wreck.age, kind, wreck.style, wreck.listSide);
       const baseY = (mesh.userData.wreckBaseY as number) ?? mesh.position.y;
       const baseRoll = (mesh.userData.wreckBaseRoll as number) ?? 0;
+      const basePitch = (mesh.userData.wreckBasePitch as number) ?? 0;
       mesh.position.y = baseY - pose.sink;
       mesh.rotation.z = baseRoll + pose.list;
-      mesh.rotation.x = pose.pitch;
+      mesh.rotation.x = basePitch + pose.pitch;
     }
   }
 
@@ -656,20 +738,73 @@ export class GameScene {
     this.syncWreckMeshes();
   }
 
-  private pulseHitLight(x: number, y: number, z: number, peak: number, now: number): void {
+  private pulseHitLight(
+    x: number,
+    y: number,
+    z: number,
+    peak: number,
+    underwater: boolean,
+    now: number,
+  ): void {
     const index = this.hitCursor % this.hitLights.length;
     this.hitCursor += 1;
     const light = this.hitLights[index]!;
     light.position.set(x, y, z);
-    this.hitPulse[index] = { until: now + HIT_LIGHT_PULSE_S, peak };
+    // Underwater flashes are cyan-white over a shorter throw.
+    light.distance = underwater ? 30 : 60;
+    this.hitPulse[index] = { until: now + HIT_LIGHT_PULSE_S, peak, underwater };
     light.intensity = peak;
+    light.color.setHex(underwater ? 0xc4f2ff : 0xfff2d8);
   }
+
+  private static readonly HIT_ORANGE = new THREE.Color(0xff7a22);
+  private static readonly HIT_WHITE = new THREE.Color(0xfff2d8);
+  private static readonly HIT_CYAN = new THREE.Color(0xc4f2ff);
+  private static readonly HIT_DEEP = new THREE.Color(0x2a7a99);
 
   private decayHitLights(now: number): void {
     for (let i = 0; i < this.hitLights.length; i += 1) {
       const pulse = this.hitPulse[i]!;
       const remain = pulse.until - now;
-      this.hitLights[i]!.intensity = remain > 0 ? pulse.peak * (remain / HIT_LIGHT_PULSE_S) : 0;
+      const light = this.hitLights[i]!;
+      light.intensity = remain > 0 ? pulse.peak * (remain / HIT_LIGHT_PULSE_S) : 0;
+      if (remain > 0) {
+        const t = 1 - remain / HIT_LIGHT_PULSE_S;
+        // White-hot flash cools to orange; underwater flashes cool to deep blue.
+        light.color.lerpColors(
+          pulse.underwater ? GameScene.HIT_CYAN : GameScene.HIT_WHITE,
+          pulse.underwater ? GameScene.HIT_DEEP : GameScene.HIT_ORANGE,
+          t,
+        );
+      }
+    }
+  }
+
+  /** The two fire lights ride the burning ships nearest the player. */
+  private updateFireLights(
+    emitterShips: readonly EmitterShipView[],
+    vessel: { x: number; z: number },
+    now: number,
+  ): void {
+    const burning = emitterShips
+      .filter((ship) => ship.fire > 0.05)
+      .sort(
+        (a, b) =>
+          Math.hypot(a.x - vessel.x, a.z - vessel.z) -
+          Math.hypot(b.x - vessel.x, b.z - vessel.z),
+      );
+    for (let i = 0; i < this.fireLights.length; i += 1) {
+      const light = this.fireLights[i]!;
+      const ship = burning[i];
+      if (!ship) {
+        light.intensity = 0;
+        continue;
+      }
+      light.position.set(ship.x, ship.deckY + 2.5, ship.z);
+      // Deterministic flicker — two incommensurate sines, no Math.random.
+      const flicker =
+        0.72 + 0.2 * Math.sin(now * 11.3 + i * 2.4) + 0.08 * Math.sin(now * 23.7 + i * 5.1);
+      light.intensity = ship.fire * 55 * flicker;
     }
   }
 
@@ -772,8 +907,12 @@ export class GameScene {
     for (const pulse of this.hitPulse) {
       pulse.until = 0;
       pulse.peak = 0;
+      pulse.underwater = false;
     }
     this.decayHitLights(0);
+    for (const light of this.fireLights) light.intensity = 0;
+    this.blastMeshes.reset();
+    this.shipEmitters.reset();
   }
 
   resize(width: number, height: number, dpr = 1): void {
@@ -921,6 +1060,18 @@ export class GameScene {
           'burst',
         );
       }
+    }
+    for (const shell of game.shells) {
+      // Shells fly above the sheet; reuse the torpedo body until Phase 4.
+      const p = simToWorldMeters(shell.x, shell.y);
+      add(
+        `shell:${shell.id}`,
+        'torpedo',
+        p.x,
+        entityDepthY(-shell.alt),
+        p.z,
+        Math.atan2(shell.vy, shell.vx),
+      );
     }
     for (const aircraft of game.aircraft.filter((a) => a.active)) {
       const p = simToWorldMeters(aircraft.x, aircraft.y);
@@ -1200,6 +1351,7 @@ export class GameScene {
     const bodies = [
       { mesh: this.sub, heading: v.heading, speed: v.speed, length: 7, yLift: 0.05, own: true },
     ];
+    const emitterShips: EmitterShipView[] = [];
     for (const ship of sim.ships) {
       let entity = this.shipEntities.get(ship.id);
       if (!entity) {
@@ -1249,10 +1401,32 @@ export class GameScene {
       } else {
         shipY = clampPresentationY(Number.isFinite(shipY) ? shipY : 0, bedY);
       }
+      // A dying hull keeps rendering through its sink: the shared pose model
+      // hands the wreck system a seamless progress-1 attitude.
+      const sinking =
+        ship.sinkProgress > 0
+          ? sinkingPose(
+              ship.sinkProgress,
+              ship.sinkStyle ?? 'bow',
+              ship.listSide,
+              ship.kind === 'uboat' ? 'sub' : ship.kind,
+            )
+          : undefined;
+      if (sinking) shipY -= sinking.sink;
       entity.mesh.position.set(ship.x, shipY, ship.z);
+      emitterShips.push({
+        id: ship.id,
+        x: ship.x,
+        z: ship.z,
+        deckY: shipY + hullHeight * 0.55,
+        spread: ship.kind === 'merchant' ? 7 : 4.5,
+        fire: ship.fire,
+        flooding: ship.flooding,
+        sinkProgress: ship.sinkProgress,
+      });
       entity.mesh.rotation.order = 'YXZ';
-      const pitch = pose?.pitch ?? ship.pitch;
-      const roll = pose?.roll ?? ship.roll;
+      const pitch = (pose?.pitch ?? ship.pitch) + (sinking?.pitch ?? 0);
+      const roll = (pose?.roll ?? ship.roll) + (sinking?.list ?? 0);
       entity.mesh.rotation.set(
         Number.isFinite(pitch) ? pitch : 0,
         -ship.heading,
@@ -1307,6 +1481,24 @@ export class GameScene {
       const ownWakeOk = !peri && v.depth < 2.5;
       actualWake.visible = b.speed > 0.4 && (b.own ? ownWakeOk : true);
     });
+
+    // Persistent emitters + pooled blast meshes ride the sim clock, not wall time.
+    this.shipEmitters.update(
+      emitterShips,
+      sim.time,
+      dt,
+      [...this.wreckMeshes.entries()]
+        .filter(([, mesh]) => mesh.position.y < -0.5)
+        .map(([id, mesh]) => ({
+          id: `wreck:${id}`,
+          x: mesh.position.x,
+          y: mesh.position.y,
+          z: mesh.position.z,
+        })),
+    );
+    this.updateFireLights(emitterShips, v, sim.time);
+    this.blastMeshes.update(sim.time);
+    this.vfx.setWaterHeight(this.lastWaterHeight ?? 0);
 
     this.atmosphere.follow(v.x, v.z);
     this.rangeRings.position.set(v.x, 0, v.z);
@@ -1699,6 +1891,8 @@ export class GameScene {
     }
     for (const entity of this.entities.values()) this.disposeGroup(entity);
     this.vfx.dispose();
+    this.blastMeshes.dispose();
+    this.shipEmitters.dispose();
     this.worldFoam.dispose();
     this.crestSpray.dispose();
     this.rangeRings.traverse((obj) => {

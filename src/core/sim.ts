@@ -96,6 +96,10 @@ export function createInitialSim(): SimState {
         heave: 0,
         pitch: 0,
         roll: 0,
+        sinkProgress: 0,
+        listSide: 1,
+        fire: 0,
+        flooding: 0,
       },
       {
         id: 'ss-11',
@@ -109,6 +113,10 @@ export function createInitialSim(): SimState {
         heave: 0,
         pitch: 0,
         roll: 0,
+        sinkProgress: 0,
+        listSide: 1,
+        fire: 0,
+        flooding: 0,
       },
       {
         id: 'ss-12',
@@ -122,6 +130,10 @@ export function createInitialSim(): SimState {
         heave: 0,
         pitch: 0,
         roll: 0,
+        sinkProgress: 0,
+        listSide: 1,
+        fire: 0,
+        flooding: 0,
       },
     ],
   };

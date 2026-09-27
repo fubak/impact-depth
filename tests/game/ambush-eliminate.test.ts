@@ -47,6 +47,7 @@ describe('ambush full engagement', () => {
     let fired = 0;
     let hits = 0;
     let minRange = Infinity;
+    let sawDestroyed = false;
     const log: string[] = [];
     const limit = Math.ceil(180 / FIXED_DT);
 
@@ -58,6 +59,10 @@ describe('ambush full engagement', () => {
       const live = state.ships.find((s) => s.id === targetId);
       const hp = live?.hp ?? 0;
       if (hp < beforeHp) hits += 1;
+      // A mortal hit now stands the autopilot down long before the hull
+      // finishes sinking — the stand-down message can expire from the queue
+      // while we wait for removal, so latch it as it appears.
+      if (state.messages.some((m) => /CONTACT DESTROYED/.test(m.text))) sawDestroyed = true;
       if (live) {
         const range = Math.hypot(state.submarine.x - live.x, state.submarine.y - live.y);
         minRange = Math.min(minRange, range);
@@ -99,6 +104,6 @@ describe('ambush full engagement', () => {
     expect(state.stats.shipsSunk > 0 || sunk).toBe(true);
     expect(state.autopilot.enabled).toBe(false);
     expect(state.autopilot.tactic).toBe('manual');
-    expect(state.messages.some((m) => /CONTACT DESTROYED/.test(m.text))).toBe(true);
+    expect(sawDestroyed).toBe(true);
   });
 });

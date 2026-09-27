@@ -8,7 +8,7 @@ const passiveRadius: Record<ShipKind | 'player', number> = {
 const machineryBase: Record<ShipKind, number> = {
   merchant: 0.72, battleship: 0.65, cruiser: 0.48, destroyer: 0.42, patrol: 0.38, sub: 0.18,
 };
-const shipMaxSpeed: Record<ShipKind, number> = {
+export const shipMaxSpeed: Record<ShipKind, number> = {
   merchant: 1.15, destroyer: 2.35, patrol: 2.6, cruiser: 1.9, battleship: 1.35, sub: 1.7,
 };
 const contactLabels: Record<ShipKind, string> = {

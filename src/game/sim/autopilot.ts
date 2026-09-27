@@ -1,4 +1,5 @@
 import { findPath, lineClear, makeClear, steerAvoid } from './pathfinding';
+import { turnBoat } from './vessel-dynamics';
 import { getTerrain, hullDepthLimit } from './world';
 import type { Autopilot, GameState, Point, Ship } from './types';
 
@@ -102,13 +103,13 @@ function steer(state: GameState, autopilot: Autopilot, goal: Point, dt: number):
     2.4,
     clear,
   );
-  const error = normalize(desired - sub.heading);
-  const turnRate = 2.9;
+  const turn = turnBoat(sub, sub.heading, desired, 2.9, dt);
   return {
     ...state,
     submarine: {
       ...sub,
-      heading: sub.heading + clamp(error, -turnRate * dt, turnRate * dt),
+      heading: turn.heading,
+      yawRate: turn.yawRate,
       waypoint: goal,
     },
     autopilot: { ...autopilot, path, repathTimer: repathTimer <= 0 ? 1 : repathTimer },

@@ -6,9 +6,11 @@ import { adaptToLookDevSim } from '../../src/game/adapt/lookdev';
 import type { CombatEvent } from '../../src/game/adapt/combat-events';
 import { createGame } from '../../src/game/sim/create';
 import type { Torpedo } from '../../src/game/sim/types';
+import { burstParticles } from '../../src/render/presentation/combat-fx';
 import {
   combatEventBursts,
   combatEventHitLight,
+  combatEventMeshFx,
   HIT_LIGHT_PULSE_S,
   torpedoTrailMarks,
 } from '../../src/render/presentation/combat-event-fx';
@@ -19,12 +21,20 @@ import {
 } from '../../src/render/presentation/coordinates';
 import { GameScene } from '../../src/render/scene';
 
-const BUBBLE = 0xbfe6f0;
-const WAKE = 0xe8fbff;
-const PLUME = 0x9dd9df;
-
 function hitAt(z: number): CombatEvent {
-  return { type: 'torpedoHit', id: 't1', targetId: 'ship-1', x: 40, y: 55, z };
+  // Bursts ride the detonation event, not the torpedoHit audio/HUD cue.
+  return {
+    type: 'detonation',
+    id: 't1',
+    kind: 'torpedo',
+    owner: 'player',
+    x: 40,
+    y: 55,
+    z,
+    yield: 48,
+    hitId: 'ship-1',
+    surface: z <= 0.15,
+  };
 }
 
 function directLights(scene: THREE.Scene): THREE.Light[] {
@@ -33,15 +43,8 @@ function directLights(scene: THREE.Scene): THREE.Light[] {
   );
 }
 
-function spritesOf(scene: GameScene): THREE.Sprite[] {
-  const pool = scene.scene.getObjectByName('vfx-pool');
-  return (pool?.children ?? []).filter(
-    (child): child is THREE.Sprite => child instanceof THREE.Sprite,
-  );
-}
-
-function spriteHex(sprite: THREE.Sprite): number {
-  return (sprite.material as THREE.SpriteMaterial).color.getHex();
+function particlesOf(scene: GameScene): ReturnType<GameScene['debugVfxParticles']> {
+  return scene.debugVfxParticles();
 }
 
 function fish(z: number): Torpedo {
@@ -54,6 +57,8 @@ function fish(z: number): Torpedo {
     z,
     heading: 0,
     speed: 8,
+    runSpeed: 8,
+    lockId: null,
     life: 20,
     armDelay: 0,
     damage: 40,
@@ -65,12 +70,12 @@ function fish(z: number): Torpedo {
 }
 
 describe('combat event fx mapping', () => {
-  it('places a hit burst at the entity depth for sim z', () => {
+  it('places a detonation burst at the entity depth for sim z', () => {
     const z = 0.62;
     const [burst] = combatEventBursts(hitAt(z));
     const world = simToWorldMeters(40, 55);
     expect(burst).toMatchObject({
-      preset: 'torpedoHit',
+      preset: 'chargeBlast',
       x: world.x,
       y: entityDepthY(z),
       z: world.z,
@@ -79,9 +84,30 @@ describe('combat event fx mapping', () => {
     expect(burst?.y).not.toBeCloseTo(SURFACE_SPLASH_Y, 1);
   });
 
-  it('uses a stronger charge blast when the blast is near', () => {
-    const near = combatEventBursts({ type: 'chargeBlast', x: 10, y: 12, z: 0.4, near: true })[0];
-    const far = combatEventBursts({ type: 'chargeBlast', x: 10, y: 12, z: 0.4, near: false })[0];
+  it('emits no burst for torpedoHit or chargeBlast cues — only detonations explode', () => {
+    expect(
+      combatEventBursts({ type: 'torpedoHit', id: 't', targetId: 's', x: 1, y: 2, z: 0.5 }),
+    ).toEqual([]);
+    expect(
+      combatEventBursts({ type: 'chargeBlast', x: 1, y: 2, z: 0.5, near: true }),
+    ).toEqual([]);
+  });
+
+  it('uses a stronger charge blast when the detonation hit the boat', () => {
+    const detonation = (hitId: string | null): CombatEvent => ({
+      type: 'detonation',
+      id: `dc-${hitId ?? 'miss'}`,
+      kind: 'depthCharge',
+      owner: 'enemy',
+      x: 10,
+      y: 12,
+      z: 0.4,
+      yield: 45,
+      hitId,
+      surface: false,
+    });
+    const near = combatEventBursts(detonation('player'))[0];
+    const far = combatEventBursts(detonation(null))[0];
     expect(near?.y).toBe(entityDepthY(0.4));
     expect(far?.y).toBe(entityDepthY(0.4));
     expect(near?.intensity).toBeGreaterThan(far?.intensity ?? 0);
@@ -101,6 +127,71 @@ describe('combat event fx mapping', () => {
     expect(shallow.every((mark) => mark.y === Math.max(SURFACE_SPLASH_Y, shallowY))).toBe(true);
     expect(new Set(shallow.map((mark) => mark.z)).size).toBe(1);
     expect(new Set(shallow.map((mark) => mark.x)).size).toBe(shallow.length);
+  });
+
+  it('an underwater detonation produces no surface fireball', () => {
+    const burst = combatEventBursts(hitAt(0.6))[0]!;
+    expect(burst.y).toBeLessThan(0);
+    const specs = burstParticles(burst);
+    // Underwater: flash + bubbles + silt only — no fire or sparks above the sea.
+    expect(specs.every((p) => p.kind !== 'fireball' && p.kind !== 'spark')).toBe(true);
+    expect(specs.some((p) => p.kind === 'bubbles')).toBe(true);
+    const cues = combatEventMeshFx(hitAt(0.6));
+    expect(cues.some((cue) => cue.type === 'gasBubbles')).toBe(true);
+    expect(cues.some((cue) => cue.type === 'ring')).toBe(false);
+  });
+
+  it('a shallow detonation gets a dome and plume, a deep one only a dome', () => {
+    const shallow = combatEventMeshFx(hitAt(0.2));
+    const deep = combatEventMeshFx(hitAt(0.9));
+    const veryDeep = combatEventMeshFx(hitAt(1.7));
+    const shallowPlume = shallow.find((cue) => cue.type === 'plume');
+    const deepPlume = deep.find((cue) => cue.type === 'plume');
+    expect(shallow.some((cue) => cue.type === 'dome')).toBe(true);
+    expect(deep.some((cue) => cue.type === 'dome')).toBe(true);
+    expect(veryDeep.some((cue) => cue.type === 'dome')).toBe(true);
+    expect(shallowPlume && shallowPlume.type === 'plume' ? shallowPlume.height : 0).toBeGreaterThan(
+      25,
+    );
+    // The plume shrinks with depth and vanishes entirely below PLUME_DEPTH_M.
+    expect(deepPlume && deepPlume.type === 'plume' ? deepPlume.height : 0).toBeLessThan(
+      shallowPlume && shallowPlume.type === 'plume' ? shallowPlume.height : 0,
+    );
+    expect(veryDeep.some((cue) => cue.type === 'plume')).toBe(false);
+  });
+
+  it('a surface torpedo detonation gets a shock ring, not a gas globe', () => {
+    const cues = combatEventMeshFx(hitAt(0.05));
+    expect(cues.some((cue) => cue.type === 'ring')).toBe(true);
+    expect(cues.some((cue) => cue.type === 'gasBubbles')).toBe(false);
+  });
+
+  it('a sinking ship leaves an oil slick cue', () => {
+    const cues = combatEventMeshFx({
+      type: 'shipSunk',
+      id: 'm-1',
+      kind: 'merchant',
+      x: 10,
+      y: 12,
+    });
+    expect(cues.some((cue) => cue.type === 'slick')).toBe(true);
+  });
+
+  it('a shell launch produces a muzzle burst on the firing hull', () => {
+    const [burst] = combatEventBursts({
+      type: 'shellLaunch',
+      owner: 'enemy',
+      id: 's-1',
+      sourceId: 'ship-9',
+      x: 30,
+      y: 40,
+      alt: 0.2,
+      heading: 1.1,
+    });
+    expect(burst?.preset).toBe('gunMuzzle');
+    const world = simToWorldMeters(30, 40);
+    expect(burst?.x).toBe(world.x);
+    expect(burst?.y).toBeGreaterThan(0); // deck height, not the waterline
   });
 });
 
@@ -138,32 +229,36 @@ describe('GameScene combat presentation', () => {
   it('keeps the scene light count constant across 100 hit events', () => {
     const view = new GameScene();
     try {
+      // Four hit lights + two fire lights are the whole preallocated pool.
       const lights = () => directLights(view.scene);
-      expect(lights()).toHaveLength(2);
+      expect(lights()).toHaveLength(6);
       expect(lights().every((light) => light.intensity === 0)).toBe(true);
       const before = lights().length;
 
       const z = 0.55;
       view.playCombatEvents([hitAt(z)], 2);
-      const pool = spritesOf(view);
-      expect(pool.some((sprite) => Math.abs(sprite.position.y - entityDepthY(z)) < 1e-4)).toBe(
-        true,
-      );
+      const pool = particlesOf(view);
+      expect(pool.some((p) => Math.abs(p.y - entityDepthY(z)) < 1e-4)).toBe(true);
       expect(combatEventHitLight(hitAt(z))?.y).toBe(entityDepthY(z));
+      expect(combatEventHitLight(hitAt(z))?.underwater).toBe(true);
       expect(lights().some((light) => light.intensity > 0)).toBe(true);
 
       const events: CombatEvent[] = Array.from({ length: 100 }, (_, index) => ({
-        type: 'torpedoHit',
+        type: 'detonation' as const,
         id: `t${index}`,
-        targetId: `ship-${index % 3}`,
+        kind: 'torpedo' as const,
+        owner: 'player' as const,
         x: 30 + index * 0.01,
         y: 40,
         z: 0.4 + (index % 5) * 0.05,
+        yield: 48,
+        hitId: `ship-${index % 3}`,
+        surface: false,
       }));
       view.playCombatEvents(events, 3);
       expect(lights()).toHaveLength(before);
       expect(view.scene.children.filter((child) => child.name === 'combat-hit-light')).toHaveLength(
-        2,
+        4,
       );
 
       view.playCombatEvents([], 3 + HIT_LIGHT_PULSE_S + 0.05);
@@ -195,23 +290,19 @@ describe('GameScene combat presentation', () => {
       const sim = adaptToLookDevSim(game);
       view.syncGame(game, sim, settings, 1 / 60);
 
-      const bubbles = spritesOf(view).filter((sprite) => spriteHex(sprite) === BUBBLE);
+      const bubbles = particlesOf(view).filter((p) => p.kind === 'bubbles');
       expect(bubbles.length).toBeGreaterThanOrEqual(4);
-      expect(bubbles.every((sprite) => sprite.position.y < -1.5)).toBe(true);
-      expect(spritesOf(view).some((sprite) => spriteHex(sprite) === PLUME)).toBe(false);
-      expect(
-        new Set(bubbles.map((sprite) => sprite.position.x.toFixed(2))).size,
-      ).toBeGreaterThanOrEqual(4);
+      expect(bubbles.every((p) => p.y < -1.5)).toBe(true);
+      expect(particlesOf(view).some((p) => p.kind === 'plume')).toBe(false);
+      expect(new Set(bubbles.map((p) => p.x.toFixed(2))).size).toBeGreaterThanOrEqual(4);
 
       game.torpedoes = [fish(0.04)];
       game.time += 0.25;
       view.syncGame(game, adaptToLookDevSim(game), settings, 1 / 60);
-      const wakes = spritesOf(view).filter((sprite) => spriteHex(sprite) === WAKE);
+      const wakes = particlesOf(view).filter((p) => p.kind === 'wake');
       expect(wakes.length).toBeGreaterThanOrEqual(3);
-      expect(new Set(wakes.map((sprite) => sprite.position.z.toFixed(3))).size).toBe(1);
-      expect(
-        new Set(wakes.map((sprite) => sprite.position.x.toFixed(2))).size,
-      ).toBeGreaterThanOrEqual(3);
+      expect(new Set(wakes.map((p) => p.z.toFixed(3))).size).toBe(1);
+      expect(new Set(wakes.map((p) => p.x.toFixed(2))).size).toBeGreaterThanOrEqual(3);
     } finally {
       view.dispose();
     }

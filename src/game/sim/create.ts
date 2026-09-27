@@ -1,5 +1,6 @@
 import { DEFAULT_CRUISE, FOB_RADIUS, WAVE_SPAWN_INNER, WORLD_CENTER } from './constants';
 import { WAVE1_SPAWN_RADIUS } from './action-feel';
+import { SINK_DURATION } from './ship-damage';
 import type { FormationRole, GameState, Point, Powerup, Ship, ShipKind, Submarine } from './types';
 import { createTerrain, snapToNavigable, type Terrain } from './world';
 import type { WorldVersion } from '../world/definition';
@@ -36,6 +37,9 @@ function createSubmarine(
     heading,
     displayHeading: heading,
     bank: 0,
+    yawRate: 0,
+    depthRate: 0,
+    blowTimer: 0,
     speed: DEFAULT_CRUISE,
     targetSpeed: DEFAULT_CRUISE,
     speedOrder: 'oneThird',
@@ -203,6 +207,11 @@ export function seedWave(
       speed: stats.speed,
       hp: stats.hp,
       maxHp: stats.hp,
+      flooding: 0,
+      fire: 0,
+      speedFactor: 1,
+      sinkDuration: SINK_DURATION[kind],
+      listSide: 1,
       alert: startingAlert(wave),
       holdContact: 0,
       weaponCooldown,
@@ -312,6 +321,11 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
         speed: 0,
         hp: 48,
         maxHp: 48,
+        flooding: 0,
+        fire: 0,
+        speedFactor: 1,
+        sinkDuration: SINK_DURATION.merchant,
+        listSide: 1,
         alert: 0,
         holdContact: 0,
         weaponCooldown: 0,
@@ -322,6 +336,8 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     ],
     torpedoes: [],
     depthCharges: [],
+    shells: [],
+    detonations: [],
     aircraft: [],
     countermeasures: [],
     powerups: [],

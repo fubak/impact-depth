@@ -69,6 +69,8 @@ function chargeOnBoat(state: GameState, z: number): GameState {
     x: cell.x,
     y: cell.y,
     z: 0.05,
+    vx: 0,
+    vy: 0,
     vz: 0,
     fuse: 0,
     damage: 30,
@@ -104,7 +106,9 @@ function chargeOnBoat(state: GameState, z: number): GameState {
 describe('depth-charge vertical window', () => {
   it('a bomb on the boat misses a deep hull and hurts a hull at the charge depth', () => {
     const mission = startMission(createGame(3));
-    const deep = updateGame(chargeOnBoat(mission, 0.95), [], FIXED_DT);
+    // 0.7 is deep but above the 0.9 hull-stress band — the charge is set to
+    // surface depth, so a deep hull must take no damage at all.
+    const deep = updateGame(chargeOnBoat(mission, 0.7), [], FIXED_DT);
     expect(deep.submarine.hp).toBe(100);
     const shallow = updateGame(chargeOnBoat(mission, 0.02), [], FIXED_DT);
     expect(shallow.submarine.hp).toBeLessThan(100);

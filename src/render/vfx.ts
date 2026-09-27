@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 import { burstParticles, type FxBurst } from './presentation/combat-fx';
+import {
+  ATLAS,
+  ParticleSystem,
+  type ParticleSpawn,
+  type Rgba,
+} from './fx/particle-system';
 
 export type EffectKind =
   | 'wake'
@@ -12,87 +18,185 @@ export type EffectKind =
   | 'debris'
   | 'shockwave'
   | 'spray'
-  | 'bubbles';
-
-type Particle = {
-  sprite: THREE.Sprite;
-  kind: EffectKind;
-  born: number;
-  ttl: number;
-  baseScale: number;
-  vx: number;
-  vy: number;
-  vz: number;
-};
+  | 'bubbles'
+  | 'spark'
+  | 'silt'
+  | 'steam'
+  | 'ember';
 
 type KindStyle = {
-  color: number;
+  frame: number;
   additive: boolean;
-  fog: boolean;
   ttl: number;
   growth: number;
   gravity: number;
+  drag: number;
+  buoyancy: number;
+  /** Terminal rise speed while underwater (bubbles). */
+  terminal: number;
+  wobble: number;
+  color0: Rgba;
+  color1: Rgba;
+  alpha: number;
   /** Eviction priority: lower is evicted first. */
   priority: number;
+  surfaceDeath?: 'bubble' | 'splash';
 };
 
-const LEGACY: Omit<KindStyle, 'color' | 'ttl' | 'growth'> = {
+const LEGACY = {
   additive: true,
-  fog: true,
   gravity: 0,
+  drag: 0,
+  buoyancy: 0,
+  terminal: 0,
+  wobble: 0,
+  alpha: 0.82,
   priority: 3,
 };
 
 const STYLE: Record<EffectKind, KindStyle> = {
-  wake: { ...LEGACY, color: 0xe8fbff, ttl: 1.2, growth: 3, priority: 0 },
-  explosion: { ...LEGACY, color: 0xffa33b, ttl: 0.9, growth: 3 },
-  plume: { ...LEGACY, color: 0x9dd9df, ttl: 0.9, growth: 5 },
-  pickup: { ...LEGACY, color: 0x9ce9c0, ttl: 1.8, growth: 3 },
-  flash: { ...LEGACY, color: 0xfff4d0, ttl: 0.25, growth: 0.6, fog: false },
-  fireball: { ...LEGACY, color: 0xff8a2a, ttl: 0.9, growth: 0.5 },
-  smoke: { ...LEGACY, color: 0x4a4f52, ttl: 3.2, growth: 1.5, additive: false, priority: 2 },
-  debris: { ...LEGACY, color: 0x2b2b2b, ttl: 1.6, growth: 0, additive: false, gravity: -9 },
-  shockwave: { ...LEGACY, color: 0xcfe8f0, ttl: 0.7, growth: 5, additive: false },
-  spray: { ...LEGACY, color: 0xe4f6ff, ttl: 1.5, growth: 0.6, additive: false, gravity: -4 },
-  bubbles: { ...LEGACY, color: 0xbfe6f0, ttl: 2.5, growth: 0.3, additive: false, priority: 1 },
+  wake: {
+    ...LEGACY,
+    frame: ATLAS.foam,
+    color0: [0.91, 0.98, 1, 0.4],
+    color1: [0.91, 0.98, 1, 0],
+    ttl: 1.2,
+    growth: 3,
+    priority: 0,
+  },
+  explosion: {
+    ...LEGACY,
+    frame: ATLAS.fireA,
+    color0: [1, 0.7, 0.28, 0.9],
+    color1: [0.4, 0.2, 0.1, 0],
+    ttl: 0.9,
+    growth: 3,
+  },
+  plume: {
+    ...LEGACY,
+    frame: ATLAS.droplet,
+    color0: [0.62, 0.85, 0.87, 0.7],
+    color1: [0.62, 0.85, 0.87, 0],
+    ttl: 0.9,
+    growth: 5,
+  },
+  pickup: {
+    ...LEGACY,
+    frame: ATLAS.soft,
+    color0: [0.61, 0.91, 0.75, 0.8],
+    color1: [0.61, 0.91, 0.75, 0],
+    ttl: 1.8,
+    growth: 3,
+  },
+  flash: {
+    ...LEGACY,
+    frame: ATLAS.soft,
+    color0: [1, 0.96, 0.82, 1],
+    color1: [1, 0.7, 0.3, 0],
+    ttl: 0.25,
+    growth: 0.6,
+    alpha: 1,
+  },
+  fireball: {
+    ...LEGACY,
+    frame: ATLAS.fireB,
+    color0: [1, 0.85, 0.5, 0.95],
+    color1: [0.35, 0.12, 0.06, 0],
+    ttl: 0.9,
+    growth: 0.5,
+  },
+  smoke: {
+    ...LEGACY,
+    additive: false,
+    frame: ATLAS.smokeA,
+    color0: [0.29, 0.31, 0.32, 0.8],
+    color1: [0.18, 0.19, 0.2, 0],
+    ttl: 3.2,
+    growth: 1.5,
+    priority: 2,
+  },
+  debris: {
+    ...LEGACY,
+    additive: false,
+    frame: ATLAS.debris,
+    color0: [0.17, 0.17, 0.17, 0.95],
+    color1: [0.17, 0.17, 0.17, 0.6],
+    ttl: 1.6,
+    growth: 0,
+    gravity: -9,
+  },
+  shockwave: {
+    ...LEGACY,
+    additive: false,
+    frame: ATLAS.ring,
+    color0: [0.81, 0.91, 0.94, 0.7],
+    color1: [0.81, 0.91, 0.94, 0],
+    ttl: 0.7,
+    growth: 5,
+  },
+  spray: {
+    ...LEGACY,
+    additive: false,
+    frame: ATLAS.droplet,
+    color0: [0.89, 0.96, 1, 0.75],
+    color1: [0.89, 0.96, 1, 0],
+    ttl: 1.5,
+    growth: 0.6,
+    gravity: -9.8,
+    surfaceDeath: 'splash',
+  },
+  bubbles: {
+    ...LEGACY,
+    additive: false,
+    frame: ATLAS.bubble,
+    color0: [0.75, 0.9, 0.94, 0.7],
+    color1: [0.75, 0.9, 0.94, 0.4],
+    ttl: 2.5,
+    growth: 0.3,
+    terminal: 4,
+    wobble: 0.6,
+    priority: 1,
+    surfaceDeath: 'bubble',
+  },
+  spark: {
+    ...LEGACY,
+    frame: ATLAS.spark,
+    color0: [1, 0.92, 0.6, 1],
+    color1: [1, 0.4, 0.1, 0],
+    ttl: 0.7,
+    growth: 0,
+    gravity: -9.8,
+  },
+  silt: {
+    ...LEGACY,
+    additive: false,
+    frame: ATLAS.silt,
+    color0: [0.5, 0.42, 0.3, 0.7],
+    color1: [0.5, 0.42, 0.3, 0],
+    ttl: 5,
+    growth: 1,
+    priority: 1,
+  },
+  steam: {
+    ...LEGACY,
+    additive: false,
+    frame: ATLAS.smokeB,
+    color0: [0.85, 0.9, 0.92, 0.6],
+    color1: [0.85, 0.9, 0.92, 0],
+    ttl: 2.6,
+    growth: 1.8,
+    priority: 2,
+  },
+  ember: {
+    ...LEGACY,
+    frame: ATLAS.glow,
+    color0: [1, 0.6, 0.2, 0.9],
+    color1: [0.5, 0.1, 0.02, 0],
+    ttl: 1.4,
+    growth: 0,
+    gravity: -2,
+  },
 };
-
-function createRadialTexture(): THREE.Texture {
-  const size = 64;
-  if (typeof document !== 'undefined') {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
-    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    gradient.addColorStop(0, 'rgba(255,255,255,1)');
-    gradient.addColorStop(0.35, 'rgba(255,255,255,0.55)');
-    gradient.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, size, size);
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.needsUpdate = true;
-    return tex;
-  }
-  // Node/unit tests: soft radial without DOM canvas.
-  const data = new Uint8Array(size * size * 4);
-  const mid = (size - 1) * 0.5;
-  const maxR = size * 0.5;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const t = Math.min(1, Math.hypot(x - mid, y - mid) / maxR);
-      const a = Math.round((1 - t) ** 2 * 255);
-      const i = (y * size + x) * 4;
-      data[i] = 255;
-      data[i + 1] = 255;
-      data[i + 2] = 255;
-      data[i + 3] = a;
-    }
-  }
-  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
-  tex.needsUpdate = true;
-  return tex;
-}
 
 /** Constant upward drift of the original kinds, in metres per second. */
 const LEGACY_RISE: Record<EffectKind, number> = {
@@ -107,25 +211,31 @@ const LEGACY_RISE: Record<EffectKind, number> = {
   shockwave: 0,
   spray: 0,
   bubbles: 0,
+  spark: 0,
+  silt: 0,
+  steam: 0,
+  ember: 0,
 };
 
 const WAKE_MIN_INTERVAL = 1 / 30;
-const MAX_STEP = 0.25;
 
-/** Fixed-size visual-only pool; effects are never written back to game state. */
+/** Visual-only pool over the instanced particle system; never feeds game state. */
 export class VfxPool {
   readonly group = new THREE.Group();
-  private readonly particles: Particle[] = [];
-  private readonly free: THREE.Sprite[] = [];
+  private readonly system: ParticleSystem;
   private readonly lastEmit = new Map<string, number>();
-  private readonly texture: THREE.Texture;
-  private cap: number;
-  private lastNow: number | undefined;
+  private frameCursor = 0;
+  private waterY = 0;
 
   constructor(cap = 120) {
-    this.cap = cap;
-    this.texture = createRadialTexture();
     this.group.name = 'vfx-pool';
+    this.system = new ParticleSystem(cap);
+    this.group.add(this.system.group);
+  }
+
+  /** The water line used for bubble death, spray re-entry and underwater tint. */
+  setWaterHeight(y: number): void {
+    this.waterY = y;
   }
 
   /** Optional `key` throttles wake emission per source to ~30 Hz. */
@@ -135,122 +245,226 @@ export class VfxPool {
       if (last !== undefined && now >= last && now - last < WAKE_MIN_INTERVAL) return;
       this.lastEmit.set(key, now);
     }
-    this.spawn(kind, position.x, position.y, position.z, now, kind === 'wake' ? 0.4 : 1.1, {});
+    this.system.emit(
+      this.toSpawn(kind, position.x, position.y, position.z, kind === 'wake' ? 0.4 : 1.1, {}),
+      now,
+    );
+  }
+
+  /** Direct spec emission for persistent emitters (ship fires, sinking foam). */
+  emitSpec(spec: ParticleSpawn, now: number): void {
+    this.system.emit(spec, now);
   }
 
   /** Spawn a preset combat burst (world metres). Jitter is seeded, never Math.random. */
   emitBurst(spec: FxBurst, now: number): void {
     for (const p of burstParticles(spec)) {
-      this.spawn(p.kind, spec.x + p.dx, spec.y + p.dy, spec.z + p.dz, now, p.scale, p);
+      this.system.emit(
+        this.toSpawn(p.kind, spec.x + p.dx, spec.y + p.dy, spec.z + p.dz, p.scale, p),
+        now,
+      );
     }
   }
 
-  private spawn(
+  private toSpawn(
     kind: EffectKind,
     x: number,
     y: number,
     z: number,
-    now: number,
     baseScale: number,
-    extra: { vx?: number; vy?: number; vz?: number; ttl?: number },
-  ): void {
-    if (this.particles.length >= this.cap) this.evictOne();
+    extra: {
+      vx?: number;
+      vy?: number;
+      vz?: number;
+      ttl?: number;
+      delay?: number;
+      gravity?: number;
+      drag?: number;
+      buoyancy?: number;
+      terminal?: number;
+      wobble?: number;
+      sizeEnd?: number;
+      rot?: number;
+      rotSpeed?: number;
+      stretch?: number;
+      frame?: number;
+      color0?: Rgba;
+      colorMid?: Rgba;
+      color1?: Rgba;
+      additive?: boolean;
+      priority?: number;
+      surfaceDeath?: 'bubble' | 'splash';
+      trailInterval?: number;
+    },
+  ): ParticleSpawn {
     const style = STYLE[kind];
-    const sprite = this.free.pop() ?? this.createSprite();
-    const material = sprite.material as THREE.SpriteMaterial;
-    material.color.setHex(style.color);
-    material.opacity = kind === 'wake' ? 0.36 : 0.82;
-    const blending = style.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
-    if (material.blending !== blending) material.blending = blending;
-    if (material.fog !== style.fog) {
-      material.fog = style.fog;
-      material.needsUpdate = true;
-    }
-    sprite.position.set(x, y, z);
-    sprite.scale.setScalar(baseScale);
-    this.group.add(sprite);
-    this.particles.push({
-      sprite,
+    const rise = LEGACY_RISE[kind];
+    const spawn: ParticleSpawn = {
       kind,
-      born: now,
-      ttl: extra.ttl ?? style.ttl,
-      baseScale,
+      x,
+      y,
+      z,
       vx: extra.vx ?? 0,
-      vy: extra.vy ?? 0,
+      vy: (extra.vy ?? 0) + rise,
       vz: extra.vz ?? 0,
-    });
+      gravity: extra.gravity ?? style.gravity,
+      drag: extra.drag ?? style.drag,
+      buoyancy: extra.buoyancy ?? style.buoyancy,
+      terminal: extra.terminal ?? style.terminal,
+      wobble: extra.wobble ?? style.wobble,
+      size0: baseScale,
+      size1: extra.sizeEnd ?? baseScale * (1 + style.growth),
+      rot: extra.rot ?? 0,
+      rotSpeed: extra.rotSpeed ?? 0,
+      color0: extra.color0 ?? [
+        style.color0[0],
+        style.color0[1],
+        style.color0[2],
+        style.color0[3] * style.alpha,
+      ],
+      colorMid: extra.colorMid,
+      color1: extra.color1 ?? style.color1,
+      ttl: extra.ttl ?? style.ttl,
+      delay: extra.delay ?? 0,
+      frame: extra.frame ?? this.pickFrame(style.frame),
+      additive: extra.additive ?? style.additive,
+      priority: extra.priority ?? style.priority,
+      stretch: extra.stretch ?? 0,
+      surfaceDeath: extra.surfaceDeath ?? style.surfaceDeath,
+      trailInterval: extra.trailInterval ?? 0,
+    };
+    return spawn;
+  }
+
+  /** Smoke/fire atlas variants rotate deterministically instead of Math.random. */
+  private pickFrame(base: number): number {
+    if (base === ATLAS.smokeA || base === ATLAS.smokeB || base === ATLAS.smokeC) {
+      this.frameCursor = (this.frameCursor + 1) % 3;
+      return ATLAS.smokeA + this.frameCursor;
+    }
+    if (base === ATLAS.fireA || base === ATLAS.fireB || base === ATLAS.fireC) {
+      this.frameCursor = (this.frameCursor + 1) % 3;
+      return ATLAS.fireA + this.frameCursor;
+    }
+    return base;
   }
 
   getDiagnostics(): { alive: number; cap: number; byKind: Record<EffectKind, number> } {
+    const diag = this.system.getDiagnostics();
     const byKind = Object.fromEntries(
       Object.keys(STYLE).map((kind) => [kind, 0]),
     ) as Record<EffectKind, number>;
-    for (const particle of this.particles) byKind[particle.kind] += 1;
-    return { alive: this.particles.length, cap: this.cap, byKind };
+    for (const [kind, count] of Object.entries(diag.byKind)) {
+      if (kind in byKind) byKind[kind as EffectKind] = count;
+    }
+    return { alive: diag.alive, cap: diag.cap, byKind };
+  }
+
+  getPeak(): number {
+    return this.system.getDiagnostics().peak;
   }
 
   setCap(cap: number): void {
-    this.cap = cap;
-    while (this.particles.length > cap) this.evictOne();
+    this.system.setCap(cap);
   }
 
   update(now: number): void {
-    const dt = this.lastNow === undefined ? 0 : Math.min(MAX_STEP, Math.max(0, now - this.lastNow));
-    this.lastNow = now;
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const particle = this.particles[i]!;
-      const life = (now - particle.born) / particle.ttl;
-      if (life >= 1) {
-        this.removeAt(i);
-        continue;
-      }
-      const style = STYLE[particle.kind];
-      particle.sprite.scale.setScalar(particle.baseScale * (1 + life * style.growth));
-      particle.vy += style.gravity * dt;
-      particle.sprite.position.x += particle.vx * dt;
-      particle.sprite.position.z += particle.vz * dt;
-      particle.sprite.position.y += (particle.vy + LEGACY_RISE[particle.kind]) * dt;
-      (particle.sprite.material as THREE.SpriteMaterial).opacity = (1 - life) * 0.7;
+    const events = this.system.update(now, this.waterY);
+    for (const event of events) this.emitSideEvent(event, now);
+    for (const [key, t] of this.lastEmit) {
+      if (now - t > 2 || t > now) this.lastEmit.delete(key);
     }
-    for (const [key, t] of this.lastEmit) if (now - t > 2 || t > now) this.lastEmit.delete(key);
   }
 
-  dispose(): void {
-    while (this.particles.length > 0) this.removeAt(this.particles.length - 1);
-    for (const sprite of this.free) (sprite.material as THREE.Material).dispose();
-    this.free.length = 0;
-    this.texture.dispose();
-  }
-
-  private createSprite(): THREE.Sprite {
-    return new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: this.texture,
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      }),
+  /** Surface puffs, re-entry splashes and debris smoke trails re-enter as particles. */
+  private emitSideEvent(
+    event: { preset: 'surfacePuff' | 'splash' | 'trail'; x: number; y: number; z: number; size: number },
+    now: number,
+  ): void {
+    if (event.preset === 'surfacePuff') {
+      this.system.emit(
+        {
+          kind: 'spray',
+          x: event.x,
+          y: event.y + 0.15,
+          z: event.z,
+          vy: 0.8,
+          size0: Math.min(2.2, event.size * 0.9 + 0.4),
+          size1: 3,
+          ttl: 0.7,
+          frame: ATLAS.foam,
+          additive: false,
+          priority: 1,
+          color0: [0.92, 0.98, 1, 0.55],
+          color1: [0.92, 0.98, 1, 0],
+        },
+        now,
+      );
+      return;
+    }
+    if (event.preset === 'splash') {
+      this.system.emit(
+        {
+          kind: 'spray',
+          x: event.x,
+          y: event.y + 0.2,
+          z: event.z,
+          vy: 2.4,
+          gravity: -9.8,
+          size0: Math.min(2.6, event.size * 0.8 + 0.6),
+          size1: 4.5,
+          ttl: 0.8,
+          frame: ATLAS.droplet,
+          additive: false,
+          priority: 1,
+          color0: [0.9, 0.96, 1, 0.7],
+          color1: [0.9, 0.96, 1, 0],
+        },
+        now,
+      );
+      return;
+    }
+    this.system.emit(
+      {
+        kind: 'smoke',
+        x: event.x,
+        y: event.y,
+        z: event.z,
+        vy: 1.2,
+        size0: event.size * 0.8,
+        size1: event.size * 2.4,
+        ttl: 1.1,
+        frame: ATLAS.smokeB,
+        additive: false,
+        priority: 2,
+        color0: [0.22, 0.23, 0.24, 0.5],
+        color1: [0.22, 0.23, 0.24, 0],
+      },
+      now,
     );
   }
 
-  /** Lowest priority first (wake < bubbles < smoke < others), oldest within a priority. */
-  private evictOne(): void {
-    let victim = 0;
-    let best = Infinity;
-    this.particles.forEach((p, i) => {
-      const priority = STYLE[p.kind].priority;
-      if (priority < best) {
-        best = priority;
-        victim = i;
-      }
-    });
-    this.removeAt(victim);
+  /** Test/debug view of live particles (world metres). */
+  debugParticles(): Array<{
+    kind: string;
+    x: number;
+    y: number;
+    z: number;
+    size: number;
+    additive: boolean;
+  }> {
+    return this.system.snapshot().map((p) => ({
+      kind: p.kind,
+      x: p.x,
+      y: p.y,
+      z: p.z,
+      size: p.size,
+      additive: p.additive,
+    }));
   }
 
-  private removeAt(index: number): void {
-    const [particle] = this.particles.splice(index, 1);
-    if (!particle) return;
-    this.group.remove(particle.sprite);
-    this.free.push(particle.sprite);
+  dispose(): void {
+    this.system.dispose();
+    this.lastEmit.clear();
   }
 }

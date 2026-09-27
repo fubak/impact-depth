@@ -37,6 +37,8 @@ function torpedo(id: string, x: number, y: number, z: number): Torpedo {
     z,
     heading: 0.4,
     speed: 9.5,
+    runSpeed: 9.5,
+    lockId: null,
     life: 8,
     armDelay: 0,
     damage: 48,
@@ -133,6 +135,41 @@ describe('deriveCombatEvents', () => {
     expect(events).toContainEqual({ type: 'torpedoExpired', id: 'spent', x: 0.2, y: 0.1, z: 0.5 });
   });
 
+  it('emits shellLaunch when a new shell appears in flight', () => {
+    const { state } = mission();
+    const shell = {
+      id: 'sh-1',
+      owner: 'enemy' as const,
+      sourceId: 'ship-9',
+      x: 12,
+      y: 20,
+      alt: 0.3,
+      vx: 3,
+      vy: 1.5,
+      valt: 0,
+      damage: 22,
+      radius: 0.8,
+    };
+    const prev = { ...state, shells: [] };
+    const next = { ...prev, shells: [shell] };
+    const events = deriveCombatEvents(prev, next).filter(
+      (event) => event.type === 'shellLaunch',
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: 'shellLaunch',
+      owner: 'enemy',
+      sourceId: 'ship-9',
+      x: 12,
+      y: 20,
+    });
+    // A shell that survives a step does not re-fire the event.
+    const later = deriveCombatEvents(next, { ...next }).filter(
+      (event) => event.type === 'shellLaunch',
+    );
+    expect(later).toHaveLength(0);
+  });
+
   it('does not import three', () => {
     const source = adapterSource['../../src/game/adapt/combat-events.ts'];
     expect(source).toEqual(expect.any(String));
@@ -151,6 +188,8 @@ describe('deriveCombatEvents', () => {
       x: 10,
       y: 12,
       z: 0.45,
+      vx: 0,
+      vy: 0,
       vz: 1.6,
       fuse: 0,
       damage: 45,
@@ -175,6 +214,31 @@ describe('deriveCombatEvents', () => {
       ships: [],
       torpedoes: [{ ...torpedo('fish', 3, 4, 0.3), heading: 1.2, owner: 'enemy' }],
       depthCharges: [],
+      // chargeBlast cues now ride real detonations: a vanishing charge is silent.
+      detonations: [
+        {
+          id: 'dc-near',
+          kind: 'depthCharge',
+          owner: 'enemy',
+          x: 10,
+          y: 12,
+          z: 0.45,
+          yield: 45,
+          hitId: 'player',
+          surface: false,
+        },
+        {
+          id: 'dc-far',
+          kind: 'depthCharge',
+          owner: 'enemy',
+          x: 40,
+          y: 40,
+          z: 0.45,
+          yield: 45,
+          hitId: null,
+          surface: false,
+        },
+      ],
       countermeasures: [{ id: 'fox', kind: 'foxer', x: 8, y: 9, z: 0.2, life: 14, radius: 3.5 }],
       powerups: [],
       sonarPing: 4.8,
@@ -198,9 +262,22 @@ describe('deriveCombatEvents', () => {
       kind: victim.kind,
       x: 5,
       y: 5,
+      listSide: 1,
     });
     expect(events).toContainEqual({ type: 'chargeBlast', x: 10, y: 12, z: 0.45, near: true });
     expect(events).toContainEqual({ type: 'chargeBlast', x: 40, y: 40, z: 0.45, near: false });
+    expect(events).toContainEqual({
+      type: 'detonation',
+      id: 'dc-near',
+      kind: 'depthCharge',
+      owner: 'enemy',
+      x: 10,
+      y: 12,
+      z: 0.45,
+      yield: 45,
+      hitId: 'player',
+      surface: false,
+    });
     expect(events).toContainEqual({ type: 'playerHit', damage: 20, x: 10, y: 12 });
     expect(events).toContainEqual({ type: 'countermeasure', kind: 'foxer', x: 8, y: 9 });
     expect(events).toContainEqual({ type: 'sonarPing' });

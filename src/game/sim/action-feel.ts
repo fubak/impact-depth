@@ -1,4 +1,5 @@
 import type { GameState } from './types';
+import { BLOW_DURATION } from './vessel-dynamics';
 
 /** Wave-1 spawn radius (sim units). Opening stalk should be under a minute. */
 export const WAVE1_SPAWN_RADIUS = 20;
@@ -11,7 +12,8 @@ export const ACTION_CONTACT_RANGE = 22;
 export function shouldTimeCompress(state: GameState): boolean {
   if (!state.compressEnabled) return false;
   if (state.phase !== 'playing') return false;
-  if (state.torpedoes.length > 0 || state.depthCharges.length > 0) return false;
+  if (state.torpedoes.length > 0 || state.depthCharges.length > 0 || state.shells.length > 0)
+    return false;
   if (state.sonarPing > 0) return false;
   if (state.ships.some((ship) => ship.alert > 0.35 || ship.holdContact > 0.4)) return false;
   const sub = state.submarine;
@@ -32,6 +34,7 @@ export function emergencySurface(state: GameState): GameState {
     submarine: {
       ...sub,
       targetDepth: 0.06,
+      blowTimer: BLOW_DURATION,
       silentRunning: false,
       scopeUp: false,
       snorkel: false,

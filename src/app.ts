@@ -3,6 +3,7 @@ import { loadPlayPreferences, loadSettings, saveSettings } from './core/settings
 import { advanceAccumulator, FIXED_DT } from './core/sim';
 import type { LookDevSettings, SimState, ViewMode } from './core/types';
 import { deriveCombatEvents, type CombatEvent } from './game/adapt/combat-events';
+import { detonationShake } from './game/adapt/combat-feel';
 import { adaptToLookDevSim } from './game/adapt/lookdev';
 import type { GameCommand } from './game/commands/types';
 import {
@@ -868,16 +869,11 @@ export class App {
       this.tutorial.currentExercise() === null || this.tutorialMayAdvance(0),
     );
     if (patrolClockRuns(this.game.phase, this.tutorial.isOpen(), this.tutorial.exerciseLive())) {
-      const chargesBefore = this.game.depthCharges.length;
       for (let i = 0; i < tick.steps; i++) {
         const prev = this.game;
         const command: GameCommand = { type: 'helm', ...this.input.intent };
         this.game = updateGame(this.game, [command], FIXED_DT);
         combat.push(...deriveCombatEvents(prev, this.game));
-      }
-      const chargeShake = 0.85 * reducedMotionGates(this.reducedMotion).shakeScale;
-      if (chargeShake > 0 && chargesBefore > this.game.depthCharges.length) {
-        this.cameraShake = Math.max(this.cameraShake, chargeShake);
       }
       this.sim = adaptToLookDevSim(this.game);
     }
@@ -954,6 +950,22 @@ export class App {
     for (const event of events) {
       if (event.type === 'torpedoHit') {
         this.cameraShake = Math.max(this.cameraShake, 0.5 * gates.shakeScale);
+      } else if (event.type === 'detonation') {
+        // Blasts shake the boat by proximity — a distant splash barely registers.
+        const world = simToWorldMeters(event.x, event.y);
+        const distance = Math.hypot(
+          world.x - this.cameras.camera.position.x,
+          world.z - this.cameras.camera.position.z,
+          entityDepthY(event.z) - this.cameras.camera.position.y,
+        );
+        this.cameraShake = Math.max(
+          this.cameraShake,
+          detonationShake({
+            yieldPower: event.yield,
+            distanceMeters: distance,
+            shakeScale: gates.shakeScale,
+          }),
+        );
       } else if (event.type === 'playerHit') {
         this.cameraShake = Math.max(this.cameraShake, 0.9 * gates.shakeScale);
       } else if (event.type === 'shipSunk') {
@@ -998,10 +1010,16 @@ export class App {
       case 'gameover':
         this.audio.playCue('gameover');
         return;
+      case 'shellLaunch':
+        this.audio.playCue('distantBoom', { distance: distanceOf(event.x, event.y) });
+        return;
       case 'torpedoExpired':
         if (nearMissCue(distanceOf(event.x, event.y))) {
           this.audio.playCue('incoming', { distance: distanceOf(event.x, event.y) });
         }
+        return;
+      case 'detonation':
+        // Visual bursts are the scene's job; audio already fires on hit/blast cues.
         return;
       case 'sonarPing':
       case 'pickup':

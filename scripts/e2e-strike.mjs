@@ -119,7 +119,9 @@ try {
 
   const fightStart = Date.now();
   let extractAt = 0;
-  while (Date.now() - fightStart < 120000) {
+  // Wall-clock budget is generous: the software renderer advances sim time far
+  // slower than real time, and escorts legitimately screen the merchant now.
+  while (Date.now() - fightStart < 300000) {
     const cue = await readCue(page);
     if (cue.objective.startsWith('Reach the exit')) {
       extractAt = Date.now();
@@ -138,6 +140,17 @@ try {
       throw new Error(
         `Strike ended in defeat before extraction: ${await page.locator('#patrol-overlay').innerText()}`,
       );
+    }
+    // Screening escorts can sink first, clearing the lock. Re-acquire the
+    // merchant before firing so fish stay aimed at the mission target.
+    const locked = (await page.locator('[data-field="target"]').innerText()).trim();
+    if (!locked.includes('MERCHANT')) {
+      for (let press = 0; press < 4; press += 1) {
+        await page.keyboard.press('KeyT');
+        await page.waitForTimeout(250);
+        const now = (await page.locator('[data-field="target"]').innerText()).trim();
+        if (now.includes('MERCHANT')) break;
+      }
     }
     await page.keyboard.press('KeyF');
     if ((Date.now() - fightStart) % 5000 < 800) {

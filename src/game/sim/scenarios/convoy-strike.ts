@@ -1,4 +1,5 @@
 import { createGame } from '../create';
+import { SINK_DURATION } from '../ship-damage';
 import type { GameState, Ship, ShipKind } from '../types';
 import { getTerrain, snapToNavigable } from '../world';
 
@@ -34,6 +35,11 @@ function hull(kind: ShipKind, id: string, x: number, y: number, heading: number)
     speed: stats.speed,
     hp: stats.hp,
     maxHp: stats.hp,
+    flooding: 0,
+    fire: 0,
+    speedFactor: 1,
+    sinkDuration: SINK_DURATION[kind],
+    listSide: 1,
     alert: 0.2,
     holdContact: 0,
     weaponCooldown: 4,

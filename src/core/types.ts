@@ -97,6 +97,12 @@ export interface SurfaceShipState {
   heave: number;
   pitch: number;
   roll: number;
+  /** 0 while afloat; 0..1 as the hull goes down. */
+  sinkProgress: number;
+  sinkStyle?: 'bow' | 'stern' | 'list' | 'break';
+  listSide: number;
+  fire: number;
+  flooding: number;
 }
 
 export interface SimState {

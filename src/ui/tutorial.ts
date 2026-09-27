@@ -153,7 +153,7 @@ export function dodgeLessonDone(crossTrack: number, hpBefore: number, hpNow: num
   return hpNow >= hpBefore && crossTrack >= 3;
 }
 
-/** Five charges 5 units ahead, across the bow. Radius 1.7, so a steady helm sails into them. */
+/** Five contact charges 5 units ahead, across the bow. A steady helm sails into them. */
 export function threateningHedgehogPattern(
   x: number,
   y: number,
@@ -165,6 +165,8 @@ export function threateningHedgehogPattern(
   x: number;
   y: number;
   z: number;
+  vx: number;
+  vy: number;
   vz: number;
   fuse: number;
   damage: number;
@@ -181,6 +183,9 @@ export function threateningHedgehogPattern(
       x: x + Math.cos(heading) * 5 + Math.cos(across) * spread,
       y: y + Math.sin(heading) * 5 + Math.sin(across) * spread,
       z: 0.5,
+      vx: 0,
+      vy: 0,
+      // Hold depth on station so the exercise stays a dodge-the-lane drill.
       vz: 0,
       fuse: 8,
       damage: 18,

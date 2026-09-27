@@ -4,7 +4,8 @@ import {
   emergencySurface,
   shouldTimeCompress,
 } from '../../src/game/sim/action-feel';
-import { createGame, fireWeapon, startMission } from '../../src/game/sim/api';
+import { createGame, fireWeapon, startMission, updateGame } from '../../src/game/sim/api';
+import { FIXED_DT } from '../../src/core/sim';
 import { WORLD_CENTER } from '../../src/game/sim/constants';
 
 describe('action feel', () => {
@@ -58,7 +59,18 @@ describe('action feel', () => {
     };
     const fired = fireWeapon(state);
     expect(fired.messages.some((m) => m.text.startsWith('DECK GUN'))).toBe(true);
-    const after = fired.ships.find((ship) => ship.id === prey.id)!;
-    expect(after.hp).toBeLessThan(prey.hp);
+    // The deck gun fires a real shell — no hitscan. The prey is untouched
+    // until the round lands a fraction of a second later.
+    expect(fired.shells).toHaveLength(1);
+    expect(fired.shells[0]!.owner).toBe('player');
+    expect(fired.ships.find((ship) => ship.id === prey.id)!.hp).toBe(prey.hp);
+    let sawSplash = false;
+    let later = fired;
+    for (let step = 0; step < 60; step += 1) {
+      later = updateGame(later, [], FIXED_DT);
+      sawSplash ||= later.detonations.some((d) => d.kind === 'shell');
+    }
+    expect(sawSplash).toBe(true);
+    expect(later.ships.find((ship) => ship.id === prey.id)!.hp).toBeLessThan(prey.hp);
   });
 });

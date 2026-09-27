@@ -1,6 +1,13 @@
-import { blastDamage } from '../sim/blast';
-import { BLAST_VERTICAL, PICKUP_RADIUS } from '../sim/constants';
-import type { Countermeasure, DepthCharge, GameState, Ship, ShipKind, Torpedo } from '../sim/types';
+import { PICKUP_RADIUS } from '../sim/constants';
+import type {
+  Countermeasure,
+  Detonation,
+  GameState,
+  Ship,
+  ShipKind,
+  Shell,
+  Torpedo,
+} from '../sim/types';
 
 /** Presentation cues derived from one fixed step. Positions are sim units. */
 export type CombatEvent =
@@ -13,10 +20,43 @@ export type CombatEvent =
       z: number;
       heading: number;
     }
+  | {
+      /** A gun round leaving the muzzle — drives the firing-hull flash. */
+      type: 'shellLaunch';
+      owner: Shell['owner'];
+      id: string;
+      sourceId: string;
+      x: number;
+      y: number;
+      alt: number;
+      heading: number;
+    }
   | { type: 'torpedoHit'; id: string; targetId: string; x: number; y: number; z: number }
   | { type: 'torpedoExpired'; id: string; x: number; y: number; z: number }
-  | { type: 'shipSunk'; id: string; kind: ShipKind; x: number; y: number }
+  | {
+      type: 'shipSunk';
+      id: string;
+      kind: ShipKind;
+      x: number;
+      y: number;
+      /** How the hull went down — the wreck pose continues from this. */
+      sinkStyle?: Ship['sinkStyle'];
+      listSide?: number;
+    }
   | { type: 'chargeBlast'; x: number; y: number; z: number; near: boolean }
+  | {
+      /** The authoritative explosion. Bursts and hit lights key off this only. */
+      type: 'detonation';
+      id: string;
+      kind: Detonation['kind'];
+      owner: Detonation['owner'];
+      x: number;
+      y: number;
+      z: number;
+      yield: number;
+      hitId: string | null;
+      surface: boolean;
+    }
   | { type: 'playerHit'; damage: number; x: number; y: number }
   | { type: 'countermeasure'; kind: Countermeasure['kind']; x: number; y: number }
   | { type: 'sonarPing' }
@@ -42,8 +82,10 @@ function horizontal(ax: number, ay: number, bx: number, by: number): number {
 export function deriveCombatEvents(prev: GameState, next: GameState): CombatEvent[] {
   return [
     ...launches(prev, next),
+    ...shellLaunches(prev, next),
     ...torpedoFates(prev, next),
     ...sinks(prev, next),
+    ...detonations(prev, next),
     ...blasts(prev, next),
     ...playerDamage(prev, next),
     ...deployedCountermeasures(prev, next),
@@ -77,6 +119,22 @@ function launches(prev: GameState, next: GameState): CombatEvent[] {
       y: torpedo.y,
       z: torpedo.z,
       heading: torpedo.heading,
+    }));
+}
+
+function shellLaunches(prev: GameState, next: GameState): CombatEvent[] {
+  const seen = byId(prev.shells);
+  return next.shells
+    .filter((shell) => !seen.has(shell.id))
+    .map((shell) => ({
+      type: 'shellLaunch' as const,
+      owner: shell.owner,
+      id: shell.id,
+      sourceId: shell.sourceId,
+      x: shell.x,
+      y: shell.y,
+      alt: shell.alt,
+      heading: Math.atan2(shell.vy, shell.vx),
     }));
 }
 
@@ -153,33 +211,38 @@ function sinks(prev: GameState, next: GameState): CombatEvent[] {
       kind: ship.kind,
       x: ship.x,
       y: ship.y,
+      sinkStyle: ship.sinkStyle,
+      listSide: ship.listSide,
     }));
 }
 
+function detonations(prev: GameState, next: GameState): CombatEvent[] {
+  // The sim resets detonations each step; the prev filter keeps adapters robust
+  // when they are handed snapshots that never ran stepGame.
+  const seen = byId(prev.detonations);
+  return next.detonations
+    .filter((detonation) => !seen.has(detonation.id))
+    .map((detonation) => ({ type: 'detonation' as const, ...detonation }));
+}
+
+/** chargeBlast stays a charge-specific audio/HUD cue — but only a real bang emits one. */
 function blasts(prev: GameState, next: GameState): CombatEvent[] {
-  const alive = byId(next.depthCharges);
-  return prev.depthCharges
-    .filter((charge) => !alive.has(charge.id))
-    .map((charge) => ({
+  const seen = byId(prev.detonations);
+  return next.detonations
+    .filter(
+      (detonation) =>
+        !seen.has(detonation.id) &&
+        (detonation.kind === 'depthCharge' ||
+          detonation.kind === 'hedgehog' ||
+          detonation.kind === 'bomb'),
+    )
+    .map((detonation) => ({
       type: 'chargeBlast' as const,
-      x: charge.x,
-      y: charge.y,
-      z: charge.z,
-      near: blastNearSub(charge, next),
+      x: detonation.x,
+      y: detonation.y,
+      z: detonation.z,
+      near: detonation.hitId === 'player',
     }));
-}
-
-function blastNearSub(charge: DepthCharge, next: GameState): boolean {
-  const sub = next.submarine;
-  return (
-    blastDamage({
-      damage: charge.damage,
-      horizontal: horizontal(charge.x, charge.y, sub.x, sub.y),
-      radius: charge.radius,
-      depthDelta: Math.abs(charge.targetDepth - sub.z),
-      vertical: BLAST_VERTICAL[charge.kind],
-    }) > 0
-  );
 }
 
 function playerDamage(prev: GameState, next: GameState): CombatEvent[] {

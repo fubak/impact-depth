@@ -30,6 +30,8 @@ describe('defense callout', () => {
       x: state.submarine.x + 4,
       y: state.submarine.y,
       z: 0.4,
+      vx: 0,
+      vy: 0,
       vz: 0,
       fuse: 2,
       damage: 10,

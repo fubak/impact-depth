@@ -50,22 +50,24 @@ function sawKind(
   seconds = 1.2,
 ): boolean {
   let s = stageNear(state, host, { xOff, z, alert: 0.9, hold: 4 });
-  // Extra pin for enemy subs so they cannot close under min launch range.
-  if (host.kind === 'sub') {
-    s = {
-      ...s,
-      ships: s.ships.map((ship) =>
-        ship.id === host.id
-          ? { ...ship, speed: 0, path: [], weaponCooldown: 0, alert: 0.9, holdContact: 4 }
-          : ship,
-      ),
-    };
-  }
+  // Pin the host's heading toward the boat (xOff > 0 puts the boat on +x) so
+  // the escort sees it in the hedgehog arc and the sub cannot close under
+  // min launch range.
+  s = {
+    ...s,
+    ships: s.ships.map((ship) =>
+      ship.id === host.id
+        ? { ...ship, speed: 0, path: [], weaponCooldown: 0, alert: 0.9, holdContact: 4, heading: 0 }
+        : ship,
+    ),
+  };
   const lim = Math.ceil(seconds / FIXED_DT);
   for (let i = 0; i < lim; i++) {
     s = updateGame(s, [], FIXED_DT);
     if (kind === 'enemy-torp') {
       if (s.torpedoes.some((t) => t.owner === 'enemy')) return true;
+    } else if (kind === 'shell') {
+      if (s.shells.length > 0) return true;
     } else if (s.depthCharges.some((d) => d.kind === kind)) {
       return true;
     }
@@ -97,7 +99,7 @@ describe('enemy + sonar live path', () => {
     expect(sawKind(state, escort, 0.3, 2.2, 'hedgehog')).toBe(true);
   });
 
-  it('battleship drops depth charges when it holds contact', () => {
+  it('a battleship with contact never drops depth charges — it uses guns', () => {
     let state = startMission(createGame(42));
     const template = state.ships[0]!;
     state = {
@@ -116,7 +118,10 @@ describe('enemy + sonar live path', () => {
         },
       ],
     };
-    expect(sawKind(state, state.ships[0]!, 0.32, 2, 'depthCharge')).toBe(true);
+    // Submerged boat holding contact for three seconds: no depth charges.
+    expect(sawKind(state, state.ships[0]!, 0.32, 2, 'depthCharge', 3)).toBe(false);
+    // A shallow boat inside gun range draws shells instead.
+    expect(sawKind(state, state.ships[0]!, 0.1, 2, 'shell')).toBe(true);
   });
 
   it('enemy sub fires a torpedo in the launch band', () => {

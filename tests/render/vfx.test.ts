@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { VfxPool } from '../../src/render/vfx';
+import { ParticleSystem } from '../../src/render/fx/particle-system';
+
+function instancedMeshes(pool: VfxPool): THREE.Mesh[] {
+  const meshes: THREE.Mesh[] = [];
+  pool.group.traverse((obj) => {
+    if (obj instanceof THREE.Mesh && obj.geometry instanceof THREE.InstancedBufferGeometry) {
+      meshes.push(obj);
+    }
+  });
+  return meshes;
+}
 
 describe('combat VFX pool', () => {
   it('emits explosion, plume, and pickup particles under the cap', () => {
@@ -30,20 +41,18 @@ describe('combat VFX pool', () => {
     pool.dispose();
   });
 
-  it('reuses one additive radial sprite texture across hits', () => {
-    const pool = new VfxPool(4);
+  it('draws every particle with two instanced meshes sharing one atlas', () => {
+    const pool = new VfxPool(8);
     pool.emit('explosion', new THREE.Vector3(), 0);
     pool.emit('wake', new THREE.Vector3(), 0);
-    const a = pool.group.children[0] as THREE.Sprite;
-    const b = pool.group.children[1] as THREE.Sprite;
-    expect(a).toBeInstanceOf(THREE.Sprite);
-    expect(b).toBeInstanceOf(THREE.Sprite);
-    const matA = a.material as THREE.SpriteMaterial;
-    const matB = b.material as THREE.SpriteMaterial;
-    expect(matA.blending).toBe(THREE.AdditiveBlending);
-    expect(matB.blending).toBe(THREE.AdditiveBlending);
-    expect(matA.map).toBeTruthy();
-    expect(matA.map).toBe(matB.map);
+    const meshes = instancedMeshes(pool);
+    expect(meshes).toHaveLength(2);
+    const materials = meshes.map((mesh) => mesh.material as THREE.ShaderMaterial);
+    const blendings = new Set(materials.map((material) => material.blending));
+    expect(blendings.has(THREE.AdditiveBlending)).toBe(true);
+    expect(blendings.has(THREE.NormalBlending)).toBe(true);
+    expect(materials[0]!.uniforms.map?.value).toBeTruthy();
+    expect(materials[0]!.uniforms.map?.value).toBe(materials[1]!.uniforms.map?.value);
     pool.dispose();
   });
 
@@ -61,25 +70,23 @@ describe('combat VFX pool', () => {
     const pool = new VfxPool(4);
     pool.emit('plume', new THREE.Vector3(0, 1, 0), 0);
     pool.update(0.1);
-    const sprite = pool.group.children[0] as THREE.Sprite;
-    const y = sprite.position.y;
+    const y = pool.debugParticles()[0]!.y;
     for (let i = 0; i < 60; i++) pool.update(0.1);
-    expect(sprite.position.y).toBe(y);
+    expect(pool.debugParticles()[0]!.y).toBe(y);
     pool.update(0.2);
-    expect(sprite.position.y).toBeGreaterThan(y);
+    expect(pool.debugParticles()[0]!.y).toBeGreaterThan(y);
     pool.dispose();
   });
 
-  it('recycles materials so allocation stays bounded', () => {
+  it('keeps two draw meshes regardless of how many particles churn', () => {
     const pool = new VfxPool(8);
-    const mats = new Set<THREE.Material>();
-    for (let i = 0; i < 1000; i++) {
+    for (let i = 0; i < 300; i++) {
       pool.emit('explosion', new THREE.Vector3(), i * 0.01);
+      pool.emit('smoke', new THREE.Vector3(), i * 0.01);
       pool.update(i * 0.01);
-      for (const c of pool.group.children) mats.add((c as THREE.Sprite).material as THREE.Material);
+      expect(instancedMeshes(pool)).toHaveLength(2);
     }
-    expect(mats.size).toBeLessThanOrEqual(9);
-    expect(pool.group.children.length).toBe(pool.getDiagnostics().alive);
+    expect(pool.getDiagnostics().alive).toBeLessThanOrEqual(8);
     pool.dispose();
   });
 
@@ -114,21 +121,12 @@ describe('combat bursts', () => {
     pool.dispose();
   });
 
-  it('uses additive blending for flash/fire only and no fog on flash', () => {
-    const pool = new VfxPool(20);
+  it('routes additive and alpha kinds into separate draw calls', () => {
+    const pool = new VfxPool(200);
     pool.emitBurst({ preset: 'torpedoHit', x: 0, y: 0, z: 0, intensity: 1 }, 0);
-    for (const c of pool.group.children) {
-      const m = (c as THREE.Sprite).material as THREE.SpriteMaterial;
-      expect([THREE.AdditiveBlending, THREE.NormalBlending]).toContain(m.blending);
-    }
-    const kinds = new Map<THREE.Blending, number>();
-    for (const c of pool.group.children) {
-      const b = ((c as THREE.Sprite).material as THREE.SpriteMaterial).blending;
-      kinds.set(b, (kinds.get(b) ?? 0) + 1);
-    }
-    expect(kinds.get(THREE.NormalBlending)).toBeGreaterThan(0);
-    const flash = pool.group.children[0] as THREE.Sprite;
-    expect((flash.material as THREE.SpriteMaterial).fog).toBe(false);
+    const particles = pool.debugParticles();
+    expect(particles.some((p) => p.additive)).toBe(true);
+    expect(particles.some((p) => !p.additive)).toBe(true);
     pool.dispose();
   });
 
@@ -138,5 +136,97 @@ describe('combat bursts', () => {
     pool.setCap(5);
     expect(pool.getDiagnostics().alive).toBe(5);
     pool.dispose();
+  });
+});
+
+describe('instanced particle system', () => {
+  it('bubbles rise to the surface and die there with a puff event', () => {
+    const system = new ParticleSystem(64, 64);
+    system.emit(
+      {
+        kind: 'bubbles',
+        x: 0,
+        y: -10,
+        z: 0,
+        size0: 1,
+        ttl: 60,
+        terminal: 6,
+        surfaceDeath: 'bubble',
+      },
+      0,
+    );
+    let puffed = false;
+    for (let t = 0; t < 8; t += 0.1) {
+      const events = system.update(t, 0);
+      if (events.some((event) => event.preset === 'surfacePuff')) puffed = true;
+    }
+    expect(puffed).toBe(true);
+    expect(system.getDiagnostics().alive).toBe(0);
+    system.dispose();
+  });
+
+  it('spray falling through the surface dies and reports a splash', () => {
+    const system = new ParticleSystem(64, 64);
+    system.emit(
+      {
+        kind: 'spray',
+        x: 0,
+        y: 4,
+        z: 0,
+        vy: -2,
+        gravity: -9.8,
+        size0: 2,
+        ttl: 10,
+        surfaceDeath: 'splash',
+      },
+      0,
+    );
+    let splashed = false;
+    for (let t = 0; t < 3; t += 0.05) {
+      const events = system.update(t, 0);
+      if (events.some((event) => event.preset === 'splash')) splashed = true;
+    }
+    expect(splashed).toBe(true);
+    expect(system.getDiagnostics().alive).toBe(0);
+    system.dispose();
+  });
+
+  it('delayed particles stay parked until their delay elapses', () => {
+    const system = new ParticleSystem(64, 64);
+    system.emit(
+      { kind: 'flash', x: 0, y: 0, z: 0, size0: 4, ttl: 0.3, delay: 1, additive: true },
+      0,
+    );
+    const mesh = system.group.children[0] as THREE.Mesh;
+    system.update(0.5);
+    expect((mesh.geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(0);
+    system.update(1.1);
+    expect((mesh.geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(1);
+    system.dispose();
+  });
+
+  it('clears parked particles when time jumps backwards (mission restart)', () => {
+    const system = new ParticleSystem(64, 64);
+    system.emit(
+      { kind: 'flash', x: 0, y: 0, z: 0, size0: 4, ttl: 100, delay: 50, additive: true },
+      100,
+    );
+    system.update(110);
+    system.update(0); // restart
+    expect(system.getDiagnostics().alive).toBe(0);
+    system.dispose();
+  });
+
+  it('produces a deterministic atlas identical between calls', () => {
+    const a = new ParticleSystem(8, 8);
+    const b = new ParticleSystem(8, 8);
+    const texA = (a.group.children[0] as THREE.Mesh).material as THREE.ShaderMaterial;
+    const texB = (b.group.children[0] as THREE.Mesh).material as THREE.ShaderMaterial;
+    const dataA = (texA.uniforms.map?.value as THREE.DataTexture).image.data as Uint8Array;
+    const dataB = (texB.uniforms.map?.value as THREE.DataTexture).image.data as Uint8Array;
+    expect(dataA.length).toBeGreaterThan(0);
+    expect(Array.from(dataA)).toEqual(Array.from(dataB));
+    a.dispose();
+    b.dispose();
   });
 });

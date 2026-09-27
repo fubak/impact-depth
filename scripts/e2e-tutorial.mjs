@@ -56,9 +56,14 @@ function overlaps(a, b) {
  * @param {string} selector
  */
 async function boxOf(page, selector) {
-  const box = await page.locator(selector).boundingBox();
-  if (!box) throw new Error(`Missing ${selector}`);
-  return box;
+  // The HUD rebuilds its innerHTML in place; a boundingBox that lands while
+  // layout is still dirty reads as "missing". Retry briefly before failing.
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const box = await page.locator(selector).boundingBox();
+    if (box) return box;
+    await page.waitForTimeout(200);
+  }
+  throw new Error(`Missing ${selector}`);
 }
 
 const browser = await chromium.launch({
