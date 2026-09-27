@@ -13,6 +13,9 @@ describe('presentation wrecks', () => {
     const mid = wreckPose(3);
     expect(mid.list).toBeCloseTo(0.2);
     expect(mid.sink).toBeCloseTo(4);
+    const sub = wreckPose(3, 'sub');
+    expect(sub.sink).toBeGreaterThan(mid.sink);
+    expect(sub.pitch).toBeGreaterThan(0);
     const simShips = [{ id: 'other' }];
     expect(simShips.some((ship) => ship.id === sunk.id)).toBe(false);
   });

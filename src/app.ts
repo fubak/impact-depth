@@ -73,12 +73,14 @@ import {
   type ThreatProjection,
 } from './ui/threat-indicators';
 import {
-  HEDGEHOG_BEAT_INDEX,
   TutorialOverlay,
-  hedgehogBeatFailed,
+  dodgeLessonDone,
+  fireLessonDone,
   patrolClockRuns,
   phaseWhileTutorial,
-  safeHedgehogPattern,
+  steerLessonDone,
+  steerLessonMark,
+  threateningHedgehogPattern,
 } from './ui/tutorial';
 import './styles/threats.css';
 
@@ -129,7 +131,14 @@ export class App {
   private readonly combatLog: CombatEvent[] = [];
   private errorCount = 0;
   private errorToast: ErrorToast | null = null;
-  private hedgehogHp: number | null = null;
+  private lessonOrigin: {
+    x: number;
+    y: number;
+    heading: number;
+    fired: number;
+    hp: number;
+    mark: { x: number; y: number } | null;
+  } | null = null;
 
   constructor() {
     const play = loadPlayPreferences();
@@ -209,9 +218,10 @@ export class App {
       () => this.restartPatrol(),
       (action) => this.menuAction(action),
     );
-    this.tutorial = new TutorialOverlay($('tutorial-overlay'), (open) =>
-      this.holdForTutorial(open),
-    );
+    this.tutorial = new TutorialOverlay($('tutorial-overlay'), (open) => {
+      if (!open) this.clearTutorialHazards();
+      this.holdForTutorial(open);
+    });
     this.tutorial.onBeat = (index) => this.onTutorialBeat(index);
     this.tutorial.mayAdvance = (step) => this.tutorialMayAdvance(step);
     this.threatRoot = document.createElement('div');
@@ -410,7 +420,7 @@ export class App {
   private beginPatrol(): void {
     this.missionGeneration += 1;
     this.cinema = idleTrack();
-    this.hedgehogHp = null;
+    this.clearTutorialHazards();
     this.scene.resetEnvironment(this.missionGeneration);
     this.game = { ...startMission(this.game), settings: this.settings, viewMode: 'chase' };
     this.cameras.setMode('chase');
@@ -525,33 +535,88 @@ export class App {
     this.sim = adaptToLookDevSim(this.game);
   }
 
-  /** Tutorial holds the sim with the same paused phase the Pause control uses. */
-  private onTutorialBeat(index: number): void {
-    if (index !== HEDGEHOG_BEAT_INDEX || this.game.scenario !== 'convoy-strike') return;
-    if (this.game.depthCharges.some((charge) => charge.id.startsWith('tutorial-hog-'))) return;
-    const sub = this.game.submarine;
-    this.hedgehogHp = sub.hp;
+  /** Drops exercise charges and the steer mark. Help and explain cards stay clean. */
+  private clearTutorialHazards(): void {
+    this.lessonOrigin = null;
+    this.hud.setTutorialMark(null);
+    if (!this.game.depthCharges.some((charge) => charge.id.startsWith('tutorial-hog-'))) return;
     this.game = {
       ...this.game,
-      depthCharges: [...this.game.depthCharges, ...safeHedgehogPattern(sub.x, sub.y, sub.heading)],
+      depthCharges: this.game.depthCharges.filter(
+        (charge) => !charge.id.startsWith('tutorial-hog-'),
+      ),
     };
   }
 
-  private tutorialMayAdvance(step: number): boolean {
-    if (step !== HEDGEHOG_BEAT_INDEX || this.hedgehogHp === null) return true;
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    const visible = computeThreatMarkers(
-      this.game,
-      (x, y, z) => this.projectThreat(x, y, z, width, height),
-      { width, height },
-      { underwater: this.game.submarine.z > 0.2 },
-    ).some((marker) => marker.kind === 'charge');
-    return !hedgehogBeatFailed(this.hedgehogHp, this.game.submarine.hp, visible);
+  /** Tutorial holds the sim on explain cards. Exercises run and record a start pose. */
+  private onTutorialBeat(_index: number): void {
+    this.clearTutorialHazards();
+    const exercise = this.tutorial.currentExercise();
+    const sub = this.game.submarine;
+    const mark = exercise === 'steer' ? steerLessonMark(sub.x, sub.y, sub.heading) : null;
+    this.lessonOrigin = {
+      x: sub.x,
+      y: sub.y,
+      heading: sub.heading,
+      fired: this.game.stats.torpedoesFired,
+      hp: sub.hp,
+      mark,
+    };
+    this.hud.setTutorialMark(mark);
+    if (exercise === 'dodge') {
+      this.game = {
+        ...this.game,
+        depthCharges: [
+          ...this.game.depthCharges,
+          ...threateningHedgehogPattern(sub.x, sub.y, sub.heading),
+        ],
+      };
+    }
+    this.holdForTutorial(this.tutorial.isOpen());
+  }
+
+  private tutorialMayAdvance(_step: number): boolean {
+    const exercise = this.tutorial.currentExercise();
+    const origin = this.lessonOrigin;
+    if (!exercise || !origin) return true;
+    const sub = this.game.submarine;
+    if (exercise === 'steer' && origin.mark) return steerLessonDone(sub.x, sub.y, origin.mark);
+    if (exercise === 'fire') return fireLessonDone(origin.fired, this.game.stats.torpedoesFired);
+    const dx = sub.x - origin.x;
+    const dy = sub.y - origin.y;
+    const cross = Math.abs(-Math.sin(origin.heading) * dx + Math.cos(origin.heading) * dy);
+    return dodgeLessonDone(cross, origin.hp, sub.hp);
+  }
+
+  /** A hit during the dodge puts the boat back and lays a fresh pattern ahead. */
+  private recoverDodge(): void {
+    const origin = this.lessonOrigin;
+    if (this.tutorial.currentExercise() !== 'dodge' || !origin) return;
+    if (this.game.submarine.hp >= origin.hp) return;
+    const sub = {
+      ...this.game.submarine,
+      hp: origin.hp,
+      x: origin.x,
+      y: origin.y,
+      heading: origin.heading,
+    };
+    this.game = {
+      ...this.game,
+      submarine: sub,
+      depthCharges: [
+        ...this.game.depthCharges.filter((charge) => !charge.id.startsWith('tutorial-hog-')),
+        ...threateningHedgehogPattern(origin.x, origin.y, origin.heading),
+      ],
+    };
   }
 
   private holdForTutorial(open: boolean): void {
-    const next = phaseWhileTutorial(this.game.phase, open, this.tutorialHeldPause);
+    const next = phaseWhileTutorial(
+      this.game.phase,
+      open,
+      this.tutorialHeldPause,
+      this.tutorial.exerciseLive(),
+    );
     this.tutorialHeldPause = next.heldByTutorial;
     if (next.phase !== this.game.phase) {
       this.game = setPhase(this.game, next.phase);
@@ -601,7 +666,7 @@ export class App {
   }
 
   private inputPause(): void {
-    if (this.tutorial.isOpen()) return;
+    if (this.tutorial.isOpen() && !this.tutorial.exerciseLive()) return;
     if (this.game.phase !== 'playing' && this.game.phase !== 'paused') return;
     this.game = setPhase(this.game, this.game.phase === 'paused' ? 'playing' : 'paused');
     this.sim = adaptToLookDevSim(this.game);
@@ -797,7 +862,12 @@ export class App {
     const renderDt = tick.elapsedUsed;
 
     const combat: CombatEvent[] = [];
-    if (patrolClockRuns(this.game.phase, this.tutorial.isOpen())) {
+    if (!this.tutorial.exerciseLive()) this.clearTutorialHazards();
+    else this.recoverDodge();
+    this.tutorial.setAdvanceEnabled(
+      this.tutorial.currentExercise() === null || this.tutorialMayAdvance(0),
+    );
+    if (patrolClockRuns(this.game.phase, this.tutorial.isOpen(), this.tutorial.exerciseLive())) {
       const chargesBefore = this.game.depthCharges.length;
       for (let i = 0; i < tick.steps; i++) {
         const prev = this.game;

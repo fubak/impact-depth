@@ -1,10 +1,12 @@
 import type { CombatEvent } from '../../game/adapt/combat-events';
+import type { ShipKind } from '../../game/sim/types';
 
 export interface Wreck {
   id: string;
   x: number;
   y: number;
   age: number;
+  kind: ShipKind;
 }
 
 export const WRECK_LIFE_S = 6;
@@ -19,14 +21,21 @@ export function advanceWrecks(
     .filter(
       (event): event is Extract<CombatEvent, { type: 'shipSunk' }> => event.type === 'shipSunk',
     )
-    .map((event) => ({ id: event.id, x: event.x, y: event.y, age: 0 }));
+    .map((event) => ({ id: event.id, x: event.x, y: event.y, kind: event.kind, age: 0 }));
   return [...wrecks, ...spawned]
     .map((wreck) => ({ ...wreck, age: wreck.age + dt }))
     .filter((wreck) => wreck.age < WRECK_LIFE_S);
 }
 
-/** List 0.4 rad and sink 8 m across the six-second life. */
-export function wreckPose(age: number): { list: number; sink: number } {
+/**
+ * Surface hulls roll and settle. A submarine pitches down and leaves the layer.
+ * Default arguments keep the original six-second surface curve.
+ */
+export function wreckPose(
+  age: number,
+  kind: ShipKind = 'merchant',
+): { list: number; sink: number; pitch: number } {
   const t = Math.max(0, Math.min(1, age / WRECK_LIFE_S));
-  return { list: 0.4 * t, sink: 8 * t };
+  if (kind === 'sub') return { list: 1.15 * t, sink: 22 * t, pitch: 0.9 * t };
+  return { list: 0.4 * t, sink: 8 * t, pitch: 0.2 * t };
 }

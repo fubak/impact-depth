@@ -113,13 +113,14 @@ describe('computeThreatMarkers', () => {
     expect(markers[0]?.bearing).toBeCloseTo(Math.atan2(-2, -4), 5);
   });
 
-  it('does not mark an enemy torpedo that is already on screen', () => {
+  it('marks a nearby on-screen torpedo as well as one behind the camera', () => {
     const game = patrol({
       torpedoes: [enemyTorpedo('visible', 0, 8, 0), enemyTorpedo('hidden', -4, -2)],
     });
     const markers = computeThreatMarkers(game, projectOf(game), VIEW);
-    expect(markers.map((marker) => marker.id)).toEqual(['hidden']);
-    expect(markers.every((marker) => marker.id !== 'visible')).toBe(true);
+    expect(markers.map((marker) => marker.id).sort()).toEqual(['hidden', 'visible']);
+    expect(markers.find((marker) => marker.id === 'visible')?.edge).toBe('screen');
+    expect(markers.find((marker) => marker.id === 'hidden')?.edge).toBe('left');
   });
 
   it('orders off-screen markers by descending urgency', () => {
@@ -137,7 +138,7 @@ describe('computeThreatMarkers', () => {
     expect(markers.map((marker) => marker.kind)).toEqual(['torpedo', 'aircraft', 'ship']);
   });
 
-  it('paints only the off-screen markers into the indicator layer', () => {
+  it('paints a nearby on-screen torpedo and the off-screen one', () => {
     const game = patrol({
       torpedoes: [enemyTorpedo('visible', 0, 8), enemyTorpedo('hidden', -4, -2)],
     });
@@ -146,6 +147,32 @@ describe('computeThreatMarkers', () => {
     new ThreatIndicatorLayer(root).render(markers);
     expect(root.innerHTML).toContain('data-id="hidden"');
     expect(root.innerHTML).toContain('data-edge="left"');
-    expect(root.innerHTML).not.toContain('visible');
+    expect(root.innerHTML).toContain('data-id="visible"');
+    expect(root.innerHTML).toContain('TORP');
+  });
+
+  it('keeps an on-screen charge inside 12 units and prints its fuse', () => {
+    const game = patrol({});
+    game.depthCharges = [
+      {
+        id: 'close',
+        kind: 'hedgehog',
+        sourceId: 'tutorial',
+        x: 0,
+        y: 4,
+        z: 0.5,
+        vz: 0,
+        fuse: 6.2,
+        damage: 12,
+        radius: 1.7,
+        targetDepth: 0.5,
+      },
+    ];
+    const markers = computeThreatMarkers(game, projectOf(game), VIEW, { underwater: true });
+    expect(markers.map((marker) => marker.id)).toEqual(['close']);
+    expect(markers[0]?.edge).toBe('screen');
+    const root = fakeRoot();
+    new ThreatIndicatorLayer(root).render(markers);
+    expect(root.innerHTML).toContain('DC 4.0 7s');
   });
 });

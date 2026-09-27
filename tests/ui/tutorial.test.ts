@@ -6,12 +6,15 @@ import { createGame, setPhase, startMission, updateGame } from '../../src/game/s
 import type { GameState } from '../../src/game/sim/types';
 import {
   TutorialOverlay,
+  dodgeLessonDone,
+  fireLessonDone,
   fullTourStepCount,
-  hedgehogBeatFailed,
   patrolClockRuns,
   phaseWhileTutorial,
   quickStartStepCount,
-  safeHedgehogPattern,
+  steerLessonDone,
+  steerLessonMark,
+  threateningHedgehogPattern,
 } from '../../src/ui/tutorial';
 
 function stepTotal(html: string): number | null {
@@ -78,11 +81,12 @@ function applyTutorialPause(
   game: GameState,
   open: boolean,
   held: boolean,
+  exerciseLive = false,
 ): {
   game: GameState;
   held: boolean;
 } {
-  const next = phaseWhileTutorial(game.phase, open, held);
+  const next = phaseWhileTutorial(game.phase, open, held, exerciseLive);
   return { game: setPhase(game, next.phase), held: next.heldByTutorial };
 }
 
@@ -125,27 +129,53 @@ describe('tutorial quick start (A3)', () => {
     root.restore();
   });
 
-  it('does not advance game.time while the tutorial is open', () => {
+  it('runs the clock on an exercise and pauses it on an explain card', () => {
     let game = startMission(createGame(3));
     const before = game.time;
     let held = false;
     const root = mount();
     const overlay = new TutorialOverlay(root.el, (open) => {
-      const paused = applyTutorialPause(game, open, held);
+      const paused = applyTutorialPause(game, open, held, overlay.exerciseLive());
       game = paused.game;
       held = paused.held;
     });
     overlay.show();
-    if (patrolClockRuns(game.phase, overlay.isOpen())) game = updateGame(game, [], FIXED_DT);
-    expect(overlay.isOpen()).toBe(true);
-    expect(game.time).toBe(before);
+    expect(overlay.currentExercise()).toBe('steer');
+    if (patrolClockRuns(game.phase, overlay.isOpen(), overlay.exerciseLive())) {
+      game = updateGame(game, [], FIXED_DT);
+    }
+    expect(game.phase).toBe('playing');
+    expect(game.time).toBeCloseTo(before + FIXED_DT);
+
+    root.click('next');
+    const explained = applyTutorialPause(game, overlay.isOpen(), held, overlay.exerciseLive());
+    game = explained.game;
+    held = explained.held;
+    const atExplain = game.time;
+    if (patrolClockRuns(game.phase, overlay.isOpen(), overlay.exerciseLive())) {
+      game = updateGame(game, [], FIXED_DT);
+    }
+    expect(overlay.currentExercise()).toBeNull();
     expect(game.phase).toBe('paused');
+    expect(game.time).toBe(atExplain);
 
     root.click('skip');
     expect(overlay.isOpen()).toBe(false);
-    expect(patrolClockRuns(game.phase, overlay.isOpen())).toBe(true);
-    game = updateGame(game, [], FIXED_DT);
-    expect(game.time).toBeCloseTo(before + FIXED_DT);
+    const resumed = applyTutorialPause(game, false, held, false);
+    game = resumed.game;
+    expect(patrolClockRuns(game.phase, overlay.isOpen(), false)).toBe(true);
+    root.restore();
+  });
+
+  it('does not let Next satisfy an exercise until the action is done', () => {
+    const root = mount();
+    const overlay = new TutorialOverlay(root.el);
+    overlay.mayAdvance = () => false;
+    overlay.show();
+    expect(root.html()).toContain('disabled');
+    root.click('next');
+    expect(root.html()).toContain('Steer');
+    expect(overlay.currentExercise()).toBe('steer');
     root.restore();
   });
 
@@ -157,20 +187,37 @@ describe('tutorial quick start (A3)', () => {
 
   it('wires the pause gate and threat layer into the frame loop', () => {
     const source = readFileSync(new URL('../../src/app.ts', import.meta.url), 'utf8');
-    expect(source).toContain('patrolClockRuns(this.game.phase, this.tutorial.isOpen())');
-    expect(source).toContain('phaseWhileTutorial(this.game.phase, open, this.tutorialHeldPause)');
-    expect(source).toContain('if (this.tutorial.isOpen()) return;');
+    expect(source).toContain('this.tutorial.exerciseLive()');
+    expect(source).toContain('phaseWhileTutorial(');
+    expect(source).toContain(
+      'if (this.tutorial.isOpen() && !this.tutorial.exerciseLive()) return;',
+    );
     expect(source).toContain('new ThreatIndicatorLayer');
     expect(source).toContain('behind');
   });
 
-  it('fails the hedgehog beat only when damage lands before the pattern is marked', () => {
-    expect(hedgehogBeatFailed(100, 100, false)).toBe(false);
-    expect(hedgehogBeatFailed(100, 80, true)).toBe(false);
-    expect(hedgehogBeatFailed(100, 80, false)).toBe(true);
-    const pattern = safeHedgehogPattern(0, 0, 0);
-    expect(pattern).toHaveLength(6);
-    expect(Math.hypot(pattern[0]!.x, pattern[0]!.y)).toBeGreaterThan(12);
-    expect(pattern.every((charge) => charge.radius < 2)).toBe(true);
+  it('requires a real steer, a launched torpedo, and a turn out of the hedgehog lane', () => {
+    const mark = steerLessonMark(0, 0, 0);
+    expect(steerLessonDone(mark.x, mark.y, mark)).toBe(true);
+    expect(steerLessonDone(0, 0, mark)).toBe(false);
+    expect(fireLessonDone(2, 2)).toBe(false);
+    expect(fireLessonDone(2, 3)).toBe(true);
+    expect(dodgeLessonDone(3, 100, 100)).toBe(true);
+    expect(dodgeLessonDone(3, 100, 80)).toBe(false);
+    expect(dodgeLessonDone(1, 100, 100)).toBe(false);
+    const pattern = threateningHedgehogPattern(0, 0, 0);
+    expect(pattern).toHaveLength(5);
+    const impact = { x: 5, y: 0 };
+    expect(
+      pattern.some(
+        (charge) => Math.hypot(charge.x - impact.x, charge.y - impact.y) <= charge.radius,
+      ),
+    ).toBe(true);
+    const escaped = { x: 5, y: 6 };
+    expect(
+      pattern.every(
+        (charge) => Math.hypot(charge.x - escaped.x, charge.y - escaped.y) > charge.radius,
+      ),
+    ).toBe(true);
   });
 });

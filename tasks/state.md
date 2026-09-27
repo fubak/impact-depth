@@ -1,111 +1,38 @@
 # Silent Depths — project state
 
-> Rolling SSOT for agents. Last updated **2026-09-26**.
-> Longer claims ledger: `docs/release/solo-production-status.md`  
-> Persistent notes: `memory/MEMORY.md`
+> Rolling SSOT. Updated **2026-09-26**. Claims: `docs/release/solo-production-status.md`. Notes: `memory/MEMORY.md`.
 
-## Plan 025 — Phases 2 and 3 local evidence 2026-09-26
+## Now
 
-**Current next action:** Phase 4 of [Plan 025](../plans/025-action-mission-completion-and-release-proof.md). Do not self-approve Phases 6 or 7.
+**Next:** Phase 5 (world factory and exfil seed 7). Do not self-approve Phases 6–7 or any operator gate.
 
-Phase 2: autopilot fire spends ammunition only when `assistanceAutoFire` is on. Manual fire still works. Wrecks age in simulation seconds and last six. Reduced motion still spawns the wreck.
+Phases 1–3 are in `feedf32` and the parents. Evidence: [phase 1](../docs/release/plan-025-phase1.md), [phases 2–3](../docs/release/plan-025-phase2-3.md). This commit adds:
 
-Phase 3: seed 19 command-only strike reaches the exit in 20.33 simulation seconds without writing the boat's position (4 shots, 100 HP, one ship sunk). Chrome at `?quality=low` completed the same mission from the objective bearing and heading readout in 0:25 of simulation time, then restarted clean. Notes: [plan-025-phase2-3.md](../docs/release/plan-025-phase2-3.md).
+- Phase 4 tutorial and HUD. Quick-start Steer, Fire, and Survive are live exercises (`silent-depths-tutorial-v2`). Explain cards pause the clock. Chrome `npm run test:e2e:tutorial -- http://127.0.0.1:8111/?quality=low` passed: dodge left the hull at 100%, and the score did not overlap contacts at 1280×720, 1366×768, 1920×1080, or 125% zoom. That preview did not include the munition edits below.
+- Torpedoes appear at the boat's center and run at constant speed. Heading stays within 60° of the bow. An Mk-14 does not turn; it does chase the target's depth (sub 0.32, surface 0.02). Mk-18 and enemy fish turn and chase depth. A hit needs the fish within 0.2 of that depth.
+- A sunk hull is kept. If none was on screen, the fallback is that class's hull at depth, not a box on the water. A sub kill is a bubble burst plus a surface column. Surface sinks add a water column.
+- Wave contacts spawn on separate rings. Escort slots are 12 ahead/astern and 10 on the beam. Chrome on `:8112` showed five contacts at least 33 units apart.
 
-Phase 1 remains as recorded below. CI on `3a8012c` was not re-checked in this pass.
+Still open: Phase 5 world init and seed-7 exfil, Phase 6 human playtests, Phase 7 operator gates. Quiet sweep cap stays 18. Key M is 4×. Key V is Deep. World default stays `legacy-v1`.
 
-## Plan 025 — Phase 1 local evidence 2026-09-26
+## Older plans (pointers)
 
-Phase 1: canvas clicks use a real mouse event because `locator.click` stalls on `#scene` after scrolling. A click that ends within 3px of the press still plots; a drag does not. Three consecutive patrol E2E runs on `http://127.0.0.1:8105/` passed all 7 journeys. Pages checks out the CI `head_sha`, writes `dist/BUILD_SHA`, and does not publish a stale or failed run. Notes: [plan-025-phase1.md](../docs/release/plan-025-phase1.md).
-
-## Plan 025 — review context (planning record)
-
-The [independent review of merged cf0ab5a](../docs/release/plan-025-fresh-review.md)
-passed verify (651 tests), build, and assets. Local patrol E2E failed targeting/fire
-waiting for PLOT; GitHub CI failed the same journey with a different canvas-click
-timeout. Pages was skipped. Prior local success below is historical, not current
-release proof. The old 8.9-second strike test teleports to extraction.
-
-Fresh probes: all five Evade seeds survived at 100 HP; four of five Exfil seeds
-arrived, with seed 7 not arriving within 180 seconds. Emergency retreat, deep-launch
-restriction, and blast-depth separation are improved. A command-only strike took
-20.33 simulation seconds using hidden exit coordinates; this is not human pacing proof.
-
-Remaining work: input/CI repair and tested-SHA deployment, enforcement of auto-fire
-off, wreck time-unit correction, visible extraction and normal-input mission tests,
-active tutorial, HUD/threat readability, consistent world initialization, reliable
-retreat progress, encounter playtesting, and inherited production gates.
-All operator gates remain PENDING. See Plan 025 probe JSON for evidence.
-
-## Plan 024 — historical implementation report, superseded by fresh review
-
-[Execute the action-gameplay review](../plans/024-action-gameplay-execution.md). Unit suite 651 passed. `npm run build` and `npm run assets:validate` passed. Patrol E2E on `http://127.0.0.1:8098/` passed all 7 journeys in Chrome (no console errors). A system Chrome session started Convoy strike: objective "Sink the merchant, reach the exit", tutorial clock stayed at 0 while the cards were open, the Survive card spawned 6 hedgehog charges with hull still at 100, then the patrol resumed with 3 ships and INCOMING showing. Scripted strike report: victory in 8.9 s, 4 shots, 100 HP.
-
-Key M toggles 4× transit. Key V stays Deep.
-
-Ruling: the 18-unit quiet cap breaks OD6's "every seed alerts" passive band. The cap stays. The loud ≤15 s band stays.
-
-Operator gates are not approved: GPU FPS, lighting eye-pass, fleet ACCEPT, audio listen, soak, fun/feel, world-default flip, `solo-production`. Hull-contrast ratio was not measured. No new GLBs. Merged as cf0ab5a; fresh acceptance gaps are recorded above.
-
-## Plan 023 — planned 2026-09-26
-
-[Action gameplay and production readiness](../plans/023-action-gameplay-and-production-readiness.md)
-records the independent review of `ddd4281`, prioritized fixes, and four delivery
-milestones. Documentation only; implementation and operator acceptance remain pending.
-Review checks: verify (614 tests), asset validation, and browser smoke passed. Full
-patrol E2E failed in targeting-fire while waiting for PLOT after a water click; later
-journeys did not run and the cause remains unresolved.
-
-Independent five-seed probes found Evade fails on 7/42/91 (seed 7 loses 100 HP to
-world collision), while Exfil fails on 1/7/42/91 but reaches the base ring on seed 19.
-This supersedes the older all-five Exfil failure claim below. See
-`docs/release/plan-023-simulation-probes.json` for the measured outcomes.
-
-## Plan 022 (production action pass) — machine work landed 2026-09-26
-
-All Phase 1–4 items are merged to `master` (S1–S5, K1–K4, B1–B2, A1–A3, C1, D1, G1–G4, H1–H4 plus the cinema
-follow-through and the score-strip fix). Live on Pages: https://fubak.github.io/impact-depth/ .
-
-Operator gates remain **PENDING** (not self-approved): GPU >=55 FPS at the reference scene, lighting eye-pass,
-fleet visual ACCEPT (015), audio listen (014) incl. new cues/tension layer, soak playthrough, fun/feel sign-off on
-the pacing (first passive detection 60-150 s, loud <=15 s, 20 s wave breather), world-default flip, `solo-production` tag.
-
-Known follow-ups: `it.fails` pins in `tests/game/playtest/doctrines.test.ts` (Evade dies on seeds 7/42/91, Exfil
-sunk before FOB on all seeds); a burst of ~66 `GL_INVALID_OPERATION` (shadow sampler) messages at startup on a real GPU
-(pre-existing, gone with `?quality=low`); underwater torpedo action is fogged out at range (threat markers and the
-HIT toast are the cues); `hud.ts` and `app.ts` exceed 800 lines.
-
-Evidence commands: `npm run verify`, `npm run test:smoke`, `npm run test:e2e -- <url>` (7 journeys),
-`npm run test:e2e:hud`, `npm run test:playthrough` (CDP 9223; SwiftShader runs are NOT a visual pass).
+- 022 machine work is on master. Operator FPS, lighting, fleet, audio, soak, fun/feel, world default, and `solo-production` stay pending. Plan 017 owns the tag.
+- 023 is the review of `ddd4281`. Probes: `docs/release/plan-023-simulation-probes.json`.
+- 024 landed in `cf0ab5a`. The 8.9 s strike in that report teleported. The real seed-19 run is 20.33 s and is in the phase 2–3 note.
+- Evade seeds 7/42/91 and exfil seed 7 were still failing when last probed. Do not treat later doctrine edits as a pass until Phase 5 remeasures them.
 
 ## Current
 
-**Resume instruction (2026-09-13):** Plan **021 A/B** is in progress (shared
-surface evaluator, GPU heave, active-world bed clamp, 10 Hz probes). Plan 019
-water-first remains close (HDR + spectral default). Plan 012 machine + patrol
-E2E targeting is green. Plan 014 Chromium mute/unlock green; operator listen
-PENDING. Plan 015 delayed-GLB E2E green; operator fleet ACCEPT PENDING.
-Plan 018/017 operator GPU/soak/tag/world-default **must not** be self-approved.
-Do not start Plan 009. Do not start 021 C–F in the same session unless the
-operator continues.
+Active plan is **025**. Do not start 009. Do not flip the world default. Operator GPU, lighting, fleet, audio, soak, and the production tag stay pending.
 
-| Field              | Value                                                                                                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Product            | Solo patrol game (Silent Depths) on Vite + Three.js                                                                                                                 |
-| Technical RC       | `solo-rc` / Plan 008 — **not** `solo-production`                                                                                                                    |
-| Plan track         | 001–008 DONE · 011 DONE · 012 machine DONE · **021 A/B IN PROGRESS** · **018 IN PROGRESS** (operator) · **019 IN PROGRESS** (look close) · 014/015 operator PENDING |
-| Fleet content      | **models/v2** + manifest **v5** · `@gltf-transform/core` + `extensions` 4.5.0 declared                                                                              |
-| HUD                | Clarity pass 2026-08-04 (tooltips, fold Gear/Doctrine, plain labels)                                                                                                |
-| Open plans (order) | **021 motion/surface** · 019 look · 020 island art · 018 operator ACCEPT · 014 listen · **015 fleet ACCEPT** · 017 operator accept                                  |
-| Dev URL note       | Preview often `http://127.0.0.1:8082/` when 8080 is busy (`npx vite preview …`)                                                                                     |
-
-## Done recently (agent + tree)
-
-- Distinct class GLBs (no multi-scale Visby for PD/CL/BB/merchant).
-- Safe import pipeline: `artifacts/fleet-sources/sources.json` + `assets:import-modern` + `assets:validate`.
-- Runtime LOD, player preload gate, contact mesh refresh after preload, in-panel asset credits.
-- Engagement stand-down after kill; HUD vs world-click gate.
-- HUD usability pass (see `src/ui/hud.ts`, `src/ui/tutorial.ts`).
+| Field   | Value                                                         |
+| ------- | ------------------------------------------------------------- |
+| Product | Solo patrol on Vite + Three.js. Sim is `src/game/sim/**`.     |
+| HEAD    | Plan 025 phases 1–4 plus munition edits, on `origin/master`.  |
+| Tag     | `solo-rc` exists. `solo-production` does not.                 |
+| Fleet   | `models/v2`, manifest v5. Operator silhouette accept pending. |
+| Preview | `npm run preview` (port 8080, or another free port).          |
 
 ## Plan 015 snapshot
 
@@ -134,49 +61,15 @@ operator continues.
 Finish-gaps evidence: [`artifacts/plan-018-finish/matrix-report.md`](../artifacts/plan-018-finish/matrix-report.md).
 Analysis: [`docs/release/realism-upgrade-review.md`](../docs/release/realism-upgrade-review.md).
 
-## Open issues (fix list)
-
-Recorded 2026-09-11. Do not treat SwiftShader captures as visual PASS.
-
-### Blocking / high (r185 + playable loop)
-
-| ID  | Issue                                                                   | Likely fix                                 | When                       |
-| --- | ----------------------------------------------------------------------- | ------------------------------------------ | -------------------------- |
-| I1  | r185 `PCFSoftShadowMap` vs compare-mode depth textures                  | `PCFShadowMap` + material flags            | DONE (needs GPU eye-check) |
-| I2  | Weapon/hull depth still uses `-z * 5` vs `METERS_PER_DEPTH = 24`        | Shared `entityDepthY` / splash Y           | DONE (CP2)                 |
-| I3  | Gerstner still lifts water onto land (`world.y = max(world.y, floorY)`) | Coverage mask from packed bed; wet band    | DONE (CP2)                 |
-| I4  | Height texture packed on CPU but not bound into ocean shader            | R32F `DataTexture` bound in Gerstner/Ocean | DONE (CP2)                 |
-
-### Visual / HUD (Chrome patrol 2026-09-11)
-
-| ID  | Issue                                                              | Likely fix                                  | When                       |
-| --- | ------------------------------------------------------------------ | ------------------------------------------- | -------------------------- |
-| I5  | Depth/speed tooltips cover the button row (`PERISCOPE` → `COPE`)   | Anchor tooltips above/below the control row | DONE                       |
-| I6  | Chase framing at attack depth: empty water, huge ring, hull sliver | Camera follow/offset vs depth               | DONE (needs GPU eye-check) |
-| I7  | Periscope often faces empty horizon, not the locked target         | Aim/yaw vs selected contact                 | DONE (needs GPU eye-check) |
-| I8  | Pickup crate sits too high in bridge view                          | SURFACE_SPLASH_Y                            | DONE                       |
-| I9  | Contacts panel “no firm contacts” while sonar plot lists ships     | Shared `listFirmContacts()`                 | DONE                       |
-
-### Baseline gates (do not weaken)
-
-| ID  | Issue                                                    | Likely fix                                           | When             |
-| --- | -------------------------------------------------------- | ---------------------------------------------------- | ---------------- |
-| I10 | `npm run assets:validate` missing `@gltf-transform/core` | Declared `@gltf-transform/core` + `extensions` 4.5.0 | DONE (CP6)       |
-| I11 | `format:check` fails on 5 existing files                 | Format those files only, no mass rewrite             | DONE             |
-| I12 | GPU ≥55 FPS / lighting eye-pass / soak                   | Operator hardware                                    | CP7–8 / Plan 017 |
-
 ## Agent next
 
-1. Plan 021 machine A–F is committed. Operator GPU/lighting/fleet/soak ACCEPT still PENDING.
-2. 018 operator ACCEPT (`docs/release/plan-018-operator-accept.md`) still PENDING — do not self-approve; do **not** flip **world** default.
-3. Do not execute 013/016. 012/014/015 remain independent.
+1. Phase 5. Remeasure exfil seed 7 and the Evade seeds. Do not self-approve Phase 6 or 7.
+2. 018/014/015 operator ACCEPT stays pending. Do not flip the world default. Do not execute 009, 013, or 016.
 
 ## Human next
 
-- GPU FPS evidence into `docs/release/perf-notes.md`
-- Eye-pass fleet + lighting + soak playthroughs
-- Do not treat agent FPS/SwiftShader as PASS
-- When satisfied end-to-end: Plan 017 → tag `solo-production` only
+- GPU FPS, fleet look, lighting, audio listen, and soak. Agent screenshots are not those gates.
+- Plan 017 is the only path to `solo-production`.
 
 ## Verify (quick)
 

@@ -23,24 +23,26 @@ describe('defense callout', () => {
       ),
     };
     expect(defenseCallout(locked)).toBe('LOCKED');
-    const incoming = {
-      ...locked,
-      depthCharges: [
-        {
-          id: 'dc',
-          kind: 'depthCharge' as const,
-          sourceId: hunter.id,
-          x: 0,
-          y: 0,
-          z: 0,
-          vz: 0,
-          fuse: 1,
-          damage: 10,
-          radius: 1,
-          targetDepth: 0.5,
-        },
-      ],
+    const charge = {
+      id: 'dc',
+      kind: 'depthCharge' as const,
+      sourceId: hunter.id,
+      x: state.submarine.x + 4,
+      y: state.submarine.y,
+      z: 0.4,
+      vz: 0,
+      fuse: 2,
+      damage: 10,
+      radius: 1,
+      targetDepth: 0.5,
     };
-    expect(defenseCallout(incoming)).toBe('INCOMING');
+    expect(defenseCallout({ ...locked, depthCharges: [charge] })).toBe('INCOMING');
+    const distant = {
+      ...charge,
+      id: 'far',
+      x: state.submarine.x + 40,
+      fuse: 12,
+    };
+    expect(defenseCallout({ ...locked, depthCharges: [distant] })).toBe('LOCKED');
   });
 });

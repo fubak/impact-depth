@@ -1,86 +1,32 @@
 # Silent Depths — agent memory
 
-**Project:** impact-depth / Silent Depths  
-**Last sync:** 2026-09-13  
-**SSOT for rolling status:** `tasks/state.md`  
-**Long plans:** `plans/README.md`  
-**Release claims:** `docs/release/solo-production-status.md`
-
-## Product fact
-
-Playable solo patrol sim on Three.js/Vite (not look-dev only). Deterministic game domain in `src/game/sim/**`; look-dev sim in `src/core/` still feeds render cameras. Preview often `:8082` when 8080 is busy.
+**Last sync:** 2026-09-26. Rolling status is `tasks/state.md`. Release claims are `docs/release/solo-production-status.md`.
 
 ## Architecture
 
-- **Authoritative sim:** `src/game/sim/**` + `src/game/commands/**` — pure TS, fixed step, no Three.
-- **Render:** `src/render/**` — glTF registry, LOD, ocean, vessels fallbacks. Plan 018
-  `EnvironmentController` + Gerstner fallback; spectral FFT + coastal. Do not add a
-  second canvas or rAF. Presentation weather is look-dev only; `?quality=` locks the
-  governor. Plan 019 staged local Kloofendal HDR under `public/assets/environment/v1/`
-  (no runtime Poly Haven / esm.sh). Empty URL defaults to **spectral**; rollback
-  `?ocean=gerstner`. World stays `legacy-v1`.
-- **World versions:** default gameplay is `legacy-v1`. `?world=littoral-v2` +
-  `createGame(seed, worldVersion)` for CPU signed-metre field. Do not flip defaults
-  Do not flip the **world** default until operator acceptance (`docs/release/realism-upgrade-review.md`).
-  Ocean empty-URL default is spectral as of Plan 019.
-- **Critical 018 fixes (2026-09-12):** shared `SURFACE_FUNCTIONS_GLSL` (no double GLSL
-  include); surface probes wrap `SimulationPass` in `withRendererPass` so the canvas
-  RT is not stolen; boot uses `createGame(19, runtime.world)`. Coastal rebuilds snap
-  to 128 m and run async (no 1–2 s cruise hitch). Littoral bed uploads at 1 m.
-  Storm honeycomb closed 2026-09-13 (lambda/chop cut + foam `foamPatch`).
-  Spectral map follow-square closed by fading projected caustics above ~70–120 m
-  (detail extent was a 96 m plate from the map camera). Hitch-final CLEAN on
-  RTX 4070 Ti. World default still needs operator ACCEPT. Ocean default is spectral (019).
-- **UI:** `src/ui/hud.ts` (throttled ~8 Hz), tutorial, look-dev panel, sonar/periscope overlays.
-- **Input:** canvas world interact gated so HUD clicks do not plot waypoints (`shouldDispatchWorldInteract`).
+- Gameplay truth is `src/game/sim/**` and `src/game/commands/**`. No Three.js, DOM, or `Math.random`.
+- `src/render/**` draws snapshots. `src/core/` still feeds cameras and waves. One canvas, one rAF.
+- World default stays `legacy-v1`. Ocean empty-URL default is spectral (`?ocean=gerstner` rolls back). `?quality=` locks the governor.
+- HUD clicks must not plot waypoints (`shouldDispatchWorldInteract`). A canvas click is pointer-up within 3px of pointer-down. Playwright `locator.click` on `#scene` stalls; e2e uses `page.mouse.click`.
 
-## Fleet / assets (2026-08-04)
+## Weapons
 
-- Production content: **`public/assets/models/v2/*.glb`** + manifest **v5**.
-- **Do not overwrite** immutable older path bytes; new content = new path (v2+) or new name.
-- Import: `artifacts/fleet-sources/sources.json` → `npm run assets:import-modern` → `npm run assets:validate`.
-- Importer **never downloads** and never reads cookies.
-- Class sources (distinct meshes):
-  - CC-BY Sketchfab: player LA (`sub_nautilus`), Akula (`uboat`), Visby **destroyer only**
-  - CC0 Kenney watercraft: patrol, cruiser, battleship, freighter, fob, crate
-  - CC0 OGA light plane → aircraft (Blender export to `staging/aircraft_src.glb`)
-  - Project procedural: torpedo (+ `src/render/vessels.ts` fallbacks)
-- Runtime: preload gate (no player procedural flash), LOD distances `[40,120,280]`, hot-swap contacts after preload, Look-dev **ASSET CREDITS** from ledger.
-- Plan **015** is **partially** complete — machine pipeline + distinct GLBs + LOD/preload + delayed-GLB E2E; operator visual acceptance per class **not** closed.
+- Tubes aim within 60° of the bow. The fish is spawned at the boat's center and runs at constant speed. No drag, buoyancy, or tube offset.
+- Mk-14 holds heading and chases target depth. Mk-18 and enemy fish also turn. Sub depth is 0.32, surface ships 0.02. A hit needs `|dz| <= 0.2`.
+- Deck gun, inside 8.5 units and shallower than 0.14, applies damage with no projectile. Charges sink at a constant rate until the fuse ends.
+- Assistance auto-fire spends ammo only when `assistanceAutoFire` is on. Patrol defaults on. Convoy strike defaults off.
+- Quiet escort sweep cap is 18. Loud alert stays ≤15 s. Do not restore the old 60–150 s passive band by raising the cap.
+- Key M is 4×. Key V is Deep. Victory copy is "Clear two waves". `VICTORY_TARGET` is still 8.
 
-## Combat / AI facts worth remembering
+## Mission
 
-- Ambush/Stalk/Intercept **stand down to Manual** when preferred contact dies (no auto-retask NEW CONTACT).
-- Depth/speed HUD orders intentionally cancel doctrine autopilot.
-- Torpedoes: short arm, segment hits, lead aim; fire depth gated.
-- HUD world click bug fixed: only canvas-origin pointer sequences dispatch world interact.
+- Convoy strike: sink `strike-merchant`, then reach the exit (radius 4). Seed 19 command-only win is 20.33 sim seconds. The 8.9 s report teleported.
+- Exit bearing uses `headingDegrees` (the helm tape). Steering from the raw compass angle as a sim heading sails away from the exit.
+- Quick-start v2 (`silent-depths-tutorial-v2`): Steer, Fire, and Survive run the clock and block Next until the action. Depth & stealth pauses. The dodge pattern is ahead on the bow track. Help does not spawn charges.
 
-## HUD (2026-08-04 clarity pass)
+## Assets and gates
 
-- Labels: Quiet, Home, Manual, Clear route, Bubbles, Decoy, Ping; Gear/Doctrine fold (localStorage `silent-depths-hud-panels-v1`, default expanded).
-- Tooltips via `title` + `data-tip`; map legend; fewer ORDERS duplicates.
-- Selectors for automation: keep `data-action` / `data-value` (e2e).
-
-## Operator gates (never agent-self-approve)
-
-- GPU ≥55 FPS @ 1440×900, 2h soak, human playthroughs, lighting eye-pass, live deploy/rollback, visual acceptance of fleet silhouettes.
-- Tag `solo-production` only via Plan 017.
-
-## Commands
-
-```bash
-npm run typecheck && npm test
-npm run assets:validate
-npm run assets:import-modern   # after source GLB changes
-npm run verify                   # full gate when touching release-critical paths
-# e2e / visual need a serving preview URL
-npm run test:e2e -- http://127.0.0.1:8800/
-```
-
-## Do not
-
-- Commit Sketchfab cookies / secrets / private downloads.
-- Scale one corvette into all surface classes again.
-- Claim solo-production or operator visual PASS from HTTP 200 alone.
-- Modify `.archive/`.
-- Push tags or remotes unless the operator asks.
+- Production GLBs: `public/assets/models/v2/`. Import from `artifacts/fleet-sources/sources.json`. Never download or commit cookies. Do not edit `.archive/`.
+- Do not self-approve GPU FPS, lighting, fleet look, audio listen, soak, fun/feel, world default, hull contrast, or `solo-production`. Plan 017 owns the tag.
+- `npm run verify` is typecheck, lint, test, and build. E2E is separate: `npm run test:e2e -- <url>`, `test:e2e:strike`, `test:e2e:tutorial`.
+- Commit explicit paths. Do not `git add` `.claude/` or `ambush-bow-forward.png`.

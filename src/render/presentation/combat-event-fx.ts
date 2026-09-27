@@ -84,7 +84,13 @@ function placeEvent(event: CombatEvent): Placed | null {
     case 'torpedoExpired':
       return null;
     case 'shipSunk':
-      return place(event.x, event.y, 0, 'sink', 1.2);
+      return place(
+        event.x,
+        event.y,
+        event.kind === 'sub' ? 0.32 : 0.02,
+        event.kind === 'sub' ? 'subBurst' : 'sink',
+        1.2,
+      );
     case 'chargeBlast':
       return place(event.x, event.y, event.z, 'chargeBlast', event.near ? 1.15 : 0.7);
     case 'playerHit':
@@ -106,12 +112,17 @@ function placeEvent(event: CombatEvent): Placed | null {
 /** Map one sim-unit combat event onto a world-metre burst. Events without a preset map to none. */
 export function combatEventBursts(event: CombatEvent): FxBurst[] {
   const placed = placeEvent(event);
-  return placed ? [placed] : [];
+  if (!placed) return [];
+  if (event.type !== 'shipSunk') return [placed];
+  const boil = place(event.x, event.y, 0.02, 'surfaceBreak', event.kind === 'sub' ? 1.15 : 0.9);
+  return [placed, boil];
 }
 
 const HIT_PEAK: Partial<Record<FxPreset, number>> = {
   torpedoHit: 6,
   sink: 8,
+  subBurst: 7,
+  surfaceBreak: 5,
   chargeBlast: 5,
   playerHit: 4,
 };

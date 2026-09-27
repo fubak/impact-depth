@@ -232,6 +232,17 @@ export function bowRelativeBearing(
 
 export const TUBE_ARC_RAD = Math.PI / 3;
 
+/** Enemy boats ride the thermocline. Surface ships stay in the trough. */
+export function hullDepth(kind: ShipKind): number {
+  return kind === 'sub' ? 0.32 : 0.02;
+}
+
+/** Close on the target's depth. A straight Mk-14 still does not turn. */
+export function chaseDepth(current: number, target: number, dt: number): number {
+  const step = Math.max(-0.55 * dt, Math.min(0.55 * dt, target - current));
+  return Math.max(0.02, Math.min(0.92, current + step));
+}
+
 /** Tubes can aim at most 60° off the bow. The HUD lead is still the desired bearing. */
 export function launchHeading(boatHeading: number, desiredHeading: number): number {
   const delta = Math.atan2(
@@ -1171,7 +1182,11 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
               next.turnRate,
               dt,
             ),
+            z: chaseDepth(next.z, hullDepth(guide.kind), dt),
           };
+      } else if (next.owner === 'player' && next.targetId) {
+        const guide = ships.find((ship) => ship.id === next.targetId);
+        if (guide) next = { ...next, z: chaseDepth(next.z, hullDepth(guide.kind), dt) };
       }
       // Enemy AI fish are kind 'enemy', not mk18, but they share the same homing and foxer odds.
       const mk18Player = next.owner === 'enemy' && next.targetId === 'player';
@@ -1202,6 +1217,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             next.turnRate,
             dt,
           ),
+          z: chaseDepth(next.z, submarine.z, dt),
         };
       }
       const foxer =
@@ -1226,6 +1242,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         const hits = ships.filter(
           (ship) =>
             !ship.sinking &&
+            Math.abs(next.z - hullDepth(ship.kind)) <= 0.2 &&
             distPointSegment(ship.x, ship.y, prevX, prevY, next.x, next.y) <= shipRadius(ship),
         );
         const preferred = next.targetId

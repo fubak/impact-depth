@@ -47,3 +47,15 @@
 .threat-marker[data-edge='bottom'] .threat-marker-arrow {
   transform: rotate(-90deg);
 }
+
+.threat-marker[data-edge='bottom'] {
+  transform: translate(-50%, calc(-100% - 22px));
+}
+
+.threat-marker[data-edge='top'] {
+  transform: translate(-50%, 16px);
+}
+
+.threat-marker[data-edge='screen'] .threat-marker-arrow {
+  transform: none;
+}

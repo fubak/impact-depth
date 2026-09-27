@@ -2,16 +2,9 @@
 
 ## Action gameplay follow-up (2026-09-26)
 
-[Plan 023](023-action-gameplay-and-production-readiness.md) is the original review.
-[Plan 024](024-action-gameplay-execution.md) landed in `cf0ab5a`. The
-[fresh review](../docs/release/plan-025-fresh-review.md) confirms combat fixes, but
-local and CI targeting/fire checks fail and mission/presentation gaps remain.
-
-**Next selected plan:** [Plan 025: complete the action mission and prove release readiness](025-action-mission-completion-and-release-proof.md).
-Phases 1–3 have local evidence in
-[plan-025-phase1.md](../docs/release/plan-025-phase1.md) and
-[plan-025-phase2-3.md](../docs/release/plan-025-phase2-3.md). Next is Phase 4.
-Operator gates remain pending; 025 feeds Plan 017 and does not tag `solo-production`.
+[Plan 025](025-action-mission-completion-and-release-proof.md) is the active plan.
+Phases 1–4 and the munition/spacing edits are on master. Phases 5–7 are not started.
+Operator gates stay pending. 025 does not tag `solo-production`.
 
 The older integration direction below is historical context, not evidence that those
 gates have passed.
@@ -99,14 +92,11 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 | 017  | Polish and release the solo production build                        | P1       | 4–10 days                              | 011, 012, 014, 015, accepted 018                                     | TODO — operator soak/GPU/tag; do not self-approve                                                                                                                                                                |
 | 009  | Add optional host-authoritative co-op for up to 10 players          | P2       | 3–6 weeks                              | 017                                                                  | TODO                                                                                                                                                                                                             |
 | 023  | Action gameplay and production readiness (review)                   | P1       | —                                      | 022 machine landed                                                   | PLANNED — spec only; see 024                                                                                                                                                                                     |
-| 024  | Execute the action-gameplay review                                  | P1       | Four sessions                          | 023                                                                  | LANDED — fresh browser CI red; mission gaps tracked in 025                                                                                                                                                       |
+| 024  | Execute the action-gameplay review                                  | P1       | Four sessions                          | 023                                                                  | Landed in cf0ab5a. Later click and mission gaps are Plan 025.                                                                                                                                                    |
 
-**Plan 024 status correction:** its row above records the earlier implementation report.
-The fresh review supersedes its patrol-E2E acceptance claim: browser CI is red.
-
-| Plan | Title                                                   | Dependency | Status                                  |
-| ---- | ------------------------------------------------------- | ---------- | --------------------------------------- |
-| 025  | Complete the action mission and prove release readiness | 024 merged | Phases 1–3 local evidence; Phase 4 next |
+| Plan | Title                                                   | Dependency | Status                              |
+| ---- | ------------------------------------------------------- | ---------- | ----------------------------------- |
+| 025  | Complete the action mission and prove release readiness | 024 merged | 1–4 and munitions on master; 5 next |
 
 Historical estimate before Plan 018 (not an estimate for the revised integration track): roughly 3–6 focused weeks,
 with licensed asset acquisition and operator QA as the long poles. Co-op (009) adds ~3–6 weeks

@@ -318,6 +318,7 @@ export class Hud {
   private lastActionAt = 0;
   private panels: HudPanelPrefs = loadPanelPrefs();
   private seenPopIds: Set<string> = new Set();
+  private tutorialMark: { x: number; y: number } | null = null;
 
   constructor(
     root: HTMLElement,
@@ -717,6 +718,11 @@ export class Hud {
               ? `<circle class="exit ${strikeStage(game) === 'attack' ? 'pending' : 'open'}" cx="${game.strikeExit.x}" cy="${game.strikeExit.y}" r="4" data-exit="${strikeStage(game) === 'attack' ? 'later' : 'open'}"/>`
               : ''
           }</g>
+          <g data-field="lesson">${
+            this.tutorialMark
+              ? `<circle class="lesson-mark" cx="${this.tutorialMark.x}" cy="${this.tutorialMark.y}" r="2.2" data-lesson-mark="1"/>`
+              : ''
+          }</g>
           <g data-field="plot">${
             game.autopilot.waypoint
               ? `<circle class="plot" cx="${game.autopilot.waypoint.x}" cy="${game.autopilot.waypoint.y}" r="1.8"/>`
@@ -877,6 +883,12 @@ export class Hud {
         )
         .join('');
     }
+    const lesson = this.root.querySelector('[data-field="lesson"]');
+    if (lesson) {
+      lesson.innerHTML = this.tutorialMark
+        ? `<circle class="lesson-mark" cx="${this.tutorialMark.x}" cy="${this.tutorialMark.y}" r="2.2" data-lesson-mark="1"/>`
+        : '';
+    }
     const plot = this.root.querySelector('[data-field="plot"]');
     if (plot) {
       plot.innerHTML = game.autopilot.waypoint
@@ -892,6 +904,10 @@ export class Hud {
         )
         .join('');
     }
+  }
+
+  setTutorialMark(mark: { x: number; y: number } | null): void {
+    this.tutorialMark = mark;
   }
 
   private togglePanel(which: keyof HudPanelPrefs): void {

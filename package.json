@@ -27,6 +27,7 @@
     "assets:stage:kloofendal": "node scripts/stage-kloofendal-hdr.mjs",
     "test:e2e": "node scripts/e2e-patrol.mjs",
     "test:e2e:strike": "node scripts/e2e-strike.mjs",
+    "test:e2e:tutorial": "node scripts/e2e-tutorial.mjs",
     "test:e2e:ocean": "node scripts/e2e-ocean.mjs",
     "test:e2e:hud": "node scripts/e2e-hud-commands.mjs",
     "test:e2e:assets": "node scripts/e2e-delayed-assets.mjs",

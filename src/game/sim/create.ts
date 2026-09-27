@@ -1,11 +1,5 @@
-import {
-  DEFAULT_CRUISE,
-  FOB_RADIUS,
-  WAVE_SPAWN_INNER,
-  WAVE_SPAWN_STEP,
-  WORLD_CENTER,
-} from './constants';
-import { WAVE1_SPAWN_RADIUS, WAVE1_SPAWN_SPREAD } from './action-feel';
+import { DEFAULT_CRUISE, FOB_RADIUS, WAVE_SPAWN_INNER, WORLD_CENTER } from './constants';
+import { WAVE1_SPAWN_RADIUS } from './action-feel';
 import type { FormationRole, GameState, Point, Powerup, Ship, ShipKind, Submarine } from './types';
 import { createTerrain, snapToNavigable, type Terrain } from './world';
 import type { WorldVersion } from '../world/definition';
@@ -160,12 +154,9 @@ export function seedWave(
     ...Array<ShipKind>(wave >= 3 ? 2 : 1).fill('sub'),
   ];
   const ships = kinds.map((kind, index) => {
-    const angle = ((seed + wave * 29 + index * 47) % 360) * (Math.PI / 180);
-    // Scaled for 128 map — stay outside ~17u passive detection envelope.
-    const radius =
-      wave === 1
-        ? WAVE1_SPAWN_RADIUS + (index % 3) * WAVE1_SPAWN_SPREAD
-        : WAVE_SPAWN_INNER + (index % 3) * WAVE_SPAWN_STEP;
+    const angle = ((seed * 17 + wave * 29 + index * 137) % 360) * (Math.PI / 180);
+    // Each hull gets its own ring so a wave does not stack on one patch of water.
+    const radius = (wave === 1 ? WAVE1_SPAWN_RADIUS : WAVE_SPAWN_INNER) + index * 7;
     const spawnX = WORLD_CENTER + 2 + Math.cos(angle) * radius;
     const spawnY = WORLD_CENTER + Math.sin(angle) * radius;
     const point =
@@ -231,8 +222,8 @@ export function seedWave(
     if (escortKinds.has(ship.kind)) {
       const role = formationRoleCycle[escortCycleIndex % formationRoleCycle.length]!;
       escortCycleIndex += 1;
-      const along = role === 'lead' ? 8 : role === 'trail' ? -8 : 0;
-      const lateral = role === 'wing' ? (wingSideIndex++ % 2 === 0 ? 6 : -6) : 0;
+      const along = role === 'lead' ? 12 : role === 'trail' ? -12 : 0;
+      const lateral = role === 'wing' ? (wingSideIndex++ % 2 === 0 ? 10 : -10) : 0;
       return {
         ...ship,
         formationAnchorId: anchorId,
@@ -247,8 +238,8 @@ export function seedWave(
         ...ship,
         formationAnchorId: anchorId,
         formationRole: null,
-        formationAlong: -index * 3,
-        formationLateral: (index % 2 ? 1 : -1) * 2,
+        formationAlong: -index * 8,
+        formationLateral: (index % 2 ? 1 : -1) * 6,
         path: [],
       };
     }

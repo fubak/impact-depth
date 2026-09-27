@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { burstParticles, createLcg } from '../../src/render/presentation/combat-fx';
+import { combatEventBursts } from '../../src/render/presentation/combat-event-fx';
 import { VfxPool } from '../../src/render/vfx';
 
 describe('combat fx presets', () => {
@@ -18,6 +19,22 @@ describe('combat fx presets', () => {
     const top = Math.max(...list.filter((p) => p.kind === 'spray').map((p) => p.dy));
     expect(top).toBeGreaterThanOrEqual(20);
     expect(list.filter((p) => p.kind === 'spray').length).toBeGreaterThan(3);
+  });
+
+  it('blows a submarine into bubbles and a surface column, not a fireball', () => {
+    const underwater = burstParticles({ preset: 'subBurst', x: 0, y: -8, z: 0, intensity: 1 });
+    expect(underwater.some((particle) => particle.kind === 'bubbles')).toBe(true);
+    expect(underwater.some((particle) => particle.kind === 'fireball')).toBe(false);
+    const bursts = combatEventBursts({
+      type: 'shipSunk',
+      id: 'u-1',
+      kind: 'sub',
+      x: 4,
+      y: 5,
+    });
+    expect(bursts.map((burst) => burst.preset)).toEqual(['subBurst', 'surfaceBreak']);
+    expect(bursts[0]!.y).toBeLessThan(0);
+    expect(bursts[1]!.y).toBeGreaterThan(bursts[0]!.y);
   });
 
   it('is deterministic for the same spec', () => {

@@ -5,67 +5,63 @@
 **Production tag:** pending — only Plan 017 may close `solo-production`  
 **Rolling agent SSOT:** `tasks/state.md` · **Memory:** `memory/MEMORY.md`
 
-## Fresh acceptance update — 2026-09-26
+## Where this revision stands — 2026-09-26
 
-At merged `cf0ab5a`, verify (651 tests), build, and assets pass, but local and CI
-targeting/fire browser journeys fail. Pages was skipped. Older automated PASS
-entries below are historical and do not certify this revision.
-[Plan 025](../../plans/025-action-mission-completion-and-release-proof.md) is PLANNED
-to close the observed mission, control, navigation, presentation, and deployment
-gaps. See the [fresh review](plan-025-fresh-review.md). No implementation or
-operator acceptance is claimed by this planning update.
+Plan 025 phases 1–4 and the munition follow-ups are on `master` after `feedf32`: canvas clicks plot, Pages publishes only the tested SHA, assistance fire is gated, the strike finishes without a teleport, the tutorial exercises are live, and torpedoes chase target depth. Older PASS rows below are historical and do not certify this revision.
+
+Operator FPS, lighting, fleet, audio, soak, fun/feel, world default, hull contrast, and `solo-production` stay **PENDING**. Plan 017 owns the tag. Phases 5–7 are not done.
 
 ## Claim levels
 
-| Claim | Meaning |
-|-------|---------|
-| DONE (code/docs) | Landed in tree; covered by automated tests or docs |
-| PASS (automated) | Machine gate exited 0 |
-| DIRECTIONAL | Soft evidence (e.g. software renderer FPS) — not acceptance |
-| PENDING operator | Requires human/GPU/host evidence; agents must not self-approve |
-| PARTIAL | Code path landed; remaining steps or content quality still open |
+| Claim            | Meaning                                                         |
+| ---------------- | --------------------------------------------------------------- |
+| DONE (code/docs) | Landed in tree; covered by automated tests or docs              |
+| PASS (automated) | Machine gate exited 0                                           |
+| DIRECTIONAL      | Soft evidence (e.g. software renderer FPS) — not acceptance     |
+| PENDING operator | Requires human/GPU/host evidence; agents must not self-approve  |
+| PARTIAL          | Code path landed; remaining steps or content quality still open |
 
 ## Phase status
 
-| Phase | Status | Evidence |
-|-------|--------|----------|
-| A Balance / early death | DONE (code) | `docs/release/balance-notes.md`; `tests/game/survival.balance.test.ts` |
-| B GPU FPS gate | PENDING operator | `docs/release/perf-notes.md` — agent host is not GPU proof |
-| C glTF fleet | **PARTIAL** (code + v2 content) | `public/assets/models/v2/*` + manifest v5; `npm run assets:validate`; Plan 015 not closed (operator silhouette accept; kenney/CC0 not final warship bar) |
-| D Convoy/escort formation | DONE | `tests/game/formation.test.ts` |
-| E Authored audio banks | PARTIAL (fallback-generated WAVs; 014 lifecycle in progress; operator listen PENDING) | `public/assets/audio/*.wav` + `manifest.json` `audioBanks`; `tests/game/audio.test.ts`; `docs/release/audio-banks.md` |
-| F Deploy path | DONE (docs) | `docs/release/solo-production.md`, `public/_headers` (`/assets/models/*` immutable) |
-| G Lighting acceptance | PENDING operator (partial code) | `docs/release/lighting-acceptance.md` |
-| H Operator gate | PENDING operator | Wall-clock soak + 3 playthroughs + deploy/rollback + tag |
-| Plan 011 browser/release honesty | PASS (automated) | See machine-gate evidence below |
-| HUD clarity (post-007) | DONE (code) | `src/ui/hud.ts` tooltips/folds/plain labels; tutorial synced; not a standalone plan |
+| Phase                            | Status                                                                                | Evidence                                                                                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A Balance / early death          | DONE (code)                                                                           | `docs/release/balance-notes.md`; `tests/game/survival.balance.test.ts`                                                                                   |
+| B GPU FPS gate                   | PENDING operator                                                                      | `docs/release/perf-notes.md` — agent host is not GPU proof                                                                                               |
+| C glTF fleet                     | **PARTIAL** (code + v2 content)                                                       | `public/assets/models/v2/*` + manifest v5; `npm run assets:validate`; Plan 015 not closed (operator silhouette accept; kenney/CC0 not final warship bar) |
+| D Convoy/escort formation        | DONE                                                                                  | `tests/game/formation.test.ts`                                                                                                                           |
+| E Authored audio banks           | PARTIAL (fallback-generated WAVs; 014 lifecycle in progress; operator listen PENDING) | `public/assets/audio/*.wav` + `manifest.json` `audioBanks`; `tests/game/audio.test.ts`; `docs/release/audio-banks.md`                                    |
+| F Deploy path                    | DONE (docs)                                                                           | `docs/release/solo-production.md`, `public/_headers` (`/assets/models/*` immutable)                                                                      |
+| G Lighting acceptance            | PENDING operator (partial code)                                                       | `docs/release/lighting-acceptance.md`                                                                                                                    |
+| H Operator gate                  | PENDING operator                                                                      | Wall-clock soak + 3 playthroughs + deploy/rollback + tag                                                                                                 |
+| Plan 011 browser/release honesty | PASS (automated)                                                                      | See machine-gate evidence below                                                                                                                          |
+| HUD clarity (post-007)           | DONE (code)                                                                           | `src/ui/hud.ts` tooltips/folds/plain labels; tutorial synced; not a standalone plan                                                                      |
 
 ## Fleet content map (v2)
 
-| Kind | Provenance | Notes |
-|------|------------|--------|
-| sub_nautilus | Sketchfab LA CC-BY | Hero player |
-| uboat | Sketchfab Akula CC-BY | Enemy sub |
-| destroyer | Sketchfab Visby CC-BY | Escort only — not re-used for other classes |
-| patrol / cruiser / battleship / freighter / fob / crate | Kenney Watercraft CC0 | Distinct meshes; stylized civilian pack |
-| aircraft | OGA lowpoly plane CC0 | Blender-exported |
-| torpedo | project procedural GLB | Fallback geometry family |
+| Kind                                                    | Provenance             | Notes                                       |
+| ------------------------------------------------------- | ---------------------- | ------------------------------------------- |
+| sub_nautilus                                            | Sketchfab LA CC-BY     | Hero player                                 |
+| uboat                                                   | Sketchfab Akula CC-BY  | Enemy sub                                   |
+| destroyer                                               | Sketchfab Visby CC-BY  | Escort only — not re-used for other classes |
+| patrol / cruiser / battleship / freighter / fob / crate | Kenney Watercraft CC0  | Distinct meshes; stylized civilian pack     |
+| aircraft                                                | OGA lowpoly plane CC0  | Blender-exported                            |
+| torpedo                                                 | project procedural GLB | Fallback geometry family                    |
 
 Pipeline: `artifacts/fleet-sources/sources.json` → `npm run assets:import-modern` → `models/v2` → `npm run assets:validate`. Runtime LOD `[40,120,280]`, preload gate, credits in Look-dev panel.
 
 ## Plan 011 machine-gate evidence
 
-| Item | Value |
-|------|-------|
-| Commands | `npm run verify` (exit 0); `npm run build`; `npx vite preview --host 127.0.0.1 --port 8082 --strictPort`; `npm run test:e2e -- http://127.0.0.1:8082/`; `npm run test:visual -- http://127.0.0.1:8082/` |
-| Preview port note | Host `:8080` occupied by unrelated collector (`404 page not found`); production preview served on **8082** for this gate run |
-| Worktree | dirty Plan 010+011 preserved (no reset/clean) |
-| Commit tip | `4da4d3f10d64315ae8adcb6276788ef1683ef637` + uncommitted work |
-| Viewport | 1440×900 primary; 1024×700 compact E2E |
-| Playwright / Chromium | Playwright `1.62.1` (bundled Chromium) |
-| `test:e2e` | exit 0 — journeys: boot-start-tutorial, pov-switching, helm-navigation, targeting-fire, pause-resume, restart-reentry, compact-viewport-reachability |
-| `test:visual` | exit 0 — `artifacts/visual/report.json` reports `phase: playing`, six modes, overlays hidden, zero errors |
-| Renderer note | Visual report renderer: SwiftShader — **not** GPU proof |
+| Item                  | Value                                                                                                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Commands              | `npm run verify` (exit 0); `npm run build`; `npx vite preview --host 127.0.0.1 --port 8082 --strictPort`; `npm run test:e2e -- http://127.0.0.1:8082/`; `npm run test:visual -- http://127.0.0.1:8082/` |
+| Preview port note     | Host `:8080` occupied by unrelated collector (`404 page not found`); production preview served on **8082** for this gate run                                                                            |
+| Worktree              | dirty Plan 010+011 preserved (no reset/clean)                                                                                                                                                           |
+| Commit tip            | `4da4d3f10d64315ae8adcb6276788ef1683ef637` + uncommitted work                                                                                                                                           |
+| Viewport              | 1440×900 primary; 1024×700 compact E2E                                                                                                                                                                  |
+| Playwright / Chromium | Playwright `1.62.1` (bundled Chromium)                                                                                                                                                                  |
+| `test:e2e`            | exit 0 — journeys: boot-start-tutorial, pov-switching, helm-navigation, targeting-fire, pause-resume, restart-reentry, compact-viewport-reachability                                                    |
+| `test:visual`         | exit 0 — `artifacts/visual/report.json` reports `phase: playing`, six modes, overlays hidden, zero errors                                                                                               |
+| Renderer note         | Visual report renderer: SwiftShader — **not** GPU proof                                                                                                                                                 |
 
 ## How to finish (Plan 017)
 

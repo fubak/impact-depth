@@ -3,35 +3,49 @@ import type { GamePhase } from '../game/sim/types';
 
 type Anchor =
   'center' | 'status' | 'depth' | 'tactics' | 'magazine' | 'minimap' | 'contacts' | 'canvas';
-type Step = { title: string; body: string; tip: string; anchor: Anchor };
 type Mode = 'quick' | 'tour';
 
-const STORAGE_KEY = 'silent-depths-tutorial-v1';
+/** Bumped so players who finished the old Next-only tour see the exercises once. */
+export const TUTORIAL_STORAGE_KEY = 'silent-depths-tutorial-v2';
+
+export type TutorialExercise = 'steer' | 'fire' | 'dodge';
+
+type Step = {
+  title: string;
+  body: string;
+  tip: string;
+  anchor: Anchor;
+  /** Live exercise. The sim runs and Next stays locked until the action lands. */
+  exercise?: TutorialExercise;
+};
 
 const QUICK_START: readonly Step[] = [
   {
     title: 'Steer',
-    body: 'Steer to the marked water ahead. WASD nudges the helm. The boat routes around shoals.',
+    body: 'A gold mark is off the bow. Turn with A and D and drive into it. Next stays locked until you arrive. The clock runs on this exercise.',
     tip: 'Drag the tactical view and use the wheel to zoom.',
     anchor: 'canvas',
+    exercise: 'steer',
   },
   {
     title: 'Depth & stealth',
-    body: 'Surface is fast and exposed. Periscope depth lets you see. Deep plus Quiet hides you from hydrophones. Battery drains underwater.',
+    body: 'Surface is fast and exposed. Periscope depth lets you see. Deep plus Quiet hides you from hydrophones. Battery drains underwater. This card pauses the clock.',
     tip: 'One-third plus Quiet is a reliable transit. Snorkel charges but exposes you.',
     anchor: 'depth',
   },
   {
     title: 'Fire',
-    body: 'From attack depth, fire at the merchant. Tubes launch within 60° of the bow.',
-    tip: 'Ping sharpens the picture and tells escorts where you are.',
+    body: 'From attack depth, fire an Mk-14 at the selected merchant. Next stays locked until a torpedo leaves the tube. The clock runs.',
+    tip: 'Tubes launch within 60° of the bow. Ping tells escorts where you are.',
     anchor: 'magazine',
+    exercise: 'fire',
   },
   {
     title: 'Survive',
-    body: 'A hedgehog pattern is marked at a distance. Clear it, then steer to the exit. The sim stays paused while this card is open.',
+    body: 'Hedgehogs are falling on your present course. Turn out of that lane before they arrive. A hit resets the exercise. The clock runs.',
     tip: 'The full tour stays on Help. Stay quiet, shoot from the beam, and get home.',
     anchor: 'center',
+    exercise: 'dodge',
   },
 ];
 
@@ -104,20 +118,43 @@ export const FULL_TOUR: readonly Step[] = [
   },
 ];
 
-/** Survive card. The pattern is astern and outside its own blast. */
+/** Survive card. Charges sit on the bow track, inside the distance a steady helm will sail. */
 export const HEDGEHOG_BEAT_INDEX = 3;
 
-/** True when hull points changed before the pattern had a threat marker. */
-export function hedgehogBeatFailed(
-  hpBefore: number,
-  hpAfter: number,
-  patternVisible: boolean,
-): boolean {
-  return hpAfter !== hpBefore && !patternVisible;
+export const STEER_BEAT_INDEX = 0;
+export const FIRE_BEAT_INDEX = 2;
+
+/** Gold mark for the steer exercise, off the bow so a straight helm misses it. */
+export function steerLessonMark(x: number, y: number, heading: number): { x: number; y: number } {
+  const aim = heading + 0.55;
+  const dist = 7;
+  return { x: x + Math.cos(aim) * dist, y: y + Math.sin(aim) * dist };
 }
 
-/** Six charges 16 units astern. Radius 0.85, so the boat is already outside the blast. */
-export function safeHedgehogPattern(
+/** True when the boat has entered the steer mark. */
+export function steerLessonDone(
+  subX: number,
+  subY: number,
+  mark: { x: number; y: number },
+): boolean {
+  return Math.hypot(mark.x - subX, mark.y - subY) <= 3.5;
+}
+
+/** True when a tube launched after the fire card opened. */
+export function fireLessonDone(firedBefore: number, firedNow: number): boolean {
+  return firedNow > firedBefore;
+}
+
+/**
+ * True when the boat has left the lane the pattern was laid on.
+ * `cross` is the absolute cross-track distance from the heading at spawn.
+ */
+export function dodgeLessonDone(crossTrack: number, hpBefore: number, hpNow: number): boolean {
+  return hpNow >= hpBefore && crossTrack >= 3;
+}
+
+/** Five charges 5 units ahead, across the bow. Radius 1.7, so a steady helm sails into them. */
+export function threateningHedgehogPattern(
   x: number,
   y: number,
   heading: number,
@@ -134,20 +171,20 @@ export function safeHedgehogPattern(
   radius: number;
   targetDepth: number;
 }> {
-  const stern = heading + Math.PI;
-  return Array.from({ length: 6 }, (_, index) => {
-    const spread = (index - 2.5) * 1.1;
+  const across = heading + Math.PI / 2;
+  return Array.from({ length: 5 }, (_, index) => {
+    const spread = (index - 2) * 1.35;
     return {
       id: `tutorial-hog-${index}`,
       kind: 'hedgehog' as const,
       sourceId: 'tutorial',
-      x: x + Math.cos(stern) * 16 + Math.cos(stern + Math.PI / 2) * spread,
-      y: y + Math.sin(stern) * 16 + Math.sin(stern + Math.PI / 2) * spread,
+      x: x + Math.cos(heading) * 5 + Math.cos(across) * spread,
+      y: y + Math.sin(heading) * 5 + Math.sin(across) * spread,
       z: 0.5,
       vz: 0,
       fuse: 8,
-      damage: 12,
-      radius: 0.85,
+      damage: 18,
+      radius: 1.7,
       targetDepth: 0.5,
     };
   });
@@ -175,18 +212,28 @@ export function phaseWhileTutorial(
   phase: GamePhase,
   tutorialOpen: boolean,
   heldByTutorial: boolean,
+  exerciseLive = false,
 ): TutorialPause {
-  if (tutorialOpen) {
+  if (tutorialOpen && !exerciseLive) {
     if (phase === 'playing') return { phase: 'paused', heldByTutorial: true };
     return { phase, heldByTutorial };
   }
   if (heldByTutorial && phase === 'paused') return { phase: 'playing', heldByTutorial: false };
-  return { phase, heldByTutorial: false };
+  return { phase, heldByTutorial: exerciseLive ? false : heldByTutorial };
 }
 
-/** Fixed-step clock. Stays stopped while the tutorial is open. */
-export function patrolClockRuns(phase: GamePhase, tutorialOpen: boolean): boolean {
-  return phase === 'playing' && !tutorialOpen;
+/**
+ * Fixed-step clock. Explain cards pause it. A live exercise lets it run
+ * so steering, firing, and the hedgehog fuse are real.
+ */
+export function patrolClockRuns(
+  phase: GamePhase,
+  tutorialOpen: boolean,
+  exerciseLive = false,
+): boolean {
+  if (phase !== 'playing') return false;
+  if (!tutorialOpen) return true;
+  return exerciseLive;
 }
 
 export class TutorialOverlay {
@@ -210,6 +257,23 @@ export class TutorialOverlay {
     return this.open;
   }
 
+  /** Quick-start exercise on the current card. The Help tour never runs one. */
+  currentExercise(): TutorialExercise | null {
+    if (!this.open || this.mode !== 'quick') return null;
+    return this.steps()[this.step]?.exercise ?? null;
+  }
+
+  exerciseLive(): boolean {
+    return this.currentExercise() !== null;
+  }
+
+  /** Lock Next until the live exercise is done. Explain cards stay clickable. */
+  setAdvanceEnabled(enabled: boolean): void {
+    if (typeof this.root.querySelector !== 'function') return;
+    const next = this.root.querySelector('[data-tutorial-action="next"]');
+    if (next instanceof HTMLButtonElement) next.disabled = !enabled;
+  }
+
   /** `force` is Help: ignore the seen-flag and open the full tour. */
   show(force = false): void {
     if (!force && this.completed()) return;
@@ -230,7 +294,7 @@ export class TutorialOverlay {
 
   private completed(): boolean {
     try {
-      return localStorage.getItem(STORAGE_KEY) === '1';
+      return localStorage.getItem(TUTORIAL_STORAGE_KEY) === '1';
     } catch {
       return false;
     }
@@ -238,7 +302,7 @@ export class TutorialOverlay {
 
   private finish(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, '1');
+      localStorage.setItem(TUTORIAL_STORAGE_KEY, '1');
     } catch {
       /* storage unavailable */
     }
@@ -261,6 +325,7 @@ export class TutorialOverlay {
     const quickClass = this.mode === 'quick' ? ' tutorial-quick' : '';
     const backDisabled = this.step === 0 ? ' disabled' : '';
     const nextLabel = this.step === steps.length - 1 ? 'Finish' : 'Next';
+    const nextDisabled = current.exercise ? ' disabled' : '';
     this.root.hidden = false;
     this.root.innerHTML =
       `<div class="tutorial-dim"${style ? ` style="${style}"` : ''}></div>` +
@@ -272,7 +337,7 @@ export class TutorialOverlay {
       `<div class="tutorial-actions">` +
       `<button class="hud-btn" data-tutorial-action="back"${backDisabled}>Back</button>` +
       `<button class="hud-btn" data-tutorial-action="skip">Skip</button>` +
-      `<button class="hud-btn active" data-tutorial-action="next">${nextLabel}</button>` +
+      `<button class="hud-btn active" data-tutorial-action="next"${nextDisabled}>${nextLabel}</button>` +
       `</div></section>`;
     this.onBeat?.(this.step);
     if (typeof this.root.querySelector === 'function') {

@@ -167,4 +167,4 @@ Store generated diagnostics under ignored `artifacts/plan-025/phase-N/`. Check i
 - [ ] CI tests the exact deployable revision and failing runs cannot publish.
 - [ ] All inherited operator gates are individually recorded; no approval is inferred from this plan or a documentation push.
 
-**Next session:** Phase 4. Phases 1–3 have local evidence. Planning and pushing this document do not execute a phase. Do not self-approve Phases 6 or 7.
+**Next:** Phase 5. Phases 6 and 7 stay unapproved. Pushing this document does not execute a phase.

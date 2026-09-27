@@ -32,21 +32,21 @@ describe('convoy/escort formation seeding', () => {
     expect(escorts.length).toBeGreaterThan(1);
 
     const roleCycle = ['lead', 'wing', 'trail'];
-    let wingSide = 6;
+    let wingSide = 10;
     escorts.forEach((escort, index) => {
       expect(escort.formationAnchorId).toBe(anchor.id);
       const expectedRole = roleCycle[index % 3];
       expect(escort.formationRole).toBe(expectedRole);
       if (expectedRole === 'lead') {
-        expect(escort.formationAlong).toBe(8);
+        expect(escort.formationAlong).toBe(12);
         expect(escort.formationLateral).toBe(0);
       } else if (expectedRole === 'trail') {
-        expect(escort.formationAlong).toBe(-8);
+        expect(escort.formationAlong).toBe(-12);
         expect(escort.formationLateral).toBe(0);
       } else {
         expect(escort.formationAlong).toBe(0);
         expect(escort.formationLateral).toBe(wingSide);
-        wingSide = wingSide === 6 ? -6 : 6;
+        wingSide = wingSide === 10 ? -10 : 10;
       }
     });
 
@@ -56,9 +56,16 @@ describe('convoy/escort formation seeding', () => {
       const index = ships.indexOf(merchant);
       expect(merchant.formationAnchorId).toBe(anchor.id);
       expect(merchant.formationRole).toBeNull();
-      expect(merchant.formationAlong).toBe(-index * 3);
-      expect(merchant.formationLateral).toBe((index % 2 ? 1 : -1) * 2);
+      expect(merchant.formationAlong).toBe(-index * 8);
+      expect(merchant.formationLateral).toBe((index % 2 ? 1 : -1) * 6);
     });
+
+    for (let i = 0; i < ships.length; i += 1) {
+      for (let j = i + 1; j < ships.length; j += 1) {
+        const gap = distance(ships[i]!.x, ships[i]!.y, ships[j]!.x, ships[j]!.y);
+        expect(gap).toBeGreaterThan(6);
+      }
+    }
   });
 
   it('does not use randomness: two seeds produce different but each internally-stable formations', () => {

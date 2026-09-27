@@ -1,6 +1,7 @@
 import type { EffectKind } from '../vfx';
 
-export type FxPreset = 'torpedoHit' | 'sink' | 'chargeBlast' | 'launch' | 'playerHit';
+export type FxPreset =
+  'torpedoHit' | 'sink' | 'chargeBlast' | 'launch' | 'playerHit' | 'subBurst' | 'surfaceBreak';
 
 /** One burst request in world metres. `intensity` scales sizes (1 = reference hull). */
 export type FxBurst = {
@@ -35,10 +36,10 @@ export function createLcg(seed: number): () => number {
 
 function seedFor(burst: FxBurst): number {
   const h =
-    Math.round(burst.x * 31) * 73856093 ^
-    Math.round(burst.y * 31) * 19349663 ^
-    Math.round(burst.z * 31) * 83492791 ^
-    burst.preset.length * 2654435761;
+    (Math.round(burst.x * 31) * 73856093) ^
+    (Math.round(burst.y * 31) * 19349663) ^
+    (Math.round(burst.z * 31) * 83492791) ^
+    (burst.preset.length * 2654435761);
   return h >>> 0;
 }
 
@@ -122,6 +123,20 @@ const PRESETS: Record<FxPreset, (rand: Rand, k: number) => FxParticleSpec[]> = {
     { kind: 'flash', dx: 0, dy: 0, dz: 0, scale: 8 * k, vx: 0, vy: 0, vz: 0 },
     ...ring(rand, 'smoke', 3, 3 * k, [3 * k, 6 * k], [1, 3]),
     ...ring(rand, 'debris', 4, 3 * k, [0.5 * k, 1.2 * k], [3, 8]),
+  ],
+  /** Underwater kill: bubbles and a shock, not a surface fireball. */
+  subBurst: (rand, k) => [
+    { kind: 'flash', dx: 0, dy: 0, dz: 0, scale: 14 * k, vx: 0, vy: 1, vz: 0 },
+    { kind: 'shockwave', dx: 0, dy: 0, dz: 0, scale: 16 * k, vx: 0, vy: 0, vz: 0 },
+    ...ring(rand, 'bubbles', 16, 10 * k, [1.2 * k, 3.4 * k], [4, 9]),
+    ...ring(rand, 'debris', 6, 6 * k, [0.8 * k, 2 * k], [3, 8]),
+  ],
+  /** Water column when a hull breaks the surface on the way down. */
+  surfaceBreak: (rand, k) => [
+    { kind: 'shockwave', dx: 0, dy: 0.2, dz: 0, scale: 18 * k, vx: 0, vy: 0, vz: 0 },
+    ...sprayColumn(rand, 8, 26 * k),
+    ...ring(rand, 'spray', 6, 8 * k, [3 * k, 7 * k], [4, 10]),
+    ...ring(rand, 'smoke', 4, 7 * k, [6 * k, 12 * k], [1, 3]),
   ],
 };
 

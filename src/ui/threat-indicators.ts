@@ -24,7 +24,12 @@ export interface ThreatViewport {
   margin?: number;
 }
 
-export type ThreatEdge = 'left' | 'right' | 'top' | 'bottom';
+export type ThreatEdge = 'left' | 'right' | 'top' | 'bottom' | 'screen';
+
+/** On-screen charges and torpedoes inside this range stay marked. */
+export const THREAT_IMMINENT_RANGE = 12;
+/** Keep the nearest dangers when many markers would stack. */
+export const THREAT_MARKER_CAP = 5;
 export type ThreatMarkerKind = 'torpedo' | 'ship' | 'aircraft' | 'charge';
 
 export interface ThreatMarker {
@@ -39,6 +44,8 @@ export interface ThreatMarker {
   sx: number;
   sy: number;
   edge: ThreatEdge;
+  /** Seconds until a charge detonates, when known. */
+  fuse?: number | null;
 }
 
 interface Candidate {
@@ -48,6 +55,7 @@ interface Candidate {
   y: number;
   z: number;
   alert: number;
+  fuse: number | null;
 }
 
 const LABEL: Record<ThreatMarkerKind, string> = {
@@ -75,11 +83,20 @@ function collectCandidates(game: GameState): Candidate[] {
       y: torpedo.y,
       z: torpedo.z,
       alert: 1,
+      fuse: null,
     });
   }
   for (const ship of game.ships) {
     if (ship.sinking != null || ship.alert <= THREAT_ALERT_MIN) continue;
-    candidates.push({ id: ship.id, kind: 'ship', x: ship.x, y: ship.y, z: 0, alert: ship.alert });
+    candidates.push({
+      id: ship.id,
+      kind: 'ship',
+      x: ship.x,
+      y: ship.y,
+      z: 0,
+      alert: ship.alert,
+      fuse: null,
+    });
   }
   for (const charge of game.depthCharges) {
     candidates.push({
@@ -89,6 +106,7 @@ function collectCandidates(game: GameState): Candidate[] {
       y: charge.y,
       z: charge.z,
       alert: 1,
+      fuse: charge.fuse,
     });
   }
   for (const aircraft of game.aircraft) {
@@ -100,6 +118,7 @@ function collectCandidates(game: GameState): Candidate[] {
       y: aircraft.y,
       z: 0,
       alert: 1,
+      fuse: null,
     });
   }
   return candidates;
@@ -153,28 +172,54 @@ export function computeThreatMarkers(
   for (const candidate of collectCandidates(game)) {
     const projection = project(candidate.x, candidate.y, candidate.z);
     const range = horizontalRange(sub.x, sub.y, candidate.x, candidate.y);
-    const showThroughFog =
-      candidate.kind === 'charge' &&
-      options.underwater === true &&
+    const imminent =
+      (candidate.kind === 'charge' || candidate.kind === 'torpedo') &&
+      range <= THREAT_IMMINENT_RANGE;
+    const showOnScreen =
       projection.onScreen &&
-      range > 12;
-    const clamped = showThroughFog
-      ? { sx: projection.sx, sy: projection.sy, edge: 'top' as const }
+      (imminent ||
+        (candidate.kind === 'charge' &&
+          options.underwater === true &&
+          range > THREAT_IMMINENT_RANGE));
+    const clamped = showOnScreen
+      ? { sx: projection.sx, sy: projection.sy, edge: 'screen' as const }
       : clampToEdge(projection, viewport);
     if (!clamped) continue;
+    const fuseNote =
+      candidate.kind === 'charge' && candidate.fuse !== null ? Math.ceil(candidate.fuse) : null;
     markers.push({
       id: candidate.id,
       kind: candidate.kind,
       bearing: Math.atan2(candidate.y - sub.y, candidate.x - sub.x),
       range,
-      urgency: urgencyOf(candidate.kind, range, candidate.alert),
+      urgency:
+        urgencyOf(candidate.kind, range, candidate.alert) +
+        (fuseNote !== null ? (8 - Math.min(8, fuseNote)) * 0.05 : 0),
       sx: clamped.sx,
       sy: clamped.sy,
       edge: clamped.edge,
+      fuse: fuseNote,
     });
   }
   markers.sort((left, right) => right.urgency - left.urgency || left.id.localeCompare(right.id));
-  return markers;
+  return clusterMarkers(markers);
+}
+
+/** Drop markers that sit on a nearer danger, then keep the soonest few. */
+function clusterMarkers(markers: ThreatMarker[]): ThreatMarker[] {
+  const kept: ThreatMarker[] = [];
+  for (const marker of markers) {
+    if (kept.length >= THREAT_MARKER_CAP) break;
+    const piled =
+      marker.edge === 'screen' &&
+      kept.some(
+        (other) =>
+          other.edge === 'screen' && Math.hypot(other.sx - marker.sx, other.sy - marker.sy) < 36,
+      );
+    if (piled) continue;
+    kept.push(marker);
+  }
+  return kept;
 }
 
 function escapeHtml(value: string): string {
@@ -199,7 +244,8 @@ export class ThreatIndicatorLayer {
   render(markers: readonly ThreatMarker[]): void {
     this.root.innerHTML = markers
       .map((marker) => {
-        const label = `${LABEL[marker.kind]} ${formatRange(marker.range)}`;
+        const fuse = marker.fuse != null ? ` ${marker.fuse}s` : '';
+        const label = `${LABEL[marker.kind]} ${formatRange(marker.range)}${fuse}`;
         return (
           `<div class="threat-marker" data-kind="${marker.kind}" data-edge="${marker.edge}" ` +
           `data-id="${escapeHtml(marker.id)}" style="left:${marker.sx}px;top:${marker.sy}px">` +

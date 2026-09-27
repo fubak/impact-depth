@@ -3,7 +3,7 @@ import type { LookDevSettings, SimState } from '../core/types';
 
 import type { CombatEvent } from '../game/adapt/combat-events';
 import { advanceWrecks, wreckPose, type Wreck } from './presentation/wrecks';
-import type { GameState } from '../game/sim/types';
+import type { GameState, ShipKind } from '../game/sim/types';
 import { worldMetersToSim } from '../game/sim/coords';
 import { getWorld, worldHeight } from '../game/world/queries';
 import { sampleLittoralBedMetres } from '../game/world/littoral';
@@ -580,7 +580,7 @@ export class GameScene {
     const dt = this.wreckClock === null ? 0 : Math.max(0, Math.min(1, now - this.wreckClock));
     this.wreckClock = now;
     for (const event of events) {
-      if (event.type === 'shipSunk') this.adoptShipAsWreck(event.id);
+      if (event.type === 'shipSunk') this.adoptShipAsWreck(event.id, event.kind);
     }
     this.wrecks = advanceWrecks(this.wrecks, events, dt);
     this.syncWreckMeshes();
@@ -593,10 +593,11 @@ export class GameScene {
   }
 
   /** Keep the hull that just sank. Shared glTF geometries are not disposed. */
-  private adoptShipAsWreck(id: string): void {
+  private adoptShipAsWreck(id: string, kind: ShipKind): void {
     if (this.wreckMeshes.has(id)) return;
     const entity = this.shipEntities.get(id);
     if (!entity) return;
+    entity.mesh.userData.wreckKind = kind;
     this.scene.remove(entity.wake, entity.beacon, entity.hit);
     entity.wake.geometry.dispose();
     (entity.wake.material as THREE.Material).dispose();
@@ -622,23 +623,26 @@ export class GameScene {
     for (const wreck of this.wrecks) {
       let mesh = this.wreckMeshes.get(wreck.id);
       if (!mesh) {
-        mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(6, 1.6, 22),
-          new THREE.MeshStandardMaterial({ color: 0x3a332c, roughness: 0.86, metalness: 0.04 }),
-        );
+        const asset =
+          wreck.kind === 'sub' ? 'uboat' : wreck.kind === 'merchant' ? 'freighter' : wreck.kind;
+        mesh = this.createFallback(asset);
         mesh.name = `wreck-${wreck.id}`;
         const world = simToWorldMeters(wreck.x, wreck.y);
-        mesh.position.set(world.x, 0, world.z);
-        mesh.userData.wreckBaseY = 0;
+        const depth = wreck.kind === 'sub' ? 0.32 : 0.04;
+        mesh.position.set(world.x, entityDepthY(depth), world.z);
+        mesh.userData.wreckBaseY = mesh.position.y;
         mesh.userData.wreckBaseRoll = 0;
+        mesh.userData.wreckKind = wreck.kind;
         this.scene.add(mesh);
         this.wreckMeshes.set(wreck.id, mesh);
       }
-      const pose = wreckPose(wreck.age);
+      const kind = (mesh.userData.wreckKind as ShipKind | undefined) ?? wreck.kind;
+      const pose = wreckPose(wreck.age, kind);
       const baseY = (mesh.userData.wreckBaseY as number) ?? mesh.position.y;
       const baseRoll = (mesh.userData.wreckBaseRoll as number) ?? 0;
       mesh.position.y = baseY - pose.sink;
       mesh.rotation.z = baseRoll + pose.list;
+      mesh.rotation.x = pose.pitch;
     }
   }
 
@@ -1178,6 +1182,10 @@ export class GameScene {
     const active = new Set(sim.ships.map((ship) => ship.id));
     for (const [id, entity] of this.shipEntities) {
       if (!active.has(id)) {
+        if (this.wreckMeshes.has(id)) {
+          this.shipEntities.delete(id);
+          continue;
+        }
         this.scene.remove(entity.mesh, entity.wake, entity.beacon, entity.hit);
         this.disposeGroup(entity.mesh);
         entity.wake.geometry.dispose();
