@@ -84,9 +84,20 @@ const pick = <T>(rand: Rand, items: readonly T[]): T =>
 
 const GRAVITY = -9.8;
 
-/** Fire colour ramp: white → yellow-orange → dark red → transparent smoke. */
+/**
+ * The near-white phase of a detonation is a brief flash, not the fireball:
+ * longer-lived additive sprites stay yellow-orange so stacked sprites clip to
+ * colour, not to a white blob.
+ */
+export const FLASH_TTL_S = 0.15;
+/** Largest additive sprite footprint (max of scale/sizeEnd) at intensity 1. */
+export const MAX_ADDITIVE_SCALE_M = 20;
+
+/** Flash ramp: near-white, gone within FLASH_TTL_S. */
 const FIRE_0: Rgba = [1, 0.99, 0.92, 1];
-const FIRE_MID: Rgba = [1, 0.62, 0.18, 0.9];
+/** Fireball ramp: hot yellow → orange → dark red → transparent smoke. */
+const FIREBALL_0: Rgba = [1, 0.78, 0.38, 1];
+const FIRE_MID: Rgba = [0.98, 0.5, 0.14, 0.9];
 const FIRE_1: Rgba = [0.16, 0.09, 0.07, 0];
 const SMOKE_0: Rgba = [0.13, 0.13, 0.14, 0.85];
 const SMOKE_1: Rgba = [0.32, 0.33, 0.34, 0];
@@ -103,8 +114,8 @@ function fireball(rand: Rand, k: number, count: number, delay = 0): FxParticleSp
       dx: Math.cos(a) * r,
       dy: between(rand, 0.5, 3.5) * k,
       dz: Math.sin(a) * r,
-      scale: between(rand, 8, 13) * k,
-      sizeEnd: between(rand, 15, 22) * k,
+      scale: between(rand, 6, 10) * k,
+      sizeEnd: between(rand, 12, 18) * k,
       vx: Math.cos(a) * between(rand, 0.5, 2.5),
       vy: between(rand, 3, 8),
       vz: Math.sin(a) * between(rand, 0.5, 2.5),
@@ -113,7 +124,7 @@ function fireball(rand: Rand, k: number, count: number, delay = 0): FxParticleSp
       drag: 0.6,
       rotSpeed: between(rand, -1.2, 1.2),
       frame: pick(rand, [ATLAS.fireA, ATLAS.fireB, ATLAS.fireC]),
-      color0: FIRE_0,
+      color0: FIREBALL_0,
       colorMid: FIRE_MID,
       color1: FIRE_1,
       additive: true,
@@ -257,14 +268,14 @@ function secondaryBursts(rand: Rand, k: number): FxParticleSpec[] {
       dx: ox,
       dy: oy,
       dz: oz,
-      scale: between(rand, 6, 10) * k,
+      scale: between(rand, 4, 6.5) * k,
       vx: 0,
       vy: 0,
       vz: 0,
-      ttl: 0.25,
+      ttl: FLASH_TTL_S,
       delay,
       frame: ATLAS.soft,
-      color0: FIRE_0,
+      color0: FIREBALL_0,
       color1: [1, 0.55, 0.15, 0],
       additive: true,
     });
@@ -284,7 +295,7 @@ function secondaryBursts(rand: Rand, k: number): FxParticleSpec[] {
         delay,
         drag: 0.5,
         frame: pick(rand, [ATLAS.fireA, ATLAS.fireB, ATLAS.fireC]),
-        color0: FIRE_0,
+        color0: FIREBALL_0,
         colorMid: FIRE_MID,
         color1: FIRE_1,
         additive: true,
@@ -380,18 +391,18 @@ const surfaceHit = (rand: Rand, k: number): FxParticleSpec[] => [
     dx: 0,
     dy: 2,
     dz: 0,
-    scale: 24 * k,
-    sizeEnd: 38 * k,
+    scale: 12 * k,
+    sizeEnd: 16 * k,
     vx: 0,
     vy: 0,
     vz: 0,
-    ttl: 0.28,
+    ttl: FLASH_TTL_S,
     frame: ATLAS.soft,
     color0: FIRE_0,
     color1: [1, 0.6, 0.2, 0],
     additive: true,
   },
-  ...fireball(rand, k, 8),
+  ...fireball(rand, k, 12),
   ...waterColumn(rand, k, 44, 4, 29, 36),
   ...smokeColumn(rand, k, 14),
   ...debrisArc(rand, k, 10 + Math.floor(rand() * 7)),
@@ -424,12 +435,12 @@ const underwaterBlast = (rand: Rand, k: number, bedGap: number | undefined): FxP
       dx: 0,
       dy: 0,
       dz: 0,
-      scale: 14 * k,
-      sizeEnd: 30 * k,
+      scale: 9 * k,
+      sizeEnd: 18 * k,
       vx: 0,
       vy: 0,
       vz: 0,
-      ttl: 0.3,
+      ttl: FLASH_TTL_S,
       frame: ATLAS.soft,
       color0: [0.75, 0.95, 1, 1],
       color1: [0.3, 0.6, 0.75, 0],
@@ -502,7 +513,7 @@ const PRESETS: Record<FxPreset, (rand: Rand, k: number, bedGap?: number) => FxPa
       vx: 0,
       vy: 0,
       vz: 0,
-      ttl: 0.18,
+      ttl: FLASH_TTL_S,
       frame: ATLAS.soft,
       color0: [0.8, 0.95, 1, 0.9],
       color1: [0.8, 0.95, 1, 0],
@@ -515,11 +526,11 @@ const PRESETS: Record<FxPreset, (rand: Rand, k: number, bedGap?: number) => FxPa
       dx: 0,
       dy: 0,
       dz: 0,
-      scale: 10 * k,
+      scale: 8 * k,
       vx: 0,
       vy: 0,
       vz: 0,
-      ttl: 0.3,
+      ttl: FLASH_TTL_S,
       frame: ATLAS.soft,
       color0: [0.7, 0.92, 1, 1],
       color1: [0.3, 0.5, 0.7, 0],
@@ -591,7 +602,7 @@ const PRESETS: Record<FxPreset, (rand: Rand, k: number, bedGap?: number) => FxPa
       vx: 0,
       vy: 0.5,
       vz: 0,
-      ttl: 0.16,
+      ttl: FLASH_TTL_S,
       frame: ATLAS.soft,
       color0: [1, 0.9, 0.6, 1],
       color1: [1, 0.5, 0.15, 0],

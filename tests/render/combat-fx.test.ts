@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { burstParticles, createLcg } from '../../src/render/presentation/combat-fx';
+import * as THREE from 'three';
+import {
+  burstParticles,
+  createLcg,
+  FLASH_TTL_S,
+  MAX_ADDITIVE_SCALE_M,
+} from '../../src/render/presentation/combat-fx';
 import { combatEventBursts } from '../../src/render/presentation/combat-event-fx';
+import { bloomEmitterGain } from '../../src/render/post';
 import { VfxPool } from '../../src/render/vfx';
 
 describe('combat fx presets', () => {
@@ -9,7 +16,7 @@ describe('combat fx presets', () => {
     expect(list.length).toBeGreaterThanOrEqual(40);
     expect(Math.max(...list.map((p) => p.scale))).toBeGreaterThanOrEqual(10);
     const fire = list.filter((p) => p.kind === 'fireball').map((p) => p.scale);
-    expect(Math.max(...fire)).toBeGreaterThanOrEqual(10);
+    expect(Math.max(...fire)).toBeGreaterThanOrEqual(5);
     const debris = list.filter((p) => p.kind === 'debris');
     expect(debris.length).toBeGreaterThanOrEqual(10);
     expect(debris.length).toBeLessThanOrEqual(16);
@@ -81,8 +88,58 @@ describe('combat fx presets', () => {
     expect(far.some((p) => p.kind === 'silt')).toBe(false);
   });
 
+  it('keeps the near-white flash brief so the burst cannot bloom into a blob', () => {
+    // Bloom amplifies additive sprites; a long-lived near-white flash plus a
+    // halo reads as overexposure, not an explosion (plan-026 rework).
+    const presets = ['torpedoHit', 'chargeBlast', 'playerHit', 'launch', 'gunMuzzle'] as const;
+    for (const preset of presets) {
+      const flashes = burstParticles({ preset, x: 0, y: 0, z: 0, intensity: 1 }).filter(
+        (p) => p.kind === 'flash',
+      );
+      expect(flashes.length).toBeGreaterThan(0);
+      for (const flash of flashes) {
+        expect(flash.ttl ?? 0).toBeLessThanOrEqual(FLASH_TTL_S);
+      }
+    }
+  });
+
+  it('bounds additive sprite footprints so stacked sprites cannot fill the frame', () => {
+    const presets = ['torpedoHit', 'chargeBlast'] as const;
+    for (const preset of presets) {
+      const additive = burstParticles({ preset, x: 0, y: 0, z: 0, intensity: 1 }).filter(
+        (p) => p.additive,
+      );
+      expect(additive.length).toBeGreaterThan(0);
+      for (const p of additive) {
+        expect(Math.max(p.scale, p.sizeEnd ?? 0)).toBeLessThanOrEqual(MAX_ADDITIVE_SCALE_M);
+      }
+    }
+  });
+
+  it('keeps fireball sprites on a coloured ramp so additive stacks clip to orange', () => {
+    // Fireballs must not start near-white: stacked additive sprites that all
+    // begin white clip to a featureless white blob with a hard rim.
+    const fireballs = burstParticles({ preset: 'torpedoHit', x: 0, y: 0, z: 0, intensity: 1 }).filter(
+      (p) => p.kind === 'fireball',
+    );
+    expect(fireballs.length).toBeGreaterThan(0);
+    for (const p of fireballs) {
+      expect(p.color0![2]).toBeLessThanOrEqual(0.6);
+    }
+  });
+
+  it('binds the shared bloom emitter gain on the additive particle bucket', () => {
+    // The emitter pass dims additive sprites via this uniform; if the binding
+    // is lost the halo returns to full strength and the blob clips to white.
+    const pool = new VfxPool(10);
+    const mesh = pool.group.getObjectByName('particles-additive') as THREE.Mesh;
+    const material = mesh.material as THREE.ShaderMaterial;
+    expect(material.uniforms.uBloomGain).toBe(bloomEmitterGain);
+    pool.dispose();
+  });
+
   it('emitBurst puts the particles into the pool', () => {
-    const pool = new VfxPool(100);
+    const pool = new VfxPool(200);
     pool.emitBurst({ preset: 'torpedoHit', x: 5, y: 1, z: 2, intensity: 1 }, 0);
     expect(pool.getDiagnostics().alive).toBeGreaterThanOrEqual(40);
     const big = pool.debugParticles().some((p) => p.size >= 10);

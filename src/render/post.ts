@@ -27,6 +27,17 @@ export const BLOOM_THRESHOLD = 0.85;
 export const BLOOM_STRENGTH = 0.42;
 export const BLOOM_RADIUS = 0.3;
 
+/**
+ * Gain applied to emitter-layer output while it is re-rendered into the bloom
+ * source. Full-strength additive sprites (flash, fireball) stack far past 1.0
+ * in the HDR source and bloom into a blown-out blob; dimming the source keeps
+ * the halo modest while small emitters still glow. Emitter materials bind this
+ * shared object as a uniform so the pass can dim them without knowing their
+ * types. 1 outside the pass — the direct render is unaffected.
+ */
+export const BLOOM_EMITTER_GAIN = 0.5;
+export const bloomEmitterGain = { value: 1 };
+
 /** `?bloom=1` forces on at any quality (testing); `?bloom=0` forces off; else high only. */
 export function bloomEnabledFor(quality: QualityName, search = ''): boolean {
   const flag = new URLSearchParams(search).get('bloom');
@@ -122,7 +133,9 @@ function defaultRigFactory(
       camera.layers.mask = 1 << BLOOM_LAYER;
       renderer.setClearColor(0x000000, 0);
       renderer.setRenderTarget(source);
+      bloomEmitterGain.value = BLOOM_EMITTER_GAIN;
       renderer.render(scene, camera);
+      bloomEmitterGain.value = 1;
       camera.layers.mask = prevMask;
       renderer.setRenderTarget(null);
       renderer.setClearColor(clearColor, clearAlpha);

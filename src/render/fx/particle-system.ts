@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOOM_LAYER } from '../post';
+import { BLOOM_LAYER, bloomEmitterGain } from '../post';
 
 /**
  * Instanced billboard particle system: one CPU struct-of-arrays simulation,
@@ -304,11 +304,14 @@ void main() {
 
 const FRAG = /* glsl */ `
 uniform sampler2D map;
+// Shared with the post pipeline: dimmed while this mesh renders into the
+// bloom source, 1.0 for the direct frame.
+uniform float uBloomGain;
 varying vec2 vUv;
 varying vec4 vColor;
 void main() {
   vec4 tex = texture2D(map, vUv);
-  vec4 color = vec4(tex.rgb * vColor.rgb, tex.a * vColor.a);
+  vec4 color = vec4(tex.rgb * vColor.rgb, tex.a * vColor.a) * uBloomGain;
   if (color.a < 0.004) discard;
   gl_FragColor = color;
 }
@@ -347,7 +350,7 @@ function makeBucket(
   geometry.setAttribute('aColor', color);
   geometry.instanceCount = 0;
   const material = new THREE.ShaderMaterial({
-    uniforms: { map: { value: atlas } },
+    uniforms: { map: { value: atlas }, uBloomGain: bloomEmitterGain },
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,
