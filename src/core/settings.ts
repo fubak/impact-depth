@@ -107,7 +107,53 @@ export const PRESETS: Record<PresetId, LookDevSettings> = {
     },
     preset: 'golden-cay',
   },
+  /**
+   * Cinematic sunset (Plan 021): grazing ember sun just above the horizon, held
+   * so the patrol never drifts to night, warmer haze for atmospheric depth,
+   * deeper sapphire water so the sun road and crest glow carry the frame.
+   */
+  'sunset-passage': {
+    atmosphere: {
+      timeOfDay: 0.74,
+      fogDensity: 0.0021,
+      exposure: 1.1,
+      sunElevation: 8,
+      sunAzimuth: 128,
+      sunIntensity: 1.25,
+      dayLengthSeconds: 0,
+    },
+    ocean: {
+      seaState: 0.42,
+      waveHeight: 0.72,
+      choppiness: 0.5,
+      deepColor: '#0a3d66',
+      shallowColor: '#2aa6a8',
+      foamAmount: 0.2,
+      clarity: 0.62,
+      absorption: 0.55,
+    },
+    environment: {
+      sandColor: '#c79a68',
+      foliageColor: '#2a4a30',
+      rockColor: '#5e4a40',
+    },
+    presentation: {
+      hudOpacity: 0.92,
+      labelDensity: 0.4,
+      filmGrain: 0.04,
+      vignette: 0.16,
+      tacticalGrid: false,
+    },
+    preset: 'sunset-passage',
+  },
 };
+
+/** Presentation day phase in [0, 1). Presets may hold time with `dayLengthSeconds: 0`. */
+export function presentationDayPhase(atmosphere: LookDevSettings['atmosphere'], time: number): number {
+  const length = atmosphere.dayLengthSeconds ?? 480;
+  const advance = length > 0 ? (time % length) / length : 0;
+  return (((atmosphere.timeOfDay + advance) % 1) + 1) % 1;
+}
 
 export function cloneSettings(settings: LookDevSettings): LookDevSettings {
   return structuredClone(settings);
@@ -172,5 +218,10 @@ export function saveSettings(settings: LookDevSettings): void {
 }
 
 export function isPresetId(value: string): value is PresetId {
-  return value === 'caribbean-noon' || value === 'trade-wind-morning' || value === 'golden-cay';
+  return (
+    value === 'caribbean-noon' ||
+    value === 'trade-wind-morning' ||
+    value === 'golden-cay' ||
+    value === 'sunset-passage'
+  );
 }

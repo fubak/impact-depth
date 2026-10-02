@@ -36,6 +36,11 @@ export class CameraRig {
   private readonly waterPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private readonly waterHit = new THREE.Vector3();
   private immersion: ImmersionState = { underwater: false, waterHeight: 0, eyeRelative: 0 };
+  /** Presentation clock for camera drift (never sim time). */
+  private clock = 0;
+  private lastHeading: number | null = null;
+  private yawRate = 0;
+  private readonly lookAhead = new THREE.Vector3();
 
   constructor(aspect: number) {
     this.perspective = new THREE.PerspectiveCamera(42, aspect, 0.2, 1200);
@@ -104,6 +109,22 @@ export class CameraRig {
     presentation?: CameraPresentation,
   ): void {
     const v = sim.vessel;
+    const motion = presentation?.reducedMotion || sim.paused ? 0 : 1;
+    const step = Math.max(0, Math.min(0.25, dt));
+    this.clock += step * motion;
+    if (this.lastHeading !== null && step > 0) {
+      let dh = v.heading - this.lastHeading;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      const rate = THREE.MathUtils.clamp(dh / step, -1.2, 1.2);
+      this.yawRate += (rate - this.yawRate) * (1 - Math.exp(-step * 2.5));
+    }
+    this.lastHeading = v.heading;
+    // Surface motion fades out as the boat goes deep (the sea no longer moves her).
+    const surfaceBlend = THREE.MathUtils.clamp(1 - v.depth / 9, 0, 1) * motion;
+    const heave = Number.isFinite(v.heave) ? v.heave : 0;
+    const roll = Number.isFinite(v.roll) ? v.roll : 0;
+    const pitch = Number.isFinite(v.pitch) ? v.pitch : 0;
     const visualY = visualKeelY(v.depth, DEFAULT_SUB_HULL_HEIGHT_M);
     const hullY =
       this.activeMode === 'periscope' || this.activeMode === 'sonar' ? -v.depth : visualY;
@@ -130,6 +151,10 @@ export class CameraRig {
       this.desiredPos.set(x, Math.max(y, floorY), z);
       this.lookAt.lerpVectors(this.target, this.convoyFocus, 0.22);
       this.lookAt.y = THREE.MathUtils.lerp(hullY + 2, 3.5, Math.min(1, 4 / Math.max(4, v.depth)));
+      // Slow "drone" drift so the establishing shot breathes instead of freezing.
+      this.desiredPos.x += Math.sin(this.clock * 0.13) * 0.9 * motion;
+      this.desiredPos.y += Math.sin(this.clock * 0.17 + 1.3) * 0.5 * motion;
+      this.desiredPos.z += Math.cos(this.clock * 0.11) * 0.9 * motion;
     } else if (this.activeMode === 'chase') {
       // Follow the hull underwater at attack depth — do not pin the eye to the surface.
       const stern = -12;
@@ -140,10 +165,20 @@ export class CameraRig {
         v.z + Math.sin(v.heading) * stern,
       );
       this.lookAt.set(v.x + Math.cos(v.heading) * 6, hullY + 1.2, v.z + Math.sin(v.heading) * 6);
+      // Ride the swell a little and lead into turns.
+      this.desiredPos.y += heave * 0.55 * surfaceBlend;
+      const lead = THREE.MathUtils.clamp(this.yawRate * 9, -4, 4) * motion;
+      this.lookAhead.set(-Math.sin(v.heading) * lead, 0, Math.cos(v.heading) * lead);
+      this.lookAt.add(this.lookAhead);
+      const fov = 55 + Math.min(5, Math.max(0, v.speed) * 0.45) * motion;
+      if (this.perspective.fov !== fov) {
+        this.perspective.fov = fov;
+        this.perspective.updateProjectionMatrix();
+      }
     } else if (this.activeMode === 'bridge') {
       this.desiredPos.set(
         v.x + Math.cos(v.heading) * 0.9,
-        Math.max(1.2, -v.depth + 4.2),
+        Math.max(1.2, -v.depth + 4.2) + heave * surfaceBlend,
         v.z + Math.sin(v.heading) * 0.9,
       );
       this.lookAt.set(
@@ -202,6 +237,15 @@ export class CameraRig {
     if (this.activeMode === 'periscope') {
       this.camera.lookAt(this.lookAt);
       this.camera.rotateZ(v.roll * 0.35);
+    } else if (this.activeMode === 'bridge') {
+      // The bridge is bolted to the hull: it pitches and rolls with her.
+      this.camera.lookAt(this.lookAt);
+      this.camera.rotateX(pitch * 0.8 * surfaceBlend);
+      this.camera.rotateZ(-roll * 0.85 * surfaceBlend);
+    } else if (this.activeMode === 'chase') {
+      // A chase boat banks gently with the hull it follows.
+      this.camera.lookAt(this.lookAt);
+      this.camera.rotateZ(-roll * 0.3 * surfaceBlend - this.yawRate * 0.05 * motion);
     } else {
       this.camera.lookAt(this.lookAt);
     }

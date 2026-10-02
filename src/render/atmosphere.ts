@@ -15,7 +15,72 @@ export interface AtmosphereState {
   skyHorizon: THREE.Color;
   ambient: number;
   isNight: boolean;
+  /** Sun elevation in degrees (negative below the horizon). */
+  sunElevation: number;
+  /** 0 at high sun … 1 at the golden-hour horizon. Drives warm grading + sea SSS. */
+  golden: number;
+  /** 0 by day … 1 once the sun is well below the horizon. */
+  twilight: number;
 }
+
+type Rgb = readonly [number, number, number];
+
+/**
+ * Piecewise-smooth colour ramp keyed by sun elevation (degrees). Keys are
+ * authored as display (sRGB) values and converted to the linear working space.
+ */
+function ramp(elevation: number, keys: ReadonlyArray<readonly [number, Rgb]>, out: THREE.Color): THREE.Color {
+  if (elevation <= keys[0]![0]) return out.setRGB(...keys[0]![1], THREE.SRGBColorSpace);
+  for (let i = 1; i < keys.length; i++) {
+    const [e1, c1] = keys[i]!;
+    if (elevation <= e1) {
+      const [e0, c0] = keys[i - 1]!;
+      const t = smoothstep(e0, e1, elevation);
+      return out.setRGB(
+        THREE.MathUtils.lerp(c0[0], c1[0], t),
+        THREE.MathUtils.lerp(c0[1], c1[1], t),
+        THREE.MathUtils.lerp(c0[2], c1[2], t),
+        THREE.SRGBColorSpace,
+      );
+    }
+  }
+  return out.setRGB(...keys[keys.length - 1]![1], THREE.SRGBColorSpace);
+}
+
+/** Blackbody-ish sun tint: neutral at height, amber at golden hour, ember on the horizon. */
+const SUN_KEYS: ReadonlyArray<readonly [number, Rgb]> = [
+  [-4, [0.45, 0.52, 0.65]],
+  [0, [1.0, 0.36, 0.12]],
+  [5, [1.0, 0.5, 0.22]],
+  [14, [1.0, 0.7, 0.42]],
+  [30, [1.0, 0.88, 0.7]],
+  [50, [1.0, 0.94, 0.82]],
+];
+const ZENITH_KEYS: ReadonlyArray<readonly [number, Rgb]> = [
+  [-8, [0.015, 0.03, 0.07]],
+  [-2, [0.06, 0.08, 0.2]],
+  [3, [0.14, 0.2, 0.42]],
+  [12, [0.2, 0.36, 0.66]],
+  [30, [0.22, 0.5, 0.84]],
+  [50, [0.18, 0.48, 0.86]],
+];
+const HORIZON_KEYS: ReadonlyArray<readonly [number, Rgb]> = [
+  [-8, [0.04, 0.06, 0.11]],
+  [-2, [0.42, 0.24, 0.26]],
+  [2, [1.0, 0.5, 0.26]],
+  [8, [1.0, 0.66, 0.4]],
+  [18, [0.98, 0.84, 0.68]],
+  [32, [0.86, 0.93, 1.0]],
+  [50, [0.84, 0.94, 1.0]],
+];
+const FOG_KEYS: ReadonlyArray<readonly [number, Rgb]> = [
+  [-8, [0.05, 0.08, 0.12]],
+  [-2, [0.3, 0.22, 0.28]],
+  [3, [0.82, 0.52, 0.42]],
+  [10, [0.9, 0.68, 0.55]],
+  [22, [0.88, 0.84, 0.82]],
+  [35, [0.84, 0.93, 1.0]],
+];
 
 export function evaluateAtmosphere(settings: AtmosphereSettings): AtmosphereState {
   const tod = ((settings.timeOfDay % 1) + 1) % 1;
@@ -31,44 +96,72 @@ export function evaluateAtmosphere(settings: AtmosphereSettings): AtmosphereStat
     Math.cos(el) * Math.sin(az),
   ).normalize();
 
-  const isNight = elev < 0 || tod < 0.16 || tod > 0.84;
-  const dawn = smoothstep(0.15, 0.28, tod) * (1 - smoothstep(0.28, 0.4, tod));
-  const dusk = smoothstep(0.68, 0.8, tod) * (1 - smoothstep(0.8, 0.92, tod));
-
-  const sunColor = new THREE.Color();
-  if (isNight) {
-    sunColor.setRGB(0.45, 0.52, 0.65);
-  } else if (dawn > 0.05 || dusk > 0.05) {
-    sunColor.setRGB(1.0, 0.78, 0.52);
-  } else {
-    sunColor.setRGB(1.0, 0.94, 0.81); // #fff0cf-ish
-  }
-
-  const fogColor = new THREE.Color();
-  if (isNight) fogColor.setRGB(0.05, 0.08, 0.12);
-  else if (dawn > 0.1 || dusk > 0.1) fogColor.setRGB(0.85, 0.78, 0.7);
-  else fogColor.setRGB(0.84, 0.93, 1.0); // sea mist
-
-  const skyTop = new THREE.Color();
-  const skyHorizon = new THREE.Color();
-  if (isNight) {
-    skyTop.setRGB(0.02, 0.04, 0.08);
-    skyHorizon.setRGB(0.05, 0.07, 0.12);
-  } else if (dawn > 0.1 || dusk > 0.1) {
-    skyTop.setRGB(0.35, 0.5, 0.75);
-    skyHorizon.setRGB(0.95, 0.75, 0.55);
-  } else {
-    skyTop.setRGB(0.24, 0.62, 0.89); // #3d9fe3
-    skyHorizon.setRGB(0.84, 0.94, 1.0); // #d5efff
-  }
+  const isNight = elev < -1.5 || tod < 0.16 || tod > 0.84;
+  // Continuous: every quantity is a smooth function of elevation, so a slow
+  // day cycle grades through golden hour instead of snapping between palettes.
+  const rampElev = isNight ? Math.min(elev, -6) : elev;
+  const sunColor = ramp(rampElev, SUN_KEYS, new THREE.Color());
+  const skyTop = ramp(rampElev, ZENITH_KEYS, new THREE.Color());
+  const skyHorizon = ramp(rampElev, HORIZON_KEYS, new THREE.Color());
+  const fogColor = ramp(rampElev, FOG_KEYS, new THREE.Color());
+  const golden = isNight ? 0 : 1 - smoothstep(3, 30, elev);
+  const twilight = isNight ? 1 : 1 - smoothstep(-6, 2, elev);
 
   const moonDir = sunDir.clone().multiplyScalar(-1);
   // Brighter overall exposure envelope: night floor raised, day ramps higher
-  // with sun elevation so noon reads bright without blowing out dawn/dusk.
-  const ambient = isNight ? 0.38 : 0.78 + Math.max(0, sunDir.y) * 0.35;
+  // with sun elevation; golden hour drops ambient so the warm key carves form.
+  const ambient = isNight ? 0.38 : 0.5 + Math.max(0, sunDir.y) * 0.55 + (1 - golden) * 0.12;
 
-  return { sunDir, sunColor, moonDir, fogColor, skyTop, skyHorizon, ambient, isNight };
+  return {
+    sunDir,
+    sunColor,
+    moonDir,
+    fogColor,
+    skyTop,
+    skyHorizon,
+    ambient,
+    isNight,
+    sunElevation: elev,
+    golden,
+    twilight,
+  };
 }
+
+/** Shared GLSL for sky radiance so the dome, PMREM capture and water horizon agree. */
+export const SKY_RADIANCE_GLSL = /* glsl */ `
+float skyHg(float cosTheta, float g) {
+  float g2 = g * g;
+  return (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * g * cosTheta, 1e-4), 1.5) * 0.0795775;
+}
+
+// Linear HDR sky radiance for a view direction. Authored for ACES at ~1.0 exposure.
+vec3 skyRadiance(
+  vec3 dir, vec3 sunDir, vec3 top, vec3 horizon, vec3 sunColor,
+  float golden, float twilight
+) {
+  float y = dir.y;
+  float h = max(y, 0.0);
+  float zen = pow(h, 0.45);
+  vec3 col = mix(horizon, top, smoothstep(0.0, 1.0, zen));
+  vec2 flatDir = normalize(dir.xz + vec2(1e-5));
+  vec2 flatSun = normalize(sunDir.xz + vec2(1e-5));
+  float sunSide = 0.5 + 0.5 * dot(flatDir, flatSun);
+  // Golden hour: ember band on the sun side, dusky rose "belt" on the antisolar side.
+  vec3 antiSolar = mix(top * 1.25, vec3(0.55, 0.36, 0.52), 0.6);
+  float band = exp(-h * 7.0);
+  col = mix(col, mix(antiSolar, horizon * 1.1, pow(sunSide, 1.6)), band * golden * 0.9);
+  float cosT = dot(dir, sunDir);
+  // Two-lobe Mie forward scatter: tight aureole + broad warm glow that grows near sunset.
+  float mieTight = skyHg(cosT, 0.86);
+  float mieWide = skyHg(cosT, 0.45);
+  float horizonGain = 0.45 + 0.55 * exp(-h * 3.5);
+  col += sunColor * (mieTight * (0.05 + golden * 0.11) + mieWide * golden * 0.55) * horizonGain;
+  // Below the horizon fade to a dim haze (the sea covers it, but reflections sample it).
+  col = mix(col, horizon * 0.35 + top * 0.1, smoothstep(0.0, -0.35, y));
+  col *= mix(1.0, 0.18, twilight);
+  return max(col, vec3(0.0));
+}
+`;
 
 export class Atmosphere {
   readonly group = new THREE.Group();
@@ -80,6 +173,8 @@ export class Atmosphere {
   readonly fill: THREE.DirectionalLight;
   /** Upward teal bounce approximating light scattered off the sea surface. */
   readonly bounce: THREE.DirectionalLight;
+  /** Low, sun-opposed rim so silhouettes separate from the sky at golden hour. */
+  readonly rim: THREE.DirectionalLight;
   readonly sunDisc: THREE.Mesh;
   readonly moonDisc: THREE.Mesh;
   readonly sky: THREE.Mesh;
@@ -90,6 +185,7 @@ export class Atmosphere {
   private followZ = 0;
   private lastSunDir = new THREE.Vector3(0.4, 0.8, 0.2);
   private cloudTime = 0;
+  private lastState: AtmosphereState | null = null;
 
   constructor() {
     this.hemi = new THREE.HemisphereLight(0xd8f0ff, 0x5a9a78, 0.72);
@@ -127,6 +223,11 @@ export class Atmosphere {
     this.group.add(this.bounce);
     this.group.add(this.bounce.target);
 
+    this.rim = new THREE.DirectionalLight(0xffc89a, 0);
+    this.rim.castShadow = false;
+    this.group.add(this.rim);
+    this.group.add(this.rim.target);
+
     this.skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -136,6 +237,9 @@ export class Atmosphere {
         uHorizon: { value: new THREE.Color(0xd5efff) },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color(1, 0.94, 0.81) },
+        uGolden: { value: 0 },
+        uTwilight: { value: 0 },
+        uSunDiscGain: { value: 1 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -149,16 +253,29 @@ export class Atmosphere {
         uniform vec3 uHorizon;
         uniform vec3 uSunDir;
         uniform vec3 uSunColor;
+        uniform float uGolden;
+        uniform float uTwilight;
+        uniform float uSunDiscGain;
         varying vec3 vDir;
+        ${SKY_RADIANCE_GLSL}
         void main() {
-          float h = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
-          vec3 col = mix(uHorizon, uTop, pow(h, 1.15));
-          float sun = pow(max(dot(normalize(vDir), normalize(uSunDir)), 0.0), 220.0);
-          col += uSunColor * sun * 0.55;
-          float glow = pow(max(dot(normalize(vDir), normalize(uSunDir)), 0.0), 6.0);
-          col += uSunColor * glow * 0.1;
-          col = min(col, vec3(1.05));
+          vec3 dir = normalize(vDir);
+          vec3 sd = normalize(uSunDir);
+          vec3 col = skyRadiance(dir, sd, uTop, uHorizon, uSunColor, uGolden, uTwilight);
+          // Sun disc with limb darkening; HDR so bloom blooms the disc, not the sky.
+          float cosT = dot(dir, sd);
+          float radius = mix(0.99993, 0.99984, uGolden);
+          float disc = smoothstep(radius, radius + 0.00004, cosT);
+          float limb = 0.55 + 0.45 * smoothstep(radius, 1.0, cosT);
+          // Horizon extinction squashes and reddens the disc as it sets.
+          float extinction = smoothstep(-0.012, 0.03, dir.y);
+          col += uSunColor * vec3(1.0, 0.86, 0.7) * disc * limb * 16.0 * uSunDiscGain * extinction;
+          // Faint dither so the long gradients never band on 8-bit swapchains.
+          float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+          col += (n - 0.5) / 255.0;
           gl_FragColor = vec4(col, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
         }
       `,
     });
@@ -175,9 +292,13 @@ export class Atmosphere {
       uniforms: {
         uTime: { value: 0 },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        uSunColor: { value: new THREE.Color(1, 0.94, 0.81) },
         uCloudColor: { value: new THREE.Color(0xf4f8fc) },
+        uShadowColor: { value: new THREE.Color(0x8a96a8) },
         uCoverage: { value: 0.72 },
         uOpacity: { value: 0.78 },
+        uGolden: { value: 0 },
+        uTwilight: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -189,9 +310,13 @@ export class Atmosphere {
       fragmentShader: /* glsl */ `
         uniform float uTime;
         uniform vec3 uSunDir;
+        uniform vec3 uSunColor;
         uniform vec3 uCloudColor;
+        uniform vec3 uShadowColor;
         uniform float uCoverage;
         uniform float uOpacity;
+        uniform float uGolden;
+        uniform float uTwilight;
         varying vec3 vDir;
 
         float hash(vec2 p) {
@@ -212,34 +337,67 @@ export class Atmosphere {
           float a = 0.5;
           for (int i = 0; i < 5; i++) {
             v += a * noise(p);
-            p *= 2.03;
+            p = mat2(1.6, 1.2, -1.2, 1.6) * p;
             a *= 0.5;
           }
           return v;
         }
 
-        void main() {
-          vec3 dir = normalize(vDir);
-          // Horizon + mid-sky band — readable from the high chase camera.
-          float elev = dir.y;
-          if (elev < -0.08) discard;
-          vec2 uv = dir.xz / max(0.12, elev + 0.42);
-          uv += vec2(uTime * 0.018, uTime * 0.011);
+        float density(vec2 uv) {
           float n = fbm(uv * 0.95);
           n += 0.42 * fbm(uv * 2.4 - uTime * 0.025);
           n += 0.18 * fbm(uv * 5.2 + uTime * 0.01);
-          float soft = smoothstep(1.0 - uCoverage - 0.12, 1.0 - uCoverage + 0.34, n);
-          float hard = smoothstep(1.0 - uCoverage + 0.08, 1.0 - uCoverage + 0.42, n);
+          return n;
+        }
+
+        void main() {
+          vec3 dir = normalize(vDir);
+          float elev = dir.y;
+          if (elev < -0.04) discard;
+          vec3 sd = normalize(uSunDir);
+          vec2 uv = dir.xz / max(0.12, elev + 0.42);
+          uv += vec2(uTime * 0.018, uTime * 0.011);
+          float n = density(uv);
+          float lo = 1.0 - uCoverage;
+          float soft = smoothstep(lo - 0.12, lo + 0.34, n);
+          float hard = smoothstep(lo + 0.08, lo + 0.42, n);
           float clouds = mix(soft, hard, 0.55);
-          // Fat horizon bank + thinner high wisps.
-          float band = smoothstep(-0.06, 0.08, elev) * (1.0 - smoothstep(0.42, 0.88, elev));
+          // Self-shadow: density a step toward the sun darkens the body.
+          vec2 toSun = normalize(sd.xz + vec2(1e-4)) * 0.18;
+          float nSun = density(uv + toSun);
+          float shade = clamp((nSun - n) * 2.6 + 0.55, 0.0, 1.0);
+          // High cirrus streaks catch the last light at golden hour.
+          vec2 cuv = dir.xz / max(0.08, elev + 0.25);
+          float cirrus = smoothstep(0.55, 0.85, fbm(vec2(cuv.x * 0.6, cuv.y * 3.2) + uTime * 0.006));
+          cirrus *= smoothstep(0.04, 0.3, elev) * (0.25 + 0.75 * uGolden);
+          float band = smoothstep(-0.04, 0.06, elev) * (1.0 - smoothstep(0.42, 0.88, elev));
           float horizonBoost = 1.0 + 0.85 * (1.0 - smoothstep(0.02, 0.28, elev));
           clouds *= band * horizonBoost;
-          float lit = 0.58 + 0.42 * max(dot(dir, normalize(uSunDir)), 0.0);
-          vec3 col = mix(uCloudColor * 0.82, uCloudColor, hard) * lit;
-          float alpha = clouds * uOpacity * (0.5 + 0.5 * clamp(elev + 0.15, 0.0, 1.0));
-          if (alpha < 0.015) discard;
+
+          float cosT = dot(dir, sd);
+          float forward = pow(max(cosT, 0.0), 6.0);
+          vec2 flatDir = normalize(dir.xz + vec2(1e-5));
+          vec2 flatSun = normalize(sd.xz + vec2(1e-5));
+          float sunSide = 0.5 + 0.5 * dot(flatDir, flatSun);
+          // Lit face: sun colour; shadowed belly: sky-tinted shadow colour. At golden
+          // hour bellies go slate-violet and only sun-facing tops and rims catch fire.
+          vec3 lit = mix(uCloudColor, uSunColor * 1.25, uGolden * 0.8);
+          lit *= mix(1.0, mix(0.45, 1.0, sunSide), uGolden);
+          vec3 slate = vec3(0.16, 0.15, 0.26);
+          vec3 shadowed = mix(uShadowColor, slate, uGolden * 0.75);
+          vec3 col = mix(shadowed, lit, shade * (0.55 + 0.45 * hard));
+          // Silver lining: thin edges glow toward the sun.
+          float edge = (1.0 - hard) * soft;
+          col += uSunColor * edge * forward * (1.6 + uGolden * 3.0);
+          // Underside warm glow from the sun below the deck at sunset.
+          col += uSunColor * uGolden * (1.0 - shade) * 0.25 * smoothstep(0.25, 0.0, elev) * sunSide;
+          col = mix(col, uSunColor * 1.2 + vec3(0.25, 0.08, 0.12), cirrus * uGolden * 0.5);
+          col *= mix(1.0, 0.25, uTwilight);
+          float alpha = max(clouds, cirrus * 0.55) * uOpacity * (0.5 + 0.5 * clamp(elev + 0.15, 0.0, 1.0));
+          if (alpha < 0.012) discard;
           gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.92));
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
         }
       `,
     });
@@ -248,10 +406,13 @@ export class Atmosphere {
     this.group.add(this.clouds);
 
     const discGeo = new THREE.CircleGeometry(5.5, 32);
+    // The sky shader now draws the sun disc with limb darkening; this mesh is kept
+    // for API stability (tests / probes) but never rendered.
     this.sunDisc = new THREE.Mesh(
       discGeo,
       new THREE.MeshBasicMaterial({ color: 0xfff0cf, fog: false, depthWrite: false }),
     );
+    this.sunDisc.visible = false;
     this.moonDisc = new THREE.Mesh(
       discGeo.clone(),
       new THREE.MeshBasicMaterial({
@@ -264,6 +425,10 @@ export class Atmosphere {
     this.group.add(this.sunDisc, this.moonDisc);
   }
 
+  get state(): AtmosphereState | null {
+    return this.lastState;
+  }
+
   apply(
     settings: AtmosphereSettings,
     scene: THREE.Scene,
@@ -271,32 +436,36 @@ export class Atmosphere {
     presentation?: { cloudCoverage?: number; lightning?: number; fogDensity?: number },
   ): AtmosphereState {
     const state = evaluateAtmosphere(settings);
+    this.lastState = state;
     this.cloudTime += dt;
     const fogDensity = presentation?.fogDensity ?? settings.fogDensity;
     scene.background = state.skyHorizon.clone();
-    scene.fog = new THREE.FogExp2(state.fogColor.getHex(), fogDensity);
-    scene.environmentIntensity = state.isNight ? 0.35 : 0.95;
+    // Golden hour thickens the marine layer a touch for atmospheric depth.
+    scene.fog = new THREE.FogExp2(state.fogColor.getHex(), fogDensity * (1 + state.golden * 0.9));
+    scene.environmentIntensity = state.isNight ? 0.35 : 0.75 + (1 - state.golden) * 0.2;
 
     const flash = Math.max(0, presentation?.lightning ?? 0);
-    this.hemi.intensity = state.ambient + flash * 0.85;
-    this.hemi.color.copy(state.skyHorizon);
-    this.hemi.groundColor.set(0x5a9a78);
+    this.hemi.intensity = state.ambient * (1 - state.golden * 0.35) + flash * 0.85;
+    this.hemi.color.copy(state.skyTop).lerp(state.skyHorizon, 0.5);
+    this.hemi.groundColor.set(0x5a9a78).lerp(new THREE.Color(0x203848), state.golden * 0.7);
 
-    this.ambient.intensity = (state.isNight ? 0.16 : 0.32) + flash * 0.45;
-    this.ambient.color.copy(state.sunColor);
+    this.ambient.intensity = (state.isNight ? 0.16 : 0.32 - state.golden * 0.14) + flash * 0.45;
+    this.ambient.color.copy(state.sunColor).lerp(state.skyTop, 0.35 + state.golden * 0.4);
 
     this.lastSunDir.copy(state.sunDir);
     const intensityScale = settings.sunIntensity ?? 1;
     this.sun.position.set(
       this.followX + state.sunDir.x * 140,
-      state.sunDir.y * 140,
+      // Keep the shadow caster above the deck even with a grazing sun.
+      Math.max(state.sunDir.y, 0.12) * 140,
       this.followZ + state.sunDir.z * 140,
     );
+    // Grazing light is warmer and a little brighter so it can carve hull form.
     this.sun.intensity = state.isNight
       ? 0.16 * intensityScale
-      : (0.95 + Math.max(0, state.sunDir.y) * 1.35) * intensityScale;
+      : (0.95 + Math.max(0, state.sunDir.y) * 1.35 + state.golden * 0.85) * intensityScale;
     this.sun.color.copy(state.sunColor);
-    this.sun.castShadow = !state.isNight && state.sunDir.y > 0.1;
+    this.sun.castShadow = !state.isNight && state.sunDir.y > 0.03;
     this.sun.target.position.set(this.followX, 0, this.followZ);
     this.sun.target.updateMatrixWorld();
 
@@ -314,27 +483,51 @@ export class Atmosphere {
     );
     this.fill.target.position.set(this.followX, 0, this.followZ);
     this.fill.target.updateMatrixWorld();
-    this.fill.intensity = state.isNight ? 0.12 : 0.3 + Math.max(0, state.sunDir.y) * 0.18;
-    this.fill.color.copy(state.skyTop);
+    // Cool sky fill opposite a warm key: the classic sunset split.
+    this.fill.intensity = state.isNight
+      ? 0.12
+      : 0.3 + Math.max(0, state.sunDir.y) * 0.18 + state.golden * 0.12;
+    this.fill.color.copy(state.skyTop).lerp(new THREE.Color(0.45, 0.55, 0.9), state.golden * 0.5);
+
+    this.rim.position.set(
+      this.followX + state.sunDir.x * 80,
+      6 + Math.max(0, state.sunDir.y) * 40,
+      this.followZ + state.sunDir.z * 80,
+    );
+    this.rim.target.position.set(this.followX, 3, this.followZ);
+    this.rim.target.updateMatrixWorld();
+    this.rim.intensity = state.isNight ? 0 : state.golden * 0.9 * intensityScale;
+    this.rim.color.copy(state.sunColor).lerp(state.skyHorizon, 0.3);
 
     this.bounce.position.set(this.followX, -20, this.followZ);
     this.bounce.target.position.set(this.followX, 20, this.followZ);
     this.bounce.target.updateMatrixWorld();
     this.bounce.intensity = state.isNight ? 0.06 : 0.16 + Math.max(0, state.sunDir.y) * 0.12;
+    this.bounce.color.set(0x2fb5a0).lerp(new THREE.Color(0xd08a5a), state.golden * 0.55);
 
     this.skyMat.uniforms.uTop.value.copy(state.skyTop);
     this.skyMat.uniforms.uHorizon.value.copy(state.skyHorizon);
     this.skyMat.uniforms.uSunDir.value.copy(state.sunDir);
     this.skyMat.uniforms.uSunColor.value.copy(state.sunColor);
+    this.skyMat.uniforms.uGolden.value = state.golden;
+    this.skyMat.uniforms.uTwilight.value = state.isNight ? 1 : state.twilight;
+    this.skyMat.uniforms.uSunDiscGain.value = state.isNight ? 0 : 1;
 
+    const cloudCoverage = presentation?.cloudCoverage ?? (state.isNight ? 0.48 : 0.74);
     this.cloudMat.uniforms.uTime.value = this.cloudTime;
     this.cloudMat.uniforms.uSunDir.value.copy(state.sunDir);
+    this.cloudMat.uniforms.uSunColor.value.copy(state.sunColor);
     this.cloudMat.uniforms.uCloudColor.value.copy(
       state.isNight ? new THREE.Color(0x6a7584) : new THREE.Color(0xf2f6fa),
     );
-    this.cloudMat.uniforms.uCoverage.value =
-      presentation?.cloudCoverage ?? (state.isNight ? 0.48 : 0.74);
-    this.cloudMat.uniforms.uOpacity.value = state.isNight ? 0.4 : 0.82;
+    this.cloudMat.uniforms.uShadowColor.value
+      .copy(state.skyTop)
+      .lerp(new THREE.Color(0x8a96a8), 0.55)
+      .multiplyScalar(state.isNight ? 0.35 : 1);
+    this.cloudMat.uniforms.uCoverage.value = cloudCoverage;
+    this.cloudMat.uniforms.uOpacity.value = state.isNight ? 0.4 : 0.66 + state.golden * 0.16;
+    this.cloudMat.uniforms.uGolden.value = state.golden;
+    this.cloudMat.uniforms.uTwilight.value = state.isNight ? 1 : state.twilight;
 
     this.sunDisc.position.set(
       this.followX + state.sunDir.x * 520,
@@ -342,7 +535,6 @@ export class Atmosphere {
       this.followZ + state.sunDir.z * 520,
     );
     this.sunDisc.lookAt(this.followX, 0, this.followZ);
-    this.sunDisc.visible = state.sunDir.y > -0.02;
 
     this.moonDisc.position.set(
       this.followX + state.moonDir.x * 480,
@@ -367,7 +559,7 @@ export class Atmosphere {
     this.clouds.position.set(x, 0, z);
     this.sun.position.set(
       x + this.lastSunDir.x * 140,
-      this.lastSunDir.y * 140,
+      Math.max(this.lastSunDir.y, 0.12) * 140,
       z + this.lastSunDir.z * 140,
     );
     this.sun.target.position.set(x, 0, z);
@@ -380,6 +572,14 @@ export class Atmosphere {
     );
     this.fill.target.position.set(x, 0, z);
     this.fill.target.updateMatrixWorld();
+
+    this.rim.position.set(
+      x + this.lastSunDir.x * 80,
+      6 + Math.max(0, this.lastSunDir.y) * 40,
+      z + this.lastSunDir.z * 80,
+    );
+    this.rim.target.position.set(x, 3, z);
+    this.rim.target.updateMatrixWorld();
 
     this.bounce.position.set(x, -20, z);
     this.bounce.target.position.set(x, 20, z);

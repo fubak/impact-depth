@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
+import { CinematicPost, postProfileFor, type GradeParams } from './post';
 
 /**
  * r185 WebGL presentation. `PCFSoftShadowMap` is no longer in the shader
@@ -7,6 +8,9 @@ import type { QualityProfile } from './quality';
  * while the shadow pass allocates compare-mode depth textures for PCF
  * (`sampler2DShadow`). That mismatch fails program validation (1282).
  */
+/** Filmic pipeline calibration applied on top of the look-dev exposure slider. */
+export const EXPOSURE_CALIBRATION = 0.9;
+
 export function isSoftwareWebGlRendererName(name: string): boolean {
   return /swiftshader|llvmpipe|softpipe|microsoft basic render|gdi generic/i.test(name);
 }
@@ -39,6 +43,9 @@ export class RendererHost {
     | ((status: 'ready' | 'lost' | 'restoring' | 'failed', reason?: string) => void)
     | null = null;
   private recoveryAbort: AbortController | null = null;
+  private post: CinematicPost | null = null;
+  private qualityName: QualityProfile['name'] = 'high';
+  private software = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -50,7 +57,16 @@ export class RendererHost {
     });
     configureWebGlRenderer(this.renderer);
     disableShadowsOnSoftwareRenderer(this.renderer);
+    this.software = isSoftwareWebGlRendererName(this.rendererName());
+    // Count every composer pass in `info`, not just the final output blit.
+    this.renderer.info.autoReset = false;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxDpr));
+    try {
+      this.post = new CinematicPost(this.renderer, postProfileFor(this.qualityName, this.software));
+    } catch (error) {
+      console.warn('[silent-depths] cinematic post disabled', error);
+      this.post = null;
+    }
     this.resize();
     this.canvas.addEventListener('webglcontextlost', this.onContextLost);
     this.canvas.addEventListener('webglcontextrestored', this.onContextRestored);
@@ -101,10 +117,31 @@ export class RendererHost {
   };
 
   setExposure(exposure: number): void {
-    this.renderer.toneMappingExposure = exposure;
+    // Plan 021 routes sky + sea through the same filmic curve as lit materials
+    // (they used to bypass it). Calibrate so existing look-dev exposure values hold.
+    this.renderer.toneMappingExposure = exposure * EXPOSURE_CALIBRATION;
+  }
+
+  setGrade(params: GradeParams): void {
+    this.post?.setGrade(params);
+  }
+
+  get postEnabled(): boolean {
+    return this.post !== null;
+  }
+
+  private rendererName(): string {
+    const gl = this.renderer.getContext();
+    if (!gl) return '';
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
   }
 
   setQuality(profile: QualityProfile): void {
+    if (profile.name !== this.qualityName) {
+      this.qualityName = profile.name;
+      this.post?.setProfile(postProfileFor(profile.name, this.software));
+    }
     if (this.maxDpr === profile.dpr && this.renderer.shadowMap.enabled === profile.shadows) return;
     this.maxDpr = profile.dpr;
     this.renderer.shadowMap.enabled = profile.shadows;
@@ -119,6 +156,7 @@ export class RendererHost {
     const height = Math.max(1, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxDpr));
     this.renderer.setSize(width, height, false);
+    this.post?.setSize(width, height, this.renderer.getPixelRatio());
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
   }
@@ -128,7 +166,9 @@ export class RendererHost {
     if (this.renderer.shadowMap.enabled && this.shadowCadence > 1) {
       this.renderer.shadowMap.needsUpdate = this.frame % this.shadowCadence === 0;
     }
-    this.renderer.render(scene, camera);
+    this.renderer.info.reset();
+    if (this.post) this.post.render(scene, camera);
+    else this.renderer.render(scene, camera);
     this.frame += 1;
   }
 
@@ -160,6 +200,8 @@ export class RendererHost {
     this.recoveryAbort?.abort();
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.post?.dispose();
+    this.post = null;
     this.renderer.dispose();
   }
 }

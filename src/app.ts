@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { loadSettings, saveSettings } from './core/settings';
+import { applyPreset, isPresetId, loadSettings, saveSettings } from './core/settings';
 import { advanceAccumulator, FIXED_DT } from './core/sim';
 import type { LookDevSettings, SimState, ViewMode } from './core/types';
 import { adaptToLookDevSim } from './game/adapt/lookdev';
@@ -90,6 +90,9 @@ export class App {
     });
     this.activeQuality = this.runtime.quality;
     this.settings = loadSettings();
+    // `?look=sunset-passage` boots straight into a preset (shareable look links, captures).
+    const look = new URLSearchParams(window.location.search).get('look');
+    if (look && isPresetId(look)) this.settings = applyPreset(look);
     this.game = {
       ...createGame(19, this.runtime.world),
       settings: this.settings,
@@ -483,6 +486,11 @@ export class App {
     });
     this.scene.applyImmersion(this.cameras.camera);
     this.renderer.setExposure(this.settings.atmosphere.exposure);
+    this.renderer.setGrade({
+      golden: this.scene.atmosphere.state?.golden ?? 0,
+      vignette: this.settings.presentation.vignette,
+      underwater: this.cameras.getImmersion().underwater ? 1 : 0,
+    });
     if (this.renderer.canSubmit) {
       this.scene.preRenderWater(this.renderer.renderer, this.cameras.camera);
       this.renderer.render(this.scene.scene, this.cameras.camera);

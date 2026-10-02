@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { LookDevSettings, SimState } from '../core/types';
+import { presentationDayPhase } from '../core/settings';
 import { sampleSeabedY } from '../core/terrain';
 import type { GameState } from '../game/sim/types';
 import { worldMetersToSim } from '../game/sim/coords';
@@ -22,6 +23,7 @@ import {
   type VesselAttitudeResult,
 } from './presentation/vessel-attitude';
 import { immersionFogFactor, updateImmersion } from './presentation/immersion';
+import { HullDynamics } from './presentation/hull-dynamics';
 import {
   SurfaceProbeQueue,
   buildFootprintRequests,
@@ -43,6 +45,7 @@ import {
   type SubmergedEmitter,
 } from './ocean/surface-effects';
 import { Atmosphere } from './atmosphere';
+import { WakeFoamField, type WakeFoamBody } from './ocean/wake-foam';
 import {
   AssetRegistry,
   fleetClassScale,
@@ -87,6 +90,7 @@ export class GameScene {
   readonly optics: WaterOptics;
   readonly caustics: UnderwaterCaustics;
   readonly surfaceEffects: SurfaceEffects;
+  readonly wakeFoam: WakeFoamField;
   readonly environment: EnvironmentController;
   readonly seabed: Seabed;
   readonly atmosphere: Atmosphere;
@@ -112,6 +116,7 @@ export class GameScene {
   private currentWorldVersion: WorldVersion = 'legacy-v1';
   private readonly probes = new SurfaceProbeQueue(32);
   private readonly attitudes = new VesselAttitudeSmoother();
+  private readonly hullDynamics = new HullDynamics();
   private missionGeneration = 0;
   private probeBackendGeneration = 0;
   private lastBackendName: string | null = null;
@@ -136,6 +141,8 @@ export class GameScene {
   private lastEffectWakes: SurfaceWakeBody[] = [];
   private lastEffectCrests: SurfaceCrestSample[] = [];
   private lastEffectSubmerged: SubmergedEmitter[] = [];
+  private lastFoamBodies: WakeFoamBody[] = [];
+  private readonly particleSky = new THREE.Color();
   private readonly splashIds = new Set<string>();
 
   constructor() {
@@ -176,6 +183,7 @@ export class GameScene {
     this.optics = new WaterOptics();
     this.caustics = new UnderwaterCaustics(this.envQuality);
     this.surfaceEffects = new SurfaceEffects({ quality: this.envQuality });
+    this.wakeFoam = new WakeFoamField(this.envQuality);
     this.scene.add(this.surfaceEffects.group);
     this.caustics.attachToObject(this.seabed.mesh, 'seabed');
     this.caustics.attachToObject(this.islands.group, 'rock');
@@ -296,10 +304,10 @@ export class GameScene {
         if (material instanceof THREE.MeshStandardMaterial) {
           material.metalness = Math.min(material.metalness, 0.2);
           material.roughness = Math.max(material.roughness, 0.55);
-          material.envMapIntensity = 0.7;
+          material.envMapIntensity = 0.85;
           if (material.emissiveIntensity < 0.2) {
             material.emissive.copy(material.color).multiplyScalar(0.4);
-            material.emissiveIntensity = 0.28;
+            material.emissiveIntensity = 0.04;
           }
         }
       });
@@ -491,6 +499,7 @@ export class GameScene {
     this.optics.setQuality(profile.name);
     this.caustics.setQuality(profile.name);
     this.surfaceEffects.setQuality(profile.name);
+    this.wakeFoam.setQuality(profile.name);
   }
 
   getOutdoorLightingDiagnostics() {
@@ -524,6 +533,7 @@ export class GameScene {
     this.probeBackendGeneration += 1;
     this.probes.reset();
     this.attitudes.reset();
+    this.hullDynamics.reset();
     this.lastWaterHeight = null;
     this.immersionUnder = false;
     this.lastProbeSubjects = [];
@@ -534,6 +544,7 @@ export class GameScene {
     this.optics.reset();
     this.caustics.reset(missionGeneration);
     this.surfaceEffects.reset(missionGeneration);
+    this.wakeFoam.reset();
     this.ocean.bindOptics(null);
     this.splashIds.clear();
   }
@@ -553,6 +564,19 @@ export class GameScene {
       backend.bindPassTargets(renderer, camera);
     }
     this.environment.renderPasses();
+    this.wakeFoam.update(renderer, {
+      dt: this.lastHistoryDt,
+      time: this.presentationTime,
+      paused: this.presentationPaused || this.reducedMotion,
+      followX: this.ocean.mesh.position.x,
+      followZ: this.ocean.mesh.position.z,
+      bodies: this.lastFoamBodies,
+    });
+    this.ocean.bindWakeFoam({
+      texture: this.wakeFoam.texture,
+      origin: this.wakeFoam.textureOrigin,
+      extent: this.wakeFoam.extent,
+    });
     this.submitSurfaceProbes(renderer, camera);
     updateEntityLods(this.sub, camera);
     for (const entity of this.shipEntities.values()) {
@@ -626,7 +650,7 @@ export class GameScene {
   syncGame(game: GameState, sim: SimState, settings: LookDevSettings, dt = 1 / 60): void {
     this.bindWorldHeight(game);
     // Advance from look-dev phase (default ~Caribbean noon), not midnight at t=0.
-    const dayPhase = (settings.atmosphere.timeOfDay + (game.time % 480) / 480) % 1;
+    const dayPhase = presentationDayPhase(settings.atmosphere, game.time);
     this.sync(sim, settings, dayPhase, game.selectedTargetId, dt);
     const active = new Set<string>();
     const add = (
@@ -833,7 +857,7 @@ export class GameScene {
   sync(
     sim: SimState,
     settings: LookDevSettings,
-    timeOfDay = (settings.atmosphere.timeOfDay + (sim.time % 480) / 480) % 1,
+    timeOfDay = presentationDayPhase(settings.atmosphere, sim.time),
     selectedTargetId: string | null = null,
     dt = 1 / 60,
   ): void {
@@ -868,6 +892,18 @@ export class GameScene {
     this.lastSeaState = settings.ocean.seaState;
     this.lastWaveHeight = settings.ocean.waveHeight;
     this.lastSunDir = { x: atmo.sunDir.x, y: atmo.sunDir.y, z: atmo.sunDir.z };
+    this.particleSky.copy(atmo.skyTop).lerp(atmo.skyHorizon, 0.5);
+    this.surfaceEffects.setLighting({
+      sunColor: atmo.sunColor,
+      skyColor: this.particleSky,
+      sunDir: atmo.sunDir,
+    });
+    this.ocean.setCinematic({
+      horizon: atmo.skyHorizon,
+      golden: atmo.golden,
+      twilight: atmo.isNight ? 1 : atmo.twilight,
+      sunIntensity: this.atmosphere.sun.intensity * 2.2,
+    });
     // Soften world fog while deep so surface contacts stay readable from below.
     if (this.scene.fog instanceof THREE.FogExp2 && sim.vessel.depth > 2.5) {
       const punch = Math.min(0.78, (sim.vessel.depth - 2.5) / 14);
@@ -920,8 +956,11 @@ export class GameScene {
           material.opacity = peri ? 0.35 : 1;
           material.depthWrite = !peri;
           if ('emissiveIntensity' in material) {
-            const depthGlow = 0.4 + Math.min(0.9, Math.max(0, v.depth - 1) * 0.055);
-            material.emissiveIntensity = Math.max(material.emissiveIntensity, depthGlow);
+            // Near the surface the hull is lit by sun/sky/IBL so its form reads; the
+            // readability glow only ramps in once the boat is properly submerged.
+            const depthGlow =
+              v.depth < 3 ? 0.04 : 0.04 + Math.min(0.9, Math.max(0, v.depth - 3) * 0.06);
+            material.emissiveIntensity = depthGlow;
             if (material instanceof THREE.MeshStandardMaterial && v.depth > 6) {
               material.emissive.setHex(0x2a6a78);
             }
@@ -932,7 +971,8 @@ export class GameScene {
     this.subHit.position.copy(this.sub.position);
     // Dual cue: surface ring always, plus a hull-tied ring so deep boats stay locatable.
     this.subBeacon.position.set(v.x, Math.max(subY + 3.5, 1.2), v.z);
-    this.subBeacon.visible = true;
+    // The locator ring is a tactical cue; riding along with the hull it fills the frame.
+    this.subBeacon.visible = sim.viewMode !== 'chase' && sim.viewMode !== 'bridge' && !peri;
     const deep = Math.max(0, v.depth - 2);
     const beaconScale = 1.15 + Math.min(2.2, deep * 0.1);
     this.subBeacon.scale.setScalar(beaconScale);
@@ -1000,9 +1040,14 @@ export class GameScene {
         object.frustumCulled = false;
         const materials = Array.isArray(object.material) ? object.material : [object.material];
         for (const material of materials) {
-          if (material instanceof THREE.MeshStandardMaterial && submerged > 0) {
+          if (!(material instanceof THREE.MeshStandardMaterial)) continue;
+          if (submerged > 0) {
             material.emissiveIntensity = Math.max(material.emissiveIntensity, 0.45);
             material.emissive.setHex(0x3a6a78);
+          } else {
+            // Surface hulls: keep the sun/sky key honest; only lift them when the
+            // player is deep and looking up through the sheet.
+            material.emissiveIntensity = 0.05 + Math.min(0.3, deep * 0.03);
           }
         }
       });
@@ -1050,8 +1095,8 @@ export class GameScene {
       mat.opacity = Math.min(0.26, 0.05 + b.speed * 0.025);
       const stretch = 0.75 + b.speed * 0.05;
       actualWake.scale.set(stretch, 1, 0.85 + b.speed * 0.03);
-      const ownWakeOk = !peri && v.depth < 2.5;
-      actualWake.visible = b.speed > 0.4 && (b.own ? ownWakeOk : true);
+      // The persistent wake-foam field replaces the flat V ribbon (Plan 021).
+      actualWake.visible = false;
     });
 
     this.atmosphere.follow(v.x, v.z);
@@ -1113,6 +1158,29 @@ export class GameScene {
         depth: ship.kind === 'uboat' ? Math.max(ship.depth, 8) : 0,
         stern: ship.kind === 'merchant' ? 9 : 7,
       })),
+    ];
+    this.lastFoamBodies = [
+      {
+        x: v.x,
+        z: v.z,
+        heading: v.heading,
+        speed: v.speed,
+        depth: v.depth,
+        length: attitudeSpanForKind('sub_nautilus') * 2,
+        beam: attitudeSpanForKind('sub_nautilus') * 0.32,
+      },
+      ...sim.ships.map((ship) => {
+        const span = attitudeSpanForKind(ship.kind) * (fleetClassScale(ship.kind) > 1.2 ? 1.1 : 1);
+        return {
+          x: ship.x,
+          z: ship.z,
+          heading: ship.heading,
+          speed: ship.speed,
+          depth: ship.kind === 'uboat' ? Math.max(ship.depth, 8) : 0,
+          length: span * 2,
+          beam: span * 0.36,
+        };
+      }),
     ];
     this.lastEffectCrests =
       settings.ocean.seaState > 0.4
@@ -1280,6 +1348,32 @@ export class GameScene {
       );
     }
     this.lastProbeSubjects = subjects;
+    // Mass + natural periods + running trim/heel on top of the sea-surface target.
+    this.hullDynamics.retain(living);
+    for (const subject of subjects) {
+      const pose = poses.get(subject.entityId);
+      if (!pose) continue;
+      const speed =
+        subject.entityId === 'player'
+          ? sim.vessel.speed
+          : (sim.ships.find((ship) => ship.id === subject.entityId)?.speed ?? 0);
+      const moved = this.hullDynamics.update({
+        entityId: subject.entityId,
+        dt: sim.paused ? 0 : dt,
+        target: pose,
+        speed: this.reducedMotion ? 0 : speed,
+        heading: subject.heading,
+        span: subject.span,
+        depth: subject.depth,
+      });
+      poses.set(subject.entityId, {
+        ...pose,
+        heave: moved.heave,
+        pitch: moved.pitch,
+        roll: moved.roll,
+        presentationY: pose.presentationY - pose.heave + moved.heave,
+      });
+    }
     return poses;
   }
 
@@ -1325,6 +1419,9 @@ export class GameScene {
   ): void {
     if (this.splashIds.has(id)) return;
     this.splashIds.add(id);
+    if (y > -1.5) {
+      this.wakeFoam.splash({ x, z, radius: 2.5 + strength * 2.2, strength: 0.6 + strength * 0.4 });
+    }
     this.surfaceEffects.emitImpact({ x, y, z, strength, kind });
   }
 
@@ -1373,6 +1470,8 @@ export class GameScene {
     this.optics.dispose();
     this.caustics.dispose();
     this.surfaceEffects.dispose();
+    this.wakeFoam.dispose();
+    this.ocean.bindWakeFoam(null);
     this.ocean.dispose();
     this.seabed.dispose();
     this.islands.dispose();

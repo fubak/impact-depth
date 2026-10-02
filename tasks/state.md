@@ -6,6 +6,8 @@
 
 ## Current
 
+**Plan 021 (2026-10-01):** cinematic sunset pass landed on branch `plan-021-cinematic-sunset` — HDR post chain (bloom + grade), continuous sun-driven sky, ocean SSS/sun road/foam, persistent wake-foam field, lit spray, hull spring dynamics, camera motion, `sunset-passage` preset (`?look=sunset-passage`). Operator GPU FPS + lighting eye-pass PENDING; see `plans/021-cinematic-sunset-pass.md`.
+
 **Resume instruction (2026-09-13):** Plan 019 water-first is **close** (HDR +
 spectral default, Caribbean body, cay palms in `artifacts/plan-019/`). Plan 012
 machine + patrol E2E targeting is green. Plan 014 Chromium mute/unlock green;

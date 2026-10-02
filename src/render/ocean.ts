@@ -10,6 +10,7 @@ import {
 import { SHORE_WET_BAND_METRES, type PackedHeightField } from './environment/terrain-texture';
 import { SPECTRUM_SAMPLE_GLSL } from './ocean/spectrum';
 import { SURFACE_FUNCTIONS_GLSL } from './ocean/surface';
+import { SKY_RADIANCE_GLSL } from './atmosphere';
 import type { WaterOptics } from './ocean/optics';
 import type { QualityProfile } from './quality';
 import { WaterRipplePass } from './water-ripples';
@@ -380,6 +381,8 @@ varying float vCrest;
 varying float vCoverage;
 varying vec2 vFlat;
 varying vec2 vUv;
+varying float vEdge;
+uniform float uHalfSize;
 
 ${commonGlsl}
 ${SPECTRUM_SAMPLE_GLSL}
@@ -433,6 +436,7 @@ void main() {
   vec2 flatXZ = world0.xz;
   vFlat = flatXZ;
   vUv = uv;
+  vEdge = max(abs(position.x), abs(position.z)) / max(uHalfSize, 1.0);
   float bed = bedHeight(flatXZ);
   float depth = max(0.0, -bed);
   float coverage = waterCoverage(bed);
@@ -497,6 +501,10 @@ uniform vec3 uShallowColor;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uSkyColor;
+uniform vec3 uHorizonColor;
+uniform float uGolden;
+uniform float uTwilight;
+uniform float uSunIntensity;
 uniform vec3 uSandColor;
 uniform float uFoamAmount;
 uniform float uShoreFoam;
@@ -530,6 +538,12 @@ uniform mat4 uReflectionMatrix;
 uniform mat4 uRefractionMatrix;
 uniform mat4 uInverseProjection;
 uniform mat4 uCameraWorld;
+uniform sampler2D uWakeTex;
+uniform vec2 uWakeOrigin;
+uniform float uWakeExtent;
+uniform float uWakeEnabled;
+uniform int uDebug;
+vec3 dbgBody; vec3 dbgRefl; vec3 dbgRefr; vec3 dbgSpec; float dbgFoam; float dbgFog;
 
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
@@ -539,8 +553,10 @@ varying float vCrest;
 varying float vCoverage;
 varying vec2 vFlat;
 varying vec2 vUv;
+varying float vEdge;
 
 ${commonGlsl}
+${SKY_RADIANCE_GLSL}
 
 float foamField(vec2 p, float t) {
   vec2 w = p * 0.07;
@@ -559,15 +575,30 @@ float caustic(vec2 p, float t) {
   return pow(a * b, 2.2);
 }
 
+// GGX normal distribution; a = roughness^2.
+float ggx(float ndoth, float a) {
+  float a2 = a * a;
+  float d = ndoth * ndoth * (a2 - 1.0) + 1.0;
+  return a2 / (3.14159265 * d * d);
+}
+
+vec4 sampleWake(vec2 p) {
+  vec2 uv = (p - uWakeOrigin) / max(uWakeExtent, 1.0);
+  float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+  return texture2D(uWakeTex, clamp(uv, 0.0, 1.0)) * inside * uWakeEnabled;
+}
+
 void main() {
   vec3 N = normalize(vWorldNormal);
   vec3 V = normalize(cameraPosition - vWorldPos);
   float depth = vDepth;
+  vec3 L = normalize(uSunDir);
+  float sunUp = clamp(L.y * 4.0 + 0.15, 0.0, 1.0) * (1.0 - uTwilight);
 
   // CheapWater-style multi-layer scrolling normals (3 layers @ 120°).
   vec3 detail = vec3(0.0);
   float overlays = float(max(uOverlays, 1));
-  float overlayGain = uSpectral > 0.5 ? 0.28 : 1.0;
+  float overlayGain = uSpectral > 0.5 ? 0.32 : 1.0;
   for (int i = 0; i < 6; i++) {
     if (i >= uOverlays) break;
     float dir = float(i) / overlays * 6.2831853;
@@ -587,55 +618,83 @@ void main() {
   // Screen-space interactive ripples (same camera as main pass).
   vec2 screenUv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
   vec3 ripple = texture2D(uNormalDisturbance, screenUv).rgb * 2.0 - 1.0;
-  detail += ripple * uRippleStrength * (uSpectral > 0.5 ? 0.35 : 1.0);
+  // The persistent wake field now carries wake normals; the screen-space ripple
+  // quads would only add square seams on top of it.
+  detail += ripple * uRippleStrength * (uSpectral > 0.5 ? 0.35 : 1.0) * (1.0 - uWakeEnabled * 0.9);
 
+  // Persistent wake field: foam, aeration and a bumpy normal from its gradient.
+  vec4 wake = sampleWake(vFlat);
+  if (uWakeEnabled > 0.5) {
+    float e = 0.9;
+    float wx = sampleWake(vFlat + vec2(e, 0.0)).g - sampleWake(vFlat - vec2(e, 0.0)).g;
+    float wz = sampleWake(vFlat + vec2(0.0, e)).g - sampleWake(vFlat - vec2(0.0, e)).g;
+    detail.xy += vec2(wx, wz) * 1.6;
+  }
+
+  // Distance fades fine normal detail so the far sea does not shimmer.
+  float dist = length(cameraPosition - vWorldPos);
+  float detailFade = 1.0 - smoothstep(60.0, 320.0, dist) * 0.7;
   vec3 up = normalize(N);
   vec3 tangent = normalize(cross(up, abs(up.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)));
   vec3 bitangent = cross(up, tangent);
   N = normalize(
-    tangent * detail.x * 0.85 +
-    bitangent * detail.y * 0.85 +
+    tangent * detail.x * 0.85 * detailFade +
+    bitangent * detail.y * 0.85 * detailFade +
     up * max(0.35, 1.0 + detail.z * 0.55)
   );
+  // Keep the shading normal facing the eye (grazing angles otherwise go black).
+  if (dot(N, V) < 0.02) N = normalize(N + V * (0.02 - dot(N, V)));
 
   float ndotv = clamp(dot(N, V), 0.0, 1.0);
-  float fresnel = pow(1.0 - ndotv, 3.6);
+  // Schlick (F0 = 0.02). Evaluated on a smoothed normal: Fresnel is convex, so
+  // feeding it the full micro-normal inflates the mean and washes the sea milky.
+  vec3 Nf = normalize(mix(N, normalize(vWorldNormal), 0.65));
+  float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(Nf, V), 0.0, 1.0), 5.0);
   float overhead = ndotv;
 
-  // Beer-Lambert absorption from true water-column depth.
+  // ---- Body colour: Beer-Lambert absorption from the true water column ----
   float absorbCoeff = mix(0.045, 0.14, clamp(uAbsorption, 0.0, 1.0));
   float absorb = 1.0 - exp(-depth * absorbCoeff);
-  vec3 turquoise = uSpectral > 0.5 ? vec3(0.10, 0.68, 0.66) : vec3(0.12, 0.78, 0.82);
-  vec3 shallow = mix(
-    uShallowColor * (uSpectral > 0.5 ? 0.96 : 1.05),
-    turquoise,
-    smoothstep(0.0, 5.0, depth) * 0.62
-  );
-  vec3 deep = mix(uDeepColor * 1.05, uDeepColor * 0.72, smoothstep(6.0, 18.0, depth));
+  vec3 turquoise = vec3(0.012, 0.44, 0.40);
+  vec3 shallow = mix(uShallowColor, turquoise, smoothstep(0.0, 5.0, depth) * 0.55);
+  vec3 deep = mix(uDeepColor, uDeepColor * 0.55, smoothstep(6.0, 22.0, depth));
   vec3 water = mix(shallow, deep, absorb);
 
   // Sand bleed-through in clear shallows.
   float clarity = clamp(uClarity, 0.0, 1.0);
   float seeFloor = exp(-depth * mix(0.55, 0.22, clarity));
-  if (uSpectral > 0.5) {
-    // Keep a thin-film cutoff so 0 m water is not dry sand, but island shelves show.
-    seeFloor *= smoothstep(0.0, 0.45, depth);
-  }
-  water = mix(water, mix(water, uSandColor * 0.92, 0.55), seeFloor * (uSpectral > 0.5 ? 0.88 : 0.85));
+  if (uSpectral > 0.5) seeFloor *= smoothstep(0.0, 0.45, depth);
+  water = mix(water, mix(water, uSandColor * 0.85, 0.55), seeFloor * 0.85);
 
   // Shallow caustic veins.
   float caus = caustic(vFlat, uTime) * seeFloor * uCaustics;
-  water += vec3(0.9, 1.0, 0.95) * caus * (uSpectral > 0.5 ? 0.12 : 0.35);
+  water += vec3(0.8, 1.0, 0.92) * caus * (uSpectral > 0.5 ? 0.10 : 0.25) * sunUp;
 
-  // Reflective sky film. Spectral leans on planar HDR reflection, not a teal overlay.
-  vec3 skyHi = uSpectral > 0.5 ? mix(uSkyColor, vec3(0.86, 0.91, 0.96), 0.35) : vec3(0.78, 0.92, 1.0);
-  vec3 skyReflect = mix(uSkyColor * 0.85, skyHi, fresnel);
-  float skyFilm = uSpectral > 0.5 ? (0.02 + fresnel * 0.34) : (0.18 + fresnel * 0.55);
-  water = mix(water, skyReflect, skyFilm);
+  // Scattered light level of the body: ambient sky + a little direct sun.
+  vec3 skyAmbient = mix(uSkyColor, uHorizonColor, 0.35);
+  vec3 bodyLight = skyAmbient * 0.75 + uSunColor * (0.12 + 0.3 * sunUp) * max(L.y, 0.0) * 2.0;
+  bodyLight = max(bodyLight, vec3(0.02));
+  vec3 body = water * mix(vec3(1.0), bodyLight * 1.6, 0.55);
 
+  // ---- Subsurface scattering through thin crests (backlit waves glow) ----
+  vec3 Lh = normalize(vec3(L.x, max(L.y, 0.05), L.z));
+  float toward = pow(clamp(dot(V, -Lh), 0.0, 1.0), 4.0);
+  float thin = pow(clamp(0.5 - 0.5 * dot(Lh, N), 0.0, 1.0), 3.0);
+  float crestH = smoothstep(0.45, 1.0, vCrest);
+  float sssAmt = (toward * thin * 3.5 + pow(ndotv, 2.0) * 0.12) * crestH;
+  sssAmt += toward * 0.18 * smoothstep(0.3, 0.8, vCrest);
+  vec3 sssTint = mix(vec3(0.03, 0.62, 0.48), vec3(0.18, 0.75, 0.42), uGolden);
+  body += sssTint * uSunColor * sssAmt * (0.9 + uGolden * 1.6) * (1.0 - uTwilight) * mix(1.0, 0.45, absorb * 0.0 + seeFloor);
+
+  // ---- Reflection: sky radiance along the reflected ray, planar optics on top ----
+  vec3 R = reflect(-V, N);
+  R.y = abs(R.y);
+  vec3 skyR = skyRadiance(normalize(R), L, uSkyColor, uHorizonColor, uSunColor, uGolden, uTwilight);
+  vec3 reflected = skyR;
+  vec3 refracted = body;
   float hullLidPunch = 0.0;
+  float opticsLid = 0.0;
   if (uOpticsEnabled > 0.5) {
-    vec3 body = water;
     vec4 reflectClip = uReflectionMatrix * vec4(vWorldPos, 1.0);
     vec2 reflectUv = reflectClip.xy / max(reflectClip.w, 1e-4);
     reflectUv += N.xz * 0.045;
@@ -646,35 +705,49 @@ void main() {
       * smoothstep(0.0, 0.05, 1.0 - reflectUv.x) * smoothstep(0.0, 0.05, 1.0 - reflectUv.y);
     float refractEdge = smoothstep(0.0, 0.05, refractUv.x) * smoothstep(0.0, 0.05, refractUv.y)
       * smoothstep(0.0, 0.05, 1.0 - refractUv.x) * smoothstep(0.0, 0.05, 1.0 - refractUv.y);
-    vec3 reflected = mix(skyReflect, texture2D(uReflection, clamp(reflectUv, 0.0, 1.0)).rgb, reflectEdge);
+    vec3 captured = texture2D(uReflection, clamp(reflectUv, 0.0, 1.0)).rgb;
+    reflected = mix(skyR, captured, reflectEdge);
     float sceneDepth = texture2D(uRefractionDepth, clamp(refractUv, 0.0, 1.0)).r;
     float depthValid = step(sceneDepth, 0.999) * refractEdge;
-    vec3 refracted = mix(body, texture2D(uRefraction, clamp(refractUv, 0.0, 1.0)).rgb, depthValid);
+    vec3 below = texture2D(uRefraction, clamp(refractUv, 0.0, 1.0)).rgb;
+    refracted = mix(body, below, depthValid);
     vec4 ndc = vec4(clamp(refractUv, 0.0, 1.0) * 2.0 - 1.0, sceneDepth * 2.0 - 1.0, 1.0);
     vec4 viewPos = uInverseProjection * ndc;
     viewPos /= max(viewPos.w, 1e-4);
     vec4 sceneWorld = uCameraWorld * viewPos;
     float column = max(0.0, vWorldPos.y - sceneWorld.y);
     hullLidPunch = depthValid * smoothstep(0.12, 1.6, column) * (1.0 - smoothstep(16.0, 32.0, column));
-    float opticsAbsorb = 1.0 - exp(-column * absorbCoeff);
-    refracted = mix(refracted, body, opticsAbsorb * 0.72);
-    float opticsMix = uSpectral > 0.5 ? fresnel * 0.62 : fresnel;
-    water = mix(refracted, reflected, opticsMix);
+    // Only punch over real hulls: a refraction hit sitting on the seabed is not a boat,
+    // and opening the lid there lets the fogged main-pass seabed wash the sea milky.
+    hullLidPunch *= smoothstep(0.8, 2.2, sceneWorld.y - bedHeight(sceneWorld.xz));
+    // Spectral transmittance along the refracted path: reds die first, then greens.
+    // The capture also carries scene fog (sky-coloured), which must not survive underwater.
+    float path = length(vWorldPos - sceneWorld.xyz);
+    vec3 extinction = vec3(0.42, 0.085, 0.055) * mix(1.0, 2.2, clamp(uAbsorption, 0.0, 1.0));
+    vec3 trans = exp(-path * extinction) * depthValid;
+    refracted = below * trans + body * (1.0 - trans);
+    opticsLid = 1.0;
   }
+  water = mix(refracted, reflected, fresnel);
+  dbgBody = body; dbgRefl = reflected; dbgRefr = refracted;
 
-  vec3 L = normalize(uSunDir);
+  // ---- Sun: tight GGX glints + a broad lobe that stretches into a sun road ----
+  vec3 H = normalize(L + V);
+  float ndoth = max(dot(N, H), 0.0);
   float ndotl = max(dot(N, L), 0.0);
-  water += uSunColor * ndotl * 0.07;
-  float spec = pow(max(dot(reflect(-L, N), V), 0.0), 160.0);
-  water += uSunColor * spec * (uSpectral > 0.5 ? (0.38 + fresnel * 0.75) : (0.55 + fresnel * 1.05));
-  float glitter = pow(max(dot(reflect(-L, normalize(vWorldNormal + N * 0.35)), V), 0.0), 36.0);
-  water += uSunColor * glitter * (uSpectral > 0.5 ? 0.10 * (1.0 - overhead * 0.75) : 0.14);
-  if (uSpectral > 0.5) {
-    vec3 nadirTeal = mix(water, vec3(0.04, 0.36, 0.48), 0.38);
-    water = mix(nadirTeal, water, fresnel);
-  }
+  float specF = 0.02 + 0.98 * pow(1.0 - max(dot(H, V), 0.0), 5.0);
+  float tight = ggx(ndoth, 0.03);
+  float road = ggx(ndoth, mix(0.075, 0.11, uGolden));
+  float geo = ndotl / max(4.0 * max(ndotv, 0.12) * max(ndotl, 0.12), 1e-3);
+  vec3 sunRadiance = uSunColor * uSunIntensity * (1.0 - uTwilight);
+  float horizonGlint = mix(1.0, 2.2, uGolden);
+  vec3 spec = sunRadiance * specF * geo * (tight * 0.5 + road * 0.22 * horizonGlint);
+  spec *= 1.0 - smoothstep(0.85, 1.0, max(wake.r, 0.0));
+  // Cap HDR glints so bloom catches sparkle without flooding the frame.
+  water += min(spec, vec3(5.0));
+  dbgSpec = spec;
 
-  // ---- Shore foam (ragged lip + wash) + crest whitecaps + wake foam ----
+  // ---- Foam: shore lip + wash, crest whitecaps, persistent wake ----
   float foamT = uTime * uFoamSpeed;
   float fField = foamField(vFlat, foamT);
   float alongShore = sfbm(vFlat * 0.025 + 17.0) * 6.2831853;
@@ -693,52 +766,95 @@ void main() {
   float capMask = sfbm(vFlat * 0.5 - vec2(uTime * 0.3, 0.0));
   float caps = smoothstep(0.70, 0.93, vCrest) * smoothstep(3.0, 9.0, depth);
   caps *= smoothstep(0.45, 0.85, fField) * smoothstep(0.45, 0.75, capMask);
+  // Spectral crest height is normalised differently; whitecaps come from the
+  // cascade crest/jacobian foam instead (below), so only the shore stack stays here.
+  caps *= 1.0 - step(0.5, uSpectral);
 
   float shoreFoam = clamp((lip * 1.15 + wash * 0.7 + caps * 0.85) * uShoreFoam, 0.0, 1.0);
   float crestFoam = vFoam * uFoamAmount * (0.35 + 0.35 * sin(vWorldPos.x * 2.2 + uTime * 2.5));
-  crestFoam += length(ripple.xy) * 0.08 * uRippleStrength;
-  float ragged = uSpectral > 0.5 ? smoothstep(0.32, 0.78, fField) : 1.0;
-  float foamMask = clamp(max(shoreFoam, crestFoam * ragged), 0.0, 1.0) * vCoverage;
-  vec3 foamCol = vec3(0.92, 0.96, 0.97) * (0.9 + 0.12 * fField);
-  float foamMix = uSpectral > 0.5 ? 0.05 : 0.9;
-  water = mix(water, foamCol, foamMask * foamMix);
+  crestFoam += length(ripple.xy) * 0.08 * uRippleStrength * (1.0 - uWakeEnabled);
+  float crestMask = crestFoam;
+  if (uSpectral > 0.5) {
+    // Whitecaps: only the top of breaking crests, torn into streaks by the foam field.
+    float whitecap = smoothstep(0.3, 0.62, vFoam) * smoothstep(0.55, 0.85, fField);
+    whitecap *= smoothstep(2.0, 6.0, depth) * clamp(0.25 + uFoamAmount * 3.5, 0.0, 1.2);
+    crestMask = whitecap;
+  }
 
+  // Wake foam: dense near the hull, lacy as it ages.
+  float wakeLace = smoothstep(0.22, 0.62, fField + wake.b * 0.6);
+  float wakeFoam = clamp(wake.r * 1.15, 0.0, 1.0);
+  wakeFoam = clamp(wakeFoam * mix(0.35, 1.0, wakeLace) + smoothstep(0.55, 1.1, wake.r) * 0.45, 0.0, 1.0);
+  // Aerated water beneath and around the wake is brighter and greener.
+  vec3 aerated = mix(vec3(0.08, 0.55, 0.52), vec3(0.35, 0.72, 0.62), uGolden * 0.5) * bodyLight * 1.4;
+  water = mix(water, aerated, clamp(wake.g * 0.55, 0.0, 0.6) * (1.0 - fresnel * 0.6));
+
+  float foamMask = clamp(max(max(shoreFoam, crestMask), wakeFoam), 0.0, 1.0) * vCoverage;
+  // Foam is a rough white diffuser: lit by sun (warm at sunset) and sky.
+  vec3 sunOnFoam = uSunColor * uSunIntensity * 0.22 * (0.45 + 0.55 * max(L.y, 0.0) + uGolden * 0.35);
+  // Foam scatters broadly: keep the warm cast but pull it toward neutral so it
+  // reads white-peach at sunset instead of rust.
+  sunOnFoam = mix(sunOnFoam, vec3(dot(sunOnFoam, vec3(0.2126, 0.7152, 0.0722))), 0.45);
+  vec3 foamLight = sunOnFoam + skyAmbient * 1.5 + uHorizonColor * 0.25 * (1.0 - uTwilight);
+  vec3 foamCol = vec3(0.92, 0.95, 0.96) * foamLight * (0.85 + 0.2 * fField);
+  water = mix(water, foamCol, foamMask * 0.92);
+  dbgFoam = foamMask;
+
+  // ---- Alpha (see-through for submerged hull readability) ----
   float alphaDown = mix(0.34, 0.24, clarity);
   float alphaGraze = mix(0.88, 0.74, clarity * 0.4);
   float alpha = mix(alphaGraze, alphaDown, overhead);
   alpha = mix(alpha, mix(0.32, 0.9, absorb), 0.5);
-  alpha = max(alpha, fresnel * 0.85);
-  alpha = max(alpha, foamMask * 0.85);
-  // Punch the sheet so submerged hulls stay readable from tactical cameras.
+  alpha = max(alpha, fresnel * 0.9);
+  alpha = max(alpha, foamMask * 0.9);
+  // Underwater: look up through the sheet.
   float under = smoothstep(1.4, -2.0, cameraPosition.y);
-  vec3 volume = mix(uDeepColor * 0.28, vec3(0.01, 0.14, 0.18), 0.65);
+  vec3 volume = mix(uDeepColor * 0.28, vec3(0.002, 0.03, 0.045), 0.65);
   water = mix(water, volume, under * 0.88);
   water *= mix(1.0, 0.42, under);
-  water += vec3(0.05, 0.22, 0.2) * caus * under * 0.55;
-  if (uSpectral > 0.5) {
-    water = mix(water, foamCol, foamMask * 0.04 * (1.0 - under) * (1.0 - overhead));
-  }
+  water += vec3(0.01, 0.08, 0.07) * caus * under * 0.55;
   alpha = mix(alpha, mix(0.78, 0.94, absorb), under);
   float lookDown = smoothstep(0.15, 0.85, overhead);
   if (uSpectral > 0.5) {
-    // Nadir used to punch through to the HDR sky (milky tactical). Keep a dense Caribbean body.
-    vec3 shelf = mix(vec3(0.03, 0.48, 0.56), mix(uSandColor * 0.55, vec3(0.14, 0.62, 0.52), 0.55), seeFloor);
-    water = mix(water, shelf, lookDown * 0.55 * (1.0 - under));
-    float lid = mix(0.58, 0.74, absorb);
+    vec3 shelf = mix(deep * bodyLight * 1.4, mix(uSandColor * 0.4, vec3(0.03, 0.42, 0.3), 0.55) * bodyLight * 1.4, seeFloor);
+    water = mix(water, shelf, lookDown * 0.45 * (1.0 - under) * (1.0 - foamMask));
+    float lid = mix(0.62, 0.78, absorb);
     alpha = mix(alpha, lid, lookDown * (1.0 - under));
-    alpha *= mix(1.0, 0.36, hullLidPunch * lookDown * (1.0 - under));
   } else {
     alpha *= mix(1.0, 0.72, lookDown * (1.0 - under));
   }
+  // With a refraction capture the sheet already shows what is below: stay nearly
+  // opaque so the fogged main-pass seabed cannot wash the sea milky. Hull punch
+  // below still opens the lid over submerged boats for tactical readability.
+  alpha = mix(alpha, max(alpha, 0.94), opticsLid * (1.0 - under));
+  alpha *= mix(1.0, 0.4, hullLidPunch * lookDown * (1.0 - under) * opticsLid * step(0.5, uSpectral));
   if (vCoverage < 0.02) discard;
   alpha *= vCoverage;
-  alpha = clamp(alpha, 0.05, 0.94);
+  alpha = clamp(alpha, 0.05, 0.96);
 
-  float dist = length(cameraPosition - vWorldPos);
-  float fogFactor = 1.0 - exp(-uFogDensity * dist * 0.35);
-  water = mix(water, uFogColor, clamp(fogFactor, 0.0, uSpectral > 0.5 ? 0.10 : 0.22));
+  // ---- Aerial perspective: haze thickens with range and glows toward the sun ----
+  vec3 viewDir = -V;
+  float sunward = pow(max(dot(normalize(vec3(viewDir.x, 0.0, viewDir.z)), normalize(vec3(L.x, 0.0, L.z))), 0.0), 6.0);
+  vec3 haze = mix(uFogColor, uHorizonColor, 0.5) + uSunColor * sunward * uGolden * 0.6;
+  float fogFactor = 1.0 - exp(-uFogDensity * dist * (0.16 + uGolden * 0.12));
+  fogFactor = clamp(fogFactor, 0.0, 0.6);
+  // Melt the tile edge into the horizon so the sea never shows a hard rim.
+  float rim = smoothstep(0.62, 0.97, vEdge);
+  water = mix(water, haze, max(fogFactor, rim) * (1.0 - under));
+  alpha = mix(alpha, 1.0, rim * (1.0 - under));
 
   gl_FragColor = vec4(water, alpha);
+  if (uDebug == 1) gl_FragColor = vec4(dbgBody, 1.0);
+  if (uDebug == 2) gl_FragColor = vec4(dbgRefl, 1.0);
+  if (uDebug == 3) gl_FragColor = vec4(dbgRefr, 1.0);
+  if (uDebug == 4) gl_FragColor = vec4(dbgSpec, 1.0);
+  if (uDebug == 5) gl_FragColor = vec4(vec3(dbgFoam), 1.0);
+  if (uDebug == 6) gl_FragColor = vec4(vec3(fogFactor, rim, alpha), 1.0);
+  if (uDebug == 7) gl_FragColor = vec4(wake.rgb, 1.0);
+  if (uDebug == 8) gl_FragColor = vec4(fresnel, dbgFoam, under, 1.0);
+  if (uDebug == 9) gl_FragColor = vec4(water, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }
 `;
 
@@ -838,6 +954,16 @@ export class Ocean {
         uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.2).normalize() },
         uSunColor: { value: new THREE.Vector3(1.0, 0.94, 0.81) },
         uSkyColor: { value: new THREE.Vector3(0.24, 0.62, 0.89) },
+        uHorizonColor: { value: new THREE.Vector3(0.84, 0.94, 1.0) },
+        uGolden: { value: 0 },
+        uTwilight: { value: 0 },
+        uSunIntensity: { value: 4.5 },
+        uHalfSize: { value: size / 2 },
+        uWakeTex: { value: this.dummyWave },
+        uWakeOrigin: { value: new THREE.Vector2() },
+        uWakeExtent: { value: 360 },
+        uWakeEnabled: { value: 0 },
+        uDebug: { value: 0 },
         uFoamAmount: { value: 0.14 },
         uShoreFoam: { value: 0.85 },
         uShoreWidth: { value: 7.0 },
@@ -939,6 +1065,34 @@ export class Ocean {
     for (const body of bodies) {
       this.ripples.emitWake(body.x, body.z, body.heading, body.speed, body.stern ?? 6);
     }
+  }
+
+  /** Golden-hour / sky inputs that drive SSS, sun road, haze and horizon reflection. */
+  setCinematic(opts: {
+    horizon: { r: number; g: number; b: number };
+    golden: number;
+    twilight: number;
+    sunIntensity: number;
+  }): void {
+    const u = this.material.uniforms;
+    (u.uHorizonColor!.value as THREE.Vector3).set(opts.horizon.r, opts.horizon.g, opts.horizon.b);
+    u.uGolden!.value = opts.golden;
+    u.uTwilight!.value = opts.twilight;
+    u.uSunIntensity!.value = opts.sunIntensity;
+  }
+
+  /** Bind (or clear) the persistent world-space wake foam field. */
+  bindWakeFoam(field: { texture: THREE.Texture; origin: THREE.Vector2; extent: number } | null): void {
+    const u = this.material.uniforms;
+    if (!field) {
+      u.uWakeEnabled!.value = 0;
+      u.uWakeTex!.value = this.dummyWave;
+      return;
+    }
+    u.uWakeEnabled!.value = 1;
+    u.uWakeTex!.value = field.texture;
+    (u.uWakeOrigin!.value as THREE.Vector2).copy(field.origin);
+    u.uWakeExtent!.value = field.extent;
   }
 
   setReadability(clarity: number, absorption: number): void {
