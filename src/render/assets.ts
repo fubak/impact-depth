@@ -16,7 +16,25 @@ export type AssetEntity =
   | 'torpedo'
   | 'crate';
 
-export type AssetMeshSource = 'gltf' | 'procedural' | 'missing';
+export type AssetMeshSource = 'gltf' | 'procedural' | 'missing' | 'pending';
+
+/** Sketchfab hero meshes. Kenney kit hulls stay procedural — they read as oversized voxels. */
+export function prefersAuthoredGltf(kind: AssetEntity): boolean {
+  return kind === 'sub_nautilus' || kind === 'uboat' || kind === 'destroyer';
+}
+
+export function chooseAssetSource(opts: {
+  hasGltf: boolean;
+  registryReady: boolean;
+  preferGltf?: boolean;
+  allowProceduralFallback?: boolean;
+}): AssetMeshSource {
+  const wantGltf = opts.preferGltf ?? true;
+  if (wantGltf && opts.hasGltf) return 'gltf';
+  if (!wantGltf) return 'procedural';
+  if (opts.registryReady || opts.allowProceduralFallback) return 'procedural';
+  return 'pending';
+}
 
 type ManifestEntry = { gltf: string | null; fallback: string };
 type AssetManifest = {
@@ -77,11 +95,14 @@ export function configureSurfaceMaterial(
   material.metalness = Math.min(material.metalness, 0.22);
   material.roughness = Math.max(material.roughness, 0.4);
   material.envMapIntensity = material.envMapIntensity || 0.55;
-  if (material.emissiveIntensity < 0.15) {
-    material.emissive.copy(material.color).multiplyScalar(0.35);
-    material.emissiveIntensity = 0.2;
+  if (material.map) {
+    material.map.colorSpace = THREE.SRGBColorSpace;
+    material.map.anisotropy = 4;
   }
-  if (material.map) material.map.colorSpace = THREE.SRGBColorSpace;
+  if (material.normalMap) material.normalMap.anisotropy = 4;
+  if (material.roughnessMap) material.roughnessMap.anisotropy = 4;
+  if (material.metalnessMap) material.metalnessMap.anisotropy = 4;
+  if (material.aoMap) material.aoMap.anisotropy = 4;
   if (material instanceof THREE.MeshPhysicalMaterial) {
     material.transmission = 0;
     material.anisotropy = 0;
@@ -109,9 +130,13 @@ export class AssetRegistry {
   });
   private readySettled = false;
 
+  get isReady(): boolean {
+    return this.readySettled;
+  }
+
   async preload(): Promise<void> {
     try {
-      const response = await fetch('/assets/manifest.json');
+      const response = await fetch(`${import.meta.env.BASE_URL}assets/manifest.json`);
       if (!response.ok) {
         this.finishReady();
         return;
@@ -119,13 +144,18 @@ export class AssetRegistry {
       this.manifest = (await response.json()) as AssetManifest;
       await Promise.all(
         (Object.keys(this.manifest.entities) as AssetEntity[]).map(async (kind) => {
+          // Skip loadAsync for kinds that don't prefer authored GLTF; use procedural fallback
+          if (!prefersAuthoredGltf(kind)) {
+            this.loadState.set(kind, 'missing');
+            return;
+          }
           const url = this.manifest?.entities[kind].gltf;
           if (!url) {
             this.loadState.set(kind, 'missing');
             return;
           }
           try {
-            const gltf = await this.loader.loadAsync(`/assets/${url}`);
+            const gltf = await this.loader.loadAsync(`${import.meta.env.BASE_URL}assets/${url}`);
             this.templates.set(kind, this.normalize(gltf.scene, kind));
             this.loadState.set(kind, 'gltf');
           } catch {

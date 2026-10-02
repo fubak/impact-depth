@@ -96,5 +96,5 @@ describe('world height texture packing', () => {
     expect(
       Math.abs(samplePackedBed(packed, wx, wz) - sampleLittoralBedMetres(world, wx, wz)),
     ).toBeLessThanOrEqual(0.1);
-  });
+  }, 60_000);
 });

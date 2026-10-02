@@ -1,0 +1,148 @@
+# Pages publishes only a revision that passed the required gates.
+#
+# Automatic runs are triggered by a successful CI workflow_run. Checkout is
+# pinned to that run's head_sha, not to whatever master happens to be when
+# the job starts. If master has moved on, this job builds nothing onto the
+# site: an older green run must not replace a newer commit. When commits A
+# and B overlap, only the run whose SHA is still origin/master deploys.
+# cancel-in-progress aborts an in-flight pages job once a newer one starts.
+#
+# workflow_dispatch is not a bypass. It runs verify, smoke, and patrol E2E
+# on the selected revision before the same build/deploy steps.
+# A failed or cancelled CI run does not match the success condition below.
+
+name: Deploy to GitHub Pages
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  dispatch-gates:
+    name: Validate dispatched revision
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run verify
+
+      - name: Start production preview
+        run: |
+          npm run preview &
+          echo $! > /tmp/preview.pid
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:8080/; then
+              echo "Preview ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Preview failed to become ready"
+          exit 1
+
+      - run: npm run test:smoke
+      - run: npm run test:e2e -- http://127.0.0.1:8080/
+
+      - name: Stop preview
+        if: always()
+        run: |
+          if [ -f /tmp/preview.pid ]; then
+            kill "$(cat /tmp/preview.pid)" 2>/dev/null || true
+          fi
+
+  build:
+    needs: [dispatch-gates]
+    if: |
+      always() &&
+      (needs.dispatch-gates.result == 'success' || needs.dispatch-gates.result == 'skipped') &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      fresh: ${{ steps.fresh.outputs.ok }}
+      sha: ${{ steps.bind.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Refuse a stale automatic deploy
+        id: fresh
+        run: |
+          if [ "${{ github.event_name }}" != "workflow_run" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch origin master
+          tip=$(git rev-parse origin/master)
+          sha=$(git rev-parse HEAD)
+          echo "CI sha $sha master tip $tip"
+          if [ "$tip" = "$sha" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Older CI sha is no longer master. Not publishing."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.fresh.outputs.ok == 'true'
+        with:
+          node-version: '20'
+          cache: npm
+
+      - if: steps.fresh.outputs.ok == 'true'
+        run: npm ci
+
+      - name: Build with repo base path
+        if: steps.fresh.outputs.ok == 'true'
+        run: npx tsc -p tsconfig.json --noEmit && npx vite build --base=/${{ github.event.repository.name }}/
+
+      - name: Bind the artifact to the tested SHA
+        id: bind
+        if: steps.fresh.outputs.ok == 'true'
+        run: |
+          sha=$(git rev-parse HEAD)
+          expected="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
+          test "$sha" = "$expected"
+          printf '%s\n' "$sha" > dist/BUILD_SHA
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.fresh.outputs.ok == 'true'
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.fresh == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

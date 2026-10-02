@@ -1,0 +1,61 @@
+.boot-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(7, 11, 12, 0.94);
+  color: var(--text);
+  pointer-events: auto;
+}
+
+.boot-overlay[hidden] {
+  display: none;
+}
+
+.boot-card {
+  width: min(440px, calc(100% - 32px));
+  padding: 28px 28px 24px;
+  border: 1px solid var(--brass);
+  background: rgba(11, 17, 18, 0.94);
+  text-align: center;
+}
+
+.boot-kicker {
+  margin: 0;
+  color: var(--brass);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.boot-title {
+  margin: 12px 0;
+  letter-spacing: 0.08em;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.boot-status {
+  margin: 0 0 16px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.boot-track {
+  height: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.boot-bar {
+  width: 0%;
+  height: 100%;
+  background: var(--brass);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-bar {
+    transition: none;
+  }
+}

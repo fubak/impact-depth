@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
+import { PostPipeline } from './post';
 
 /**
  * r185 WebGL presentation. `PCFSoftShadowMap` is no longer in the shader
@@ -36,9 +37,10 @@ export class RendererHost {
   private contextStatus: 'ready' | 'lost' | 'restoring' | 'failed' = 'ready';
   private recoveryHandler: ((signal: AbortSignal) => Promise<void>) | null = null;
   private statusHandler:
-    | ((status: 'ready' | 'lost' | 'restoring' | 'failed', reason?: string) => void)
-    | null = null;
+    ((status: 'ready' | 'lost' | 'restoring' | 'failed', reason?: string) => void) | null = null;
   private recoveryAbort: AbortController | null = null;
+  private lastQualityProfile: QualityProfile | null = null;
+  private readonly post: PostPipeline;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -50,6 +52,7 @@ export class RendererHost {
     });
     configureWebGlRenderer(this.renderer);
     disableShadowsOnSoftwareRenderer(this.renderer);
+    this.post = new PostPipeline(this.renderer);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxDpr));
     this.resize();
     this.canvas.addEventListener('webglcontextlost', this.onContextLost);
@@ -84,11 +87,18 @@ export class RendererHost {
     this.statusHandler?.('restoring');
     configureWebGlRenderer(this.renderer);
     disableShadowsOnSoftwareRenderer(this.renderer);
+    // Re-apply the last quality profile settings after renderer configuration
+    if (this.lastQualityProfile) {
+      this.renderer.shadowMap.enabled = this.lastQualityProfile.shadows;
+      this.shadowCadence = Math.max(1, this.lastQualityProfile.shadowCadence);
+      this.renderer.shadowMap.autoUpdate = this.shadowCadence === 1;
+    }
     void (this.recoveryHandler?.(abort.signal) ?? Promise.resolve())
       .then(() => {
         if (abort.signal.aborted) return;
         this.contextStatus = 'ready';
         this.recoveryAbort = null;
+        this.post.reset();
         this.resize();
         this.statusHandler?.('ready');
       })
@@ -106,6 +116,7 @@ export class RendererHost {
 
   setQuality(profile: QualityProfile): void {
     if (this.maxDpr === profile.dpr && this.renderer.shadowMap.enabled === profile.shadows) return;
+    this.lastQualityProfile = profile;
     this.maxDpr = profile.dpr;
     this.renderer.shadowMap.enabled = profile.shadows;
     this.shadowCadence = Math.max(1, profile.shadowCadence);
@@ -117,10 +128,22 @@ export class RendererHost {
   resize(): void {
     const width = Math.max(1, window.innerWidth);
     const height = Math.max(1, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxDpr));
+    const dpr = Math.min(window.devicePixelRatio || 1, this.maxDpr);
+    this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(width, height, false);
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
+    this.post.setPixelRatio(dpr);
+    this.post.setSize(width, height);
+  }
+
+  /** Bloom post chain; the app decides per quality profile and URL flag. */
+  setBloomEnabled(enabled: boolean): void {
+    this.post.setEnabled(enabled);
+  }
+
+  get bloomActive(): boolean {
+    return this.post.isEnabled;
   }
 
   render(scene: THREE.Scene, camera: THREE.Camera): void {
@@ -128,7 +151,11 @@ export class RendererHost {
     if (this.renderer.shadowMap.enabled && this.shadowCadence > 1) {
       this.renderer.shadowMap.needsUpdate = this.frame % this.shadowCadence === 0;
     }
-    this.renderer.render(scene, camera);
+    if (this.post.isEnabled) {
+      this.post.render(scene, camera);
+    } else {
+      this.renderer.render(scene, camera);
+    }
     this.frame += 1;
   }
 
@@ -160,6 +187,7 @@ export class RendererHost {
     this.recoveryAbort?.abort();
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.post.dispose();
     this.renderer.dispose();
   }
 }

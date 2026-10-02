@@ -1,4 +1,13 @@
-import { DEFAULT_CRUISE, FOB_RADIUS, WORLD_CENTER } from './constants';
+import {
+  DEFAULT_CRUISE,
+  FOB_RADIUS,
+  WAVE_SPAWN_INNER,
+  WAVE_SPAWN_STEP,
+  WORLD_CENTER,
+  WORLD_SIZE,
+} from './constants';
+import { WAVE1_SPAWN_RADIUS } from './action-feel';
+import { SINK_DURATION } from './ship-damage';
 import type { FormationRole, GameState, Point, Powerup, Ship, ShipKind, Submarine } from './types';
 import { createTerrain, snapToNavigable, type Terrain } from './world';
 import type { WorldVersion } from '../world/definition';
@@ -17,6 +26,12 @@ import { shipClearRadius } from './pathfinding';
 const escortKinds: ReadonlySet<ShipKind> = new Set(['destroyer', 'patrol', 'cruiser']);
 const formationRoleCycle: readonly FormationRole[] = ['lead', 'wing', 'trail'];
 
+/** OD6: wave 1 stays cold. Later waves arrive already nervous, capped at 0.5. */
+function startingAlert(wave: number): number {
+  if (wave <= 1) return 0;
+  return Math.min(0.2 * (wave - 1), 0.5);
+}
+
 function createSubmarine(
   x = WORLD_CENTER,
   y = WORLD_CENTER + 3.6,
@@ -25,10 +40,13 @@ function createSubmarine(
   return {
     x,
     y,
-    z: 0.28,
+    z: 0.5,
     heading,
     displayHeading: heading,
     bank: 0,
+    yawRate: 0,
+    depthRate: 0,
+    blowTimer: 0,
     speed: DEFAULT_CRUISE,
     targetSpeed: DEFAULT_CRUISE,
     speedOrder: 'oneThird',
@@ -50,7 +68,7 @@ function createSubmarine(
     cmCooldown: 0,
     noise: 0.22,
     waypoint: null,
-    targetDepth: 0.28,
+    targetDepth: 0.5,
     ballast: 0,
     invuln: 0,
     trailTimer: 0,
@@ -60,7 +78,7 @@ function createSubmarine(
     docked: false,
     battery: 100,
     maxBattery: 100,
-    silentRunning: false,
+    silentRunning: true,
     scopeUp: false,
     snorkel: false,
     sysSonar: 1,
@@ -68,6 +86,7 @@ function createSubmarine(
     sysTubes: 1,
     sysFlood: 0,
     crewStress: 0,
+    lastDamage: null,
   };
 }
 
@@ -125,12 +144,20 @@ function seedPatrolPath(
   return points;
 }
 
+/**
+ * Radius of the wave-1 escort's opening sweep loop around the player's start
+ * area — inside the quiet-sweep pulse reach (3.2 × jitter), so the boat is
+ * found once the escort arrives and loiters, but never immediately.
+ */
+const WAVE1_SWEEP_DIST = 3.0;
+
 /** Deterministic wave data; doctrine is intentionally left to Plan 005. */
 export function seedWave(
   seed: number,
   wave: number,
   firstFreighter?: Ship,
   worldVersion: WorldVersion = 'legacy-v1',
+  player?: Point,
 ): Ship[] {
   const terrain = worldVersion === 'legacy-v1' ? createTerrain(seed) : null;
   // Wave 1: fewer escorts so the opening patrol is tense but fair.
@@ -146,9 +173,18 @@ export function seedWave(
     ...Array<ShipKind>(wave >= 3 ? 2 : 1).fill('sub'),
   ];
   const ships = kinds.map((kind, index) => {
-    const angle = ((seed + wave * 29 + index * 47) % 360) * (Math.PI / 180);
-    // Scaled for 128 map — stay outside ~17u passive detection envelope.
-    const radius = 34 + (index % 3) * 8;
+    const angle = ((seed * 17 + wave * 29 + index * 137) % 360) * (Math.PI / 180);
+    // Later waves spread across three staggered rings so a big wave fills the
+    // circle instead of marching a single hull ever farther out. The wave-1
+    // escort spawns close to the player's lane: it walks an independent sweep
+    // leg instead of screening the convoy, and its route must reach hearing
+    // range inside the opening minute.
+    const radius =
+      wave === 1
+        ? escortKinds.has(kind)
+          ? WAVE1_SPAWN_RADIUS + 8
+          : WAVE1_SPAWN_RADIUS + index * 7
+        : WAVE_SPAWN_INNER + (index % 3) * WAVE_SPAWN_STEP;
     const spawnX = WORLD_CENTER + 2 + Math.cos(angle) * radius;
     const spawnY = WORLD_CENTER + Math.sin(angle) * radius;
     const point =
@@ -157,9 +193,10 @@ export function seedWave(
         : snapWorld(getWorld(worldVersion, seed), spawnX, spawnY, shipProfile(kind));
     const stats = shipStats[kind];
     // Wave-1 weapon grace: escorts/subs cannot fire in the first seconds.
-    const weaponCooldown = wave === 1 ? 6 + (index % 4) * 1.5 : 0;
-    const patrolRadius = kind === 'merchant' ? 14 : kind === 'sub' ? 11 : 16;
-    const path = seedPatrolPath(
+    const weaponCooldown = wave === 1 ? 5 + (index % 4) * 0.8 : 0;
+    const patrolRadius =
+      wave === 1 && kind !== 'merchant' ? 8 : kind === 'merchant' ? 14 : kind === 'sub' ? 11 : 16;
+    let path = seedPatrolPath(
       terrain,
       point.x,
       point.y,
@@ -170,6 +207,24 @@ export function seedWave(
       worldVersion,
       kind,
     );
+    // Wave 1: the escort's roving patrol opens with a tight sweep loop around
+    // the player's start waters — roughly one sweep period of loiter inside
+    // pulse reach — so a quiet boat is found by the next sweep pulse once the
+    // escort arrives, instead of the screen orbiting the convoy forever at
+    // standoff range.
+    if (wave === 1 && escortKinds.has(kind) && player) {
+      const b0 = Math.atan2(point.y - player.y, point.x - player.x);
+      const loop = Array.from({ length: 8 }, (_, k) => {
+        const lx = player.x + Math.cos(b0 + (k * Math.PI) / 4) * WAVE1_SWEEP_DIST;
+        const ly = player.y + Math.sin(b0 + (k * Math.PI) / 4) * WAVE1_SWEEP_DIST;
+        const sx = Math.min(WORLD_SIZE - 2, Math.max(2, lx));
+        const sy = Math.min(WORLD_SIZE - 2, Math.max(2, ly));
+        return worldVersion === 'legacy-v1'
+          ? snapToNavigable(terrain!, sx, sy, 0.1)
+          : snapWorld(getWorld(worldVersion, seed), sx, sy, shipProfile(kind));
+      });
+      path = [...loop, ...path];
+    }
     if (index === 0 && firstFreighter) {
       return {
         ...firstFreighter,
@@ -181,6 +236,7 @@ export function seedWave(
         patrolIndex: index % 4,
         path,
         repathTimer: 0,
+        alert: startingAlert(wave),
       };
     }
     return {
@@ -193,7 +249,12 @@ export function seedWave(
       speed: stats.speed,
       hp: stats.hp,
       maxHp: stats.hp,
-      alert: 0,
+      flooding: 0,
+      fire: 0,
+      speedFactor: 1,
+      sinkDuration: SINK_DURATION[kind],
+      listSide: 1,
+      alert: startingAlert(wave),
       holdContact: 0,
       weaponCooldown,
       patrolIndex: index % 4,
@@ -209,11 +270,13 @@ export function seedWave(
   let wingSideIndex = 0;
   return ships.map((ship, index) => {
     if (index === 0) return ship;
-    if (escortKinds.has(ship.kind)) {
+    // Wave-1 escorts run a roving patrol (biased path above) rather than
+    // screening the convoy — the opening is a stalk, not a formed escort.
+    if (escortKinds.has(ship.kind) && wave !== 1) {
       const role = formationRoleCycle[escortCycleIndex % formationRoleCycle.length]!;
       escortCycleIndex += 1;
-      const along = role === 'lead' ? 8 : role === 'trail' ? -8 : 0;
-      const lateral = role === 'wing' ? (wingSideIndex++ % 2 === 0 ? 6 : -6) : 0;
+      const along = role === 'lead' ? 12 : role === 'trail' ? -12 : 0;
+      const lateral = role === 'wing' ? (wingSideIndex++ % 2 === 0 ? 10 : -10) : 0;
       return {
         ...ship,
         formationAnchorId: anchorId,
@@ -228,8 +291,8 @@ export function seedWave(
         ...ship,
         formationAnchorId: anchorId,
         formationRole: null,
-        formationAlong: -index * 3,
-        formationLateral: (index % 2 ? 1 : -1) * 2,
+        formationAlong: -index * 8,
+        formationLateral: (index % 2 ? 1 : -1) * 6,
         path: [],
       };
     }
@@ -302,6 +365,11 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
         speed: 0,
         hp: 48,
         maxHp: 48,
+        flooding: 0,
+        fire: 0,
+        speedFactor: 1,
+        sinkDuration: SINK_DURATION.merchant,
+        listSide: 1,
         alert: 0,
         holdContact: 0,
         weaponCooldown: 0,
@@ -312,6 +380,8 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     ],
     torpedoes: [],
     depthCharges: [],
+    shells: [],
+    detonations: [],
     aircraft: [],
     countermeasures: [],
     powerups: [],
@@ -329,6 +399,7 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
       shotTimer: 0,
       path: [],
       repathTimer: 0,
+      emergency: false,
     },
     stats: {
       score: 0,
@@ -342,7 +413,7 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     },
     weaponMode: 'torpedo',
     torpedoSpread: false,
-    viewMode: 'tactical',
+    viewMode: 'chase',
     selectedTargetId: null,
     aimPoint: null,
     missionFlavor: 'SHADOW CONVOY · REMAIN UNDETECTED',
@@ -354,5 +425,9 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     sonarPing: 0,
     sonarCooldown: 0,
     aircraftCooldown: 55 + (seed % 41),
+    scenario: 'patrol',
+    assistanceAutoFire: true,
+    compressEnabled: true,
+    strikeExit: null,
   };
 }

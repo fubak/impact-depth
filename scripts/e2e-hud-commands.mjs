@@ -73,7 +73,6 @@ async function hudAct(page, selector, kind = 'pointerdown') {
 async function expectGame(page, pred, label, arg) {
   const ok = await page.evaluate(
     ({ fnSrc, arg: a }) => {
-      // eslint-disable-next-line no-new-func
       const fn = new Function(`return (${fnSrc})`)();
       return fn(window.__silentDepths.game, window.__silentDepths, a);
     },

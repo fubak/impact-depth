@@ -3,8 +3,12 @@ import {
   cloneSettings,
   DEFAULT_SETTINGS,
   isPresetId,
+  loadPlayPreferences,
+  savePlayPreferences,
   saveSettings,
   settingsToJson,
+  STORAGE_KEY,
+  type PlayPreferences,
 } from '../core/settings';
 import type { LookDevSettings, PresetId } from '../core/types';
 
@@ -27,14 +31,17 @@ export type AssetCreditLine = {
 export class LookDevPanel {
   private readonly root: HTMLElement;
   private settings: LookDevSettings;
+  private play: PlayPreferences;
   private readonly cb: PanelCallbacks;
   private visible = false;
   private perfEl: HTMLElement | null = null;
+  private surfaceEl: HTMLElement | null = null;
   private assetCredits: AssetCreditLine[] = [];
 
   constructor(root: HTMLElement, settings: LookDevSettings, cb: PanelCallbacks) {
     this.root = root;
     this.settings = cloneSettings(settings);
+    this.play = loadPlayPreferences();
     this.cb = cb;
     this.root.classList.add('lookdev');
     this.render();
@@ -73,6 +80,12 @@ export class LookDevPanel {
     this.perfEl.textContent = `${fps.toFixed(0)} FPS · ${frameMs.toFixed(1)} ms · ${quality.toUpperCase()} quality`;
   }
 
+  /** Developer surface/probe line. Hidden from the player HUD. */
+  setSurfaceDiagnostics(line: string | null): void {
+    if (!this.visible || !this.surfaceEl) return;
+    this.surfaceEl.textContent = line ?? 'surface probes idle';
+  }
+
   /** CC-BY / project license ledger for in-game attribution. */
   setAssetCredits(entries: ReadonlyArray<AssetCreditLine>): void {
     this.assetCredits = entries.map((entry) => ({ ...entry }));
@@ -100,6 +113,7 @@ export class LookDevPanel {
           <div class="lookdev-title">LOOK DEV</div>
           <div class="lookdev-sub">SILENT DEPTHS · CARIBBEAN LAB</div>
           <div class="lookdev-perf" data-perf aria-live="polite">— FPS · HIGH quality</div>
+          <div class="lookdev-perf" data-surface-diag aria-live="polite">surface probes idle</div>
         </div>
         <button type="button" class="btn icon" data-action="close" aria-label="Close panel">✕</button>
       </header>
@@ -110,6 +124,7 @@ export class LookDevPanel {
           <button type="button" class="btn ${s.preset === 'caribbean-noon' ? 'active' : ''}" data-preset="caribbean-noon">Caribbean Noon</button>
           <button type="button" class="btn ${s.preset === 'trade-wind-morning' ? 'active' : ''}" data-preset="trade-wind-morning">Trade Wind Morning</button>
           <button type="button" class="btn ${s.preset === 'golden-cay' ? 'active' : ''}" data-preset="golden-cay">Golden Cay</button>
+          <button type="button" class="btn ${s.preset === 'sunset-passage' ? 'active' : ''}" data-preset="sunset-passage">Sunset Passage</button>
         </div>
       </section>
 
@@ -140,6 +155,25 @@ export class LookDevPanel {
         ${colorField('sandColor', 'Sand / beach', s.environment.sandColor)}
         ${colorField('foliageColor', 'Foliage', s.environment.foliageColor)}
         ${colorField('rockColor', 'Rock / mountain', s.environment.rockColor)}
+      </section>
+
+      <section class="lookdev-section">
+        <h2>PLAY</h2>
+        ${slider('masterVolume', 'Master volume', this.play.masterVolume, 0, 1, 0.01, 'play')}
+        ${choice('reducedMotion', 'Reduced motion', this.play.reducedMotion, [
+          ['system', 'Match system'],
+          ['reduce', 'Reduce'],
+          ['allow', 'Allow motion'],
+        ])}
+        ${choice('quality', 'Quality', this.play.quality, [
+          ['auto', 'Auto'],
+          ['high', 'High'],
+          ['medium', 'Medium'],
+          ['low', 'Low'],
+        ])}
+        <label class="field"><input type="checkbox" data-play-flag="captions" ${this.play.captions ? 'checked' : ''}/> Captions</label>
+        <label class="field"><input type="checkbox" data-play-flag="pauseOnBlur" ${this.play.pauseOnBlur ? 'checked' : ''}/> Pause when the window blurs</label>
+        <p class="hint">Keys: 1–7 views, WASD helm, F fire, V deep, Space pause, H panel, M 4× transit.</p>
       </section>
 
       <section class="lookdev-section">
@@ -176,10 +210,11 @@ export class LookDevPanel {
         <button type="button" class="btn" data-action="reset">Reset</button>
         <button type="button" class="btn primary" data-action="copy">Copy settings JSON</button>
       </section>
-      <p class="lookdev-hint">Values persist in localStorage · key silent-depths-lookdev-v5</p>
+      <p class="lookdev-hint">Values persist in localStorage · key ${STORAGE_KEY}</p>
     `;
 
     this.perfEl = this.root.querySelector('[data-perf]');
+    this.surfaceEl = this.root.querySelector('[data-surface-diag]');
     this.bind();
   }
 
@@ -211,6 +246,36 @@ export class LookDevPanel {
           } catch {
             el.textContent = 'Copy failed';
           }
+        }
+      });
+    });
+
+    this.root
+      .querySelectorAll<HTMLInputElement>('input[data-play="masterVolume"]')
+      .forEach((input) => {
+        const handler = () => {
+          this.play = savePlayPreferences({ ...this.play, masterVolume: Number(input.value) });
+          const valueEl = this.root.querySelector('[data-value-for="masterVolume"]');
+          if (valueEl) valueEl.textContent = this.play.masterVolume.toFixed(2);
+        };
+        input.addEventListener('input', handler);
+        input.addEventListener('change', handler);
+      });
+
+    this.root.querySelectorAll<HTMLInputElement>('input[data-play-flag]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const field = input.dataset.playFlag;
+        if (field === 'captions' || field === 'pauseOnBlur') {
+          this.play = savePlayPreferences({ ...this.play, [field]: input.checked });
+        }
+      });
+    });
+
+    this.root.querySelectorAll<HTMLSelectElement>('select[data-play]').forEach((select) => {
+      select.addEventListener('change', () => {
+        const field = select.dataset.play;
+        if (field === 'reducedMotion' || field === 'quality') {
+          this.play = savePlayPreferences({ ...this.play, [field]: select.value });
         }
       });
     });
@@ -256,12 +321,31 @@ function slider(
   min: number,
   max: number,
   step: number,
+  scope: 'field' | 'play' = 'field',
 ): string {
   const digits = step < 0.01 ? 4 : step >= 1 ? 0 : 2;
+  const attr = scope === 'play' ? 'data-play' : 'data-field';
   return `
     <label class="field">
       <span class="field-label"><span>${label}</span><span data-value-for="${field}">${value.toFixed(digits)}</span></span>
-      <input type="range" data-field="${field}" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}" />
+      <input type="range" ${attr}="${field}" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}" />
+    </label>
+  `;
+}
+
+function choice(
+  field: string,
+  label: string,
+  value: string,
+  options: ReadonlyArray<readonly [string, string]>,
+): string {
+  const opts = options
+    .map(([id, text]) => `<option value="${id}"${id === value ? ' selected' : ''}>${text}</option>`)
+    .join('');
+  return `
+    <label class="field">
+      <span class="field-label">${label}</span>
+      <select data-play="${field}" aria-label="${label}">${opts}</select>
     </label>
   `;
 }

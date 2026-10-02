@@ -9,6 +9,7 @@ import {
   CAUSTICS_PROFILES,
   type CausticFrame,
   causticAttenuation,
+  receiverCausticEnergy,
   detachCausticLighting,
   followCellMetres,
   projectSunRayToBed,
@@ -72,15 +73,15 @@ describe('caustic attenuation and follow quantization', () => {
       storm: 0,
       night: 0,
     });
-    expect(causticAttenuation({ depthMetres: 24, surfaceCover: 0, storm: 0, night: 0 })).toBeLessThan(
-      clear,
-    );
-    expect(causticAttenuation({ depthMetres: 0, surfaceCover: 0.9, storm: 0, night: 0 })).toBeLessThan(
-      clear,
-    );
-    expect(causticAttenuation({ depthMetres: 0, surfaceCover: 0, storm: 1, night: 0 })).toBeLessThan(
-      clear,
-    );
+    expect(
+      causticAttenuation({ depthMetres: 24, surfaceCover: 0, storm: 0, night: 0 }),
+    ).toBeLessThan(clear);
+    expect(
+      causticAttenuation({ depthMetres: 0, surfaceCover: 0.9, storm: 0, night: 0 }),
+    ).toBeLessThan(clear);
+    expect(
+      causticAttenuation({ depthMetres: 0, surfaceCover: 0, storm: 1, night: 0 }),
+    ).toBeLessThan(clear);
     expect(causticAttenuation({ depthMetres: 0, surfaceCover: 0, storm: 0, night: 1 })).toBe(0);
   });
 
@@ -91,6 +92,19 @@ describe('caustic attenuation and follow quantization', () => {
     expect(a).toEqual(b);
     const c = quantizeFollowRegion(cell * 5 + cell * 0.1, cell * 2 + cell * 0.1, cell);
     expect(c.x).not.toBe(a.x);
+  });
+
+  it('gives hulls no energy above water and less at -20 m than at -2 m', () => {
+    const above = receiverCausticEnergy({ receiverY: 1, waterHeight: 0, role: 'hull' });
+    const shallow = receiverCausticEnergy({ receiverY: -2, waterHeight: 0, role: 'hull' });
+    const deep = receiverCausticEnergy({ receiverY: -20, waterHeight: 0, role: 'hull' });
+    const bed = receiverCausticEnergy({ receiverY: -20, waterHeight: 0, role: 'seabed' });
+    expect(above).toBe(0);
+    expect(shallow).toBeGreaterThan(0.2);
+    expect(deep).toBeLessThan(shallow);
+    expect(bed).toBeGreaterThan(deep);
+    expect(CAUSTIC_SAMPLE_GLSL).toContain('uCausticWaterHeight');
+    expect(CAUSTIC_SAMPLE_GLSL).toContain('submergence');
   });
 
   it('assigns distinct receiver gains without extra program variants', () => {
@@ -209,8 +223,7 @@ describe('UnderwaterCaustics lifecycle', () => {
 
     const shader = {
       vertexShader: '#include <common>\n#include <begin_vertex>\nvoid main() {}',
-      fragmentShader:
-        '#include <common>\n#include <lights_fragment_end>\nvoid main() {}',
+      fragmentShader: '#include <common>\n#include <lights_fragment_end>\nvoid main() {}',
       uniforms: {},
     } as unknown as THREE.WebGLProgramParametersWithUniforms;
     material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);

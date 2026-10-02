@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shouldDispatchWorldInteract } from '../../src/input/controls';
+import { pointerUpIsClick, shouldDispatchWorldInteract } from '../../src/input/controls';
 
 describe('input world-click gating', () => {
   it('ignores HUD-style pointerups that never started a canvas drag', () => {
@@ -14,5 +14,10 @@ describe('input world-click gating', () => {
 
   it('does not dispatch after a drag/orbit', () => {
     expect(shouldDispatchWorldInteract(true, true, 0)).toBe(false);
+  });
+
+  it('treats a pointer that returns to the press point as a click', () => {
+    expect(pointerUpIsClick(10, 10, 12, 11)).toBe(true);
+    expect(pointerUpIsClick(10, 10, 14, 10)).toBe(false);
   });
 });

@@ -29,6 +29,11 @@ export interface AtmosphereSettings {
   sunElevation: number;
   sunAzimuth: number;
   sunIntensity: number;
+  /**
+   * Seconds for one full presentation day. Omitted = 480 (legacy cycle).
+   * 0 holds the preset's time of day (cinematic looks that must not drift to night).
+   */
+  dayLengthSeconds?: number;
 }
 
 export interface OceanSettings {
@@ -66,7 +71,7 @@ export interface LookDevSettings {
   preset: string;
 }
 
-export type PresetId = 'caribbean-noon' | 'trade-wind-morning' | 'golden-cay';
+export type PresetId = 'caribbean-noon' | 'trade-wind-morning' | 'golden-cay' | 'sunset-passage';
 
 export interface VesselState {
   x: number;
@@ -97,6 +102,12 @@ export interface SurfaceShipState {
   heave: number;
   pitch: number;
   roll: number;
+  /** 0 while afloat; 0..1 as the hull goes down. */
+  sinkProgress: number;
+  sinkStyle?: 'bow' | 'stern' | 'list' | 'break';
+  listSide: number;
+  fire: number;
+  flooding: number;
 }
 
 export interface SimState {

@@ -1,15 +1,10 @@
 import * as THREE from 'three';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import type { AtmosphereState } from '../atmosphere';
-import {
-  SkyLighting,
-  type SkyLightingDiagnostics,
-  type SkyLightingState,
-} from './sky-lighting';
+import { SkyLighting, type SkyLightingDiagnostics, type SkyLightingState } from './sky-lighting';
 import { pickSkyLightingSource } from './sky-source';
 
-export const HDR_PUBLIC_PATH =
-  '/assets/environment/v1/kloofendal_48d_partly_cloudy_puresky_1k.hdr';
+export const HDR_PUBLIC_PATH = `${import.meta.env.BASE_URL}assets/environment/v1/kloofendal_48d_partly_cloudy_puresky_1k.hdr`;
 
 export type OutdoorLightingInput = {
   atmosphere: AtmosphereState;
@@ -17,6 +12,7 @@ export type OutdoorLightingInput = {
   /** Presentation-only; never baked into PMREM (see sky-lighting update). */
   lightning: number;
   nowSeconds: number;
+  weatherPreset?: 'calm' | 'breeze' | 'storm';
 };
 
 /** PMREM state aligned with sun/sky/horizon/clouds/time — excludes transient lightning. */
@@ -31,6 +27,9 @@ export function buildSkyLightingState(
     cloudCoverage: input.cloudCoverage,
     lightning: 0,
     isNight: input.atmosphere.isNight,
+    weatherPreset: input.weatherPreset,
+    golden: input.atmosphere.golden,
+    twilight: input.atmosphere.twilight,
   };
 }
 
@@ -60,6 +59,9 @@ export class OutdoorLighting {
           skyHorizon: new THREE.Color(0.84, 0.94, 1),
           ambient: 0.78,
           isNight: false,
+          sunElevation: 64,
+          golden: 0,
+          twilight: 0,
         },
         cloudCoverage: 0.5,
         lightning: 0,
@@ -72,7 +74,7 @@ export class OutdoorLighting {
 
   private beginHdrLoad(): void {
     const generation = ++this.loadGeneration;
-    const loader = new RGBELoader();
+    const loader = new HDRLoader();
     loader.load(
       HDR_PUBLIC_PATH,
       (texture) => {
@@ -106,6 +108,8 @@ export class OutdoorLighting {
         hdrReady: this.hdrTexture !== null && !this.hdrFailed,
         hdrFailed: this.hdrFailed,
         isNight: input.atmosphere.isNight,
+        weatherPreset: input.weatherPreset,
+        sunY: input.atmosphere.sunDir.y,
       }) === 'hdr-pmrem' &&
       this.scene &&
       this.hdrTexture

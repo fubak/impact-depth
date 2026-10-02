@@ -35,7 +35,9 @@ describe('patrol vertical slice', () => {
     expect(state.torpedoes.length).toBe(1);
     expect(state.submarine.torpedoes).toBe(7);
 
-    for (let i = 0; i < 600 && state.phase === 'playing'; i++) {
+    // A lethally-hit merchant now takes its class sinkDuration to go under —
+    // the kill only counts at removal, so the replay must outlast the sink.
+    for (let i = 0; i < 2400 && state.phase === 'playing'; i++) {
       state = updateGame(state, [], 1 / 60);
     }
     expect(state.phase).toBe('playing');

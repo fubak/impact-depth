@@ -47,6 +47,8 @@ export class PeriscopeOverlay {
         if (r < nearest) {
           nearest = r;
           label = `${r.toFixed(0)} u`;
+          const lead = Math.sin(brg - sim.vessel.heading) * ship.speed * 0.35;
+          this.root.style.setProperty('--lead', String(lead * 40));
         }
       }
     }

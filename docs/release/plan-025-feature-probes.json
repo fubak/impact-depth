@@ -1,0 +1,47 @@
+{
+  "ambush": {
+    "assistanceAutoFire": false,
+    "shots": 3,
+    "time": 6.383333333333316,
+    "phase": "playing"
+  },
+  "intercept": {
+    "assistanceAutoFire": false,
+    "shots": 1,
+    "time": 5.949999999999984,
+    "phase": "playing"
+  },
+  "commandOnlyStrike": {
+    "phase": "victory",
+    "time": 20.33333333333346,
+    "shots": 4,
+    "hp": 100,
+    "sunk": 1,
+    "exitDistance": 3.979544443808834,
+    "routed": true
+  },
+  "wreckAfter60SimSecondsWithSceneDelta": {
+    "count": 1,
+    "age": 0.05999999999999828
+  },
+  "worldInitialization": {
+    "proper": {
+      "x": 63,
+      "y": 64,
+      "base": {
+        "x": 10.24,
+        "y": 10.24,
+        "radius": 4.8
+      }
+    },
+    "menuRelabel": {
+      "x": 63,
+      "y": 64,
+      "base": {
+        "x": 13.24,
+        "y": 13.24,
+        "radius": 4.8
+      }
+    }
+  }
+}

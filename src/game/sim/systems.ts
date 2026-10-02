@@ -3,14 +3,12 @@ import { clampDepth, clampSim } from './coords';
 import { seedPowerups, seedWave } from './create';
 import type {
   Countermeasure,
+  GameMessage,
   GameState,
-  Point,
   Powerup,
   Ship,
   ShipKind,
   SpeedOrder,
-  ThreatKind,
-  Torpedo,
 } from './types';
 import {
   BUBBLE_LIFE,
@@ -31,14 +29,58 @@ import {
   VICTORY_TARGET,
   ACTIVE_COOLDOWN,
   ACTIVE_PING_DURATION,
-  DC_ENGAGE_RANGE,
+  ALERT_SPREAD_RADIUS,
+  BUBBLE_HOLD_DRAIN,
+  DEEP_SAFE_DEPTH,
+  WAVE_BREATHER,
+  ESCORT_LOUD_SWEEP_RADIUS,
+  ESCORT_QUIET_SWEEP_CAP,
+  ESCORT_QUIET_SWEEP_RADIUS,
+  ESCORT_SCREEN_OFFSET,
+  ESCORT_SWEEP_PERIOD,
 } from './constants';
-import { getTerrain, isCrushedBySeamount, isLand, snapToNavigable } from './world';
+import { nextRandom } from './rng';
+import { getTerrain, hullDepthLimit, isCrushedBySeamount, isLand, snapToNavigable } from './world';
 import { updateAutopilot } from './autopilot';
-import { makeClear, steerAvoid, shipClearRadius } from './pathfinding';
-import { passiveRange, updateSonar } from './sonar';
+import { makeClear, resolveClearStep, steerAvoid, shipClearRadius } from './pathfinding';
+import { updateSonar, shipMaxSpeed } from './sonar';
+import { canHearPing, hasContact } from './contact';
+import { DOCTRINE_KINDS, escortIntent, merchantIntent } from './escort-doctrine';
+import { releaseCallouts } from './defense-callout';
+import { separateShips } from './ship-separation';
 import { integrateV2Horizontal, resolveV2WorldCollision } from '../world/collision';
 import { getWorld } from '../world/queries';
+import { emergencySurface } from './action-feel';
+import { advanceShipDamage } from './ship-damage';
+import {
+  advanceBank,
+  advanceDepth,
+  approachSpeed,
+  helmYawDelta,
+  rudderAuthority,
+  hullStressDamage,
+} from './vessel-dynamics';
+import {
+  advanceOrdnance,
+  aircraftBomb,
+  DC_PATTERN_COOLDOWN,
+  DECK_GUN_RANGE,
+  DECK_GUN_RELOAD,
+  depthChargePattern,
+  enemyShellAim,
+  hedgehogEllipse,
+  makeShell,
+  makeThreat,
+  makeTorpedo,
+  shellDispersionScale,
+} from './ordnance-physics';
+export {
+  chaseDepth,
+  hullDepth,
+  launchHeading,
+  seduceRoll,
+  TUBE_ARC_RAD,
+} from './ordnance-physics';
 
 type System = (state: GameState, commands: GameCommand[], dt: number) => GameState;
 export const SYSTEM_ORDER = [
@@ -80,52 +122,16 @@ const shipScore: Record<ShipKind, number> = {
   merchant: 150,
 };
 const scoreFor = (ship: Ship) => shipScore[ship.kind];
-/** Arcade-readable hull radii so discrete torpedo steps can still register hits. */
-const shipRadius = (ship: Ship) => {
-  switch (ship.kind) {
-    case 'sub':
-      return 1.35;
-    case 'battleship':
-      return 2.1;
-    case 'cruiser':
-      return 1.75;
-    case 'merchant':
-      return 1.85;
-    case 'destroyer':
-      return 1.45;
-    case 'patrol':
-      return 1.15;
-    default:
-      return 1.25;
-  }
-};
-/** Minimum run-out before a torpedo can arm (avoids deck hits / instant spawns). */
-const TORPEDO_ARM_RUN = 0.95;
 const inFob = (state: GameState, x = state.submarine.x, y = state.submarine.y) =>
   Math.hypot(x - state.base.x, y - state.base.y) <= state.base.radius;
 const turnToward = (heading: number, target: number, rate: number, dt: number) =>
   heading + clamp(normalizeAngle(target - heading), -rate * dt, rate * dt);
-const distPointSegment = (
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-) => {
-  const abx = bx - ax;
-  const aby = by - ay;
-  const apx = px - ax;
-  const apy = py - ay;
-  const ab2 = abx * abx + aby * aby;
-  if (ab2 < 1e-8) return Math.hypot(px - ax, py - ay);
-  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / ab2));
-  return Math.hypot(px - (ax + abx * t), py - (ay + aby * t));
-};
-/** Heading from `ship` toward its convoy/escort formation slot relative to `anchor`. */
-const formationSlotHeading = (ship: Ship, anchor: Ship): number => {
+/** Heading from `ship` toward its convoy screen slot. The slot weaves across the bow. */
+const formationSlotHeading = (ship: Ship, anchor: Ship, time: number): number => {
   const along = ship.formationAlong ?? 0;
-  const lateral = ship.formationLateral ?? 0;
+  const lateral =
+    (ship.formationLateral ?? 0) +
+    Math.sin(time * 0.22 + ship.patrolIndex * 1.3) * ESCORT_SCREEN_OFFSET;
   const cos = Math.cos(anchor.heading);
   const sin = Math.sin(anchor.heading);
   const slotX = anchor.x + cos * along - sin * lateral;
@@ -133,117 +139,80 @@ const formationSlotHeading = (ship: Ship, anchor: Ship): number => {
   return Math.atan2(slotY - ship.y, slotX - ship.x);
 };
 
-function makeTorpedo(
-  state: GameState,
-  kind: 'mk14' | 'mk18',
-  targetId: string | null,
-  offset = 0,
-  aimPoint: Point | null = null,
-): Torpedo {
-  const target = targetId ? state.ships.find((ship) => ship.id === targetId) : undefined;
-  const sub = state.submarine;
-  const speed = kind === 'mk14' ? 9.5 : 8.2;
-  let heading = sub.heading + offset;
-  if (target) {
-    // Lead the contact so straight runners remain usable past point-blank range.
-    const range = Math.hypot(target.x - sub.x, target.y - sub.y);
-    const eta = range / Math.max(0.1, speed);
-    const leadX = target.x + Math.cos(target.heading) * target.speed * eta;
-    const leadY = target.y + Math.sin(target.heading) * target.speed * eta;
-    heading = Math.atan2(leadY - sub.y, leadX - sub.x) + offset;
-  } else if (aimPoint) {
-    heading = Math.atan2(aimPoint.y - sub.y, aimPoint.x - sub.x) + offset;
+const ESCORT_SWEEP_KINDS: ReadonlySet<Ship['kind']> = new Set([
+  'destroyer',
+  'patrol',
+  'cruiser',
+  'battleship',
+]);
+
+/**
+ * Active sweep radius. Deep + silent + not flank is invisible to the sweep.
+ * Other silent boats use a short radius that grows after the opening minute.
+ */
+export function escortSweepRadius(
+  sub: GameState['submarine'],
+  _time: number,
+  jitter: number,
+  pinging: boolean,
+  suspicion = 0,
+): number {
+  const quiet = sub.silentRunning && sub.speedOrder !== 'flank';
+  if (quiet && sub.z >= DEEP_SAFE_DEPTH) return 0;
+  if (quiet) {
+    // Suspicion is encounter-local. Mission time no longer grows the sweep without a cap.
+    const fromHunt = suspicion * ESCORT_QUIET_SWEEP_CAP;
+    return Math.min(ESCORT_QUIET_SWEEP_CAP, ESCORT_QUIET_SWEEP_RADIUS + fromHunt) * jitter;
   }
-  return {
-    id: `${kind}-${state.tick}-${offset}`,
-    owner: 'player',
-    kind,
-    sourceId: 'player',
-    x: sub.x,
-    y: sub.y,
-    z: sub.z,
-    heading,
-    speed,
-    life: kind === 'mk14' ? 8 : 10,
-    // Time arm is a fallback; run-out distance is authoritative in ordnance().
-    armDelay: kind === 'mk14' ? 0.08 : 0.1,
-    damage: (kind === 'mk14' ? 48 : 58) * (1 + sub.weaponTier * 0.18) * (0.7 + sub.sysTubes * 0.3),
-    targetId,
-    turnRate: kind === 'mk14' ? 2.2 : 2.8,
-    run: 0,
-  };
+  // A flank or noisy boat is loud only while it is pinging. Otherwise escorts
+  // still need to close inside ordinary hearing, so a stalk is not a beacon.
+  return (pinging ? ESCORT_LOUD_SWEEP_RADIUS : 8) * jitter;
 }
 
-function makeThreat(
-  state: GameState,
-  kind: ThreatKind,
-  sourceId: string,
-  targetId?: string,
-  sequence = 0,
-) {
-  const source = state.ships.find((ship) => ship.id === sourceId);
-  if (!source || inFob(state)) return null;
-  const target = targetId === 'player' || !targetId ? state.submarine : undefined;
-  if (!target) return null;
-  const heading = Math.atan2(target.y - source.y, target.x - source.x);
-  if (kind === 'torpedo') {
-    return {
-      torpedo: {
-        id: `enemy-${sourceId}-${state.tick}-${sequence}`,
-        owner: 'enemy' as const,
-        kind: 'enemy' as const,
-        sourceId,
-        x: source.x,
-        y: source.y,
-        z: 0.5,
-        heading,
-        speed: 7.5,
-        life: 9,
-        armDelay: 0.05,
-        damage: 42,
-        targetId: 'player',
-        turnRate: state.submarine.noise < 0.22 || state.submarine.silentRunning ? 1.1 : 2.4,
-        run: 0,
-      },
-    };
-  }
-  const threatStats = {
-    depthCharge: { fuse: 1.5, damage: 45, radius: 2.2 },
-    hedgehog: { fuse: 0.95, damage: 27, radius: 0.85 },
-    shell: { fuse: 0.35, damage: 22, radius: 0.8 },
-    bomb: { fuse: 1.1, damage: 28, radius: 1.8 },
-  };
-  const values = threatStats[kind];
-  return {
-    charge: {
-      id: `${kind}-${sourceId}-${state.tick}-${sequence}`,
-      kind,
-      sourceId,
-      x: source.x,
-      y: source.y,
-      z: 0.05,
-      vz: kind === 'shell' ? 0 : 1.6,
-      fuse: values.fuse,
-      damage: values.damage,
-      radius: values.radius,
-      targetDepth: target.z,
-    },
-  };
+/** A merchant or escort that has a fix wakes every warship inside the alarm radius. */
+function spreadAlert(ships: Ship[], state: GameState): Ship[] {
+  const sources = ships.filter(
+    (ship) =>
+      ship.sinking === undefined &&
+      ship.alert > 0.25 &&
+      (ship.kind === 'merchant' || ESCORT_SWEEP_KINDS.has(ship.kind)),
+  );
+  if (sources.length === 0) return ships;
+  return ships.map((ship) => {
+    if (ship.sinking !== undefined || !HUNTER_KINDS.has(ship.kind)) return ship;
+    // A hull that can already hear the boat keeps its own solution.
+    if (hasContact(ship, state)) return ship;
+    let alert = ship.alert;
+    for (const source of sources) {
+      if (source.id === ship.id) continue;
+      if (Math.hypot(ship.x - source.x, ship.y - source.y) > ALERT_SPREAD_RADIUS) continue;
+      // Under the 0.25 pursuit line: a warning, not a firing solution.
+      alert = Math.max(alert, Math.min(source.alert, 0.24));
+    }
+    if (alert === ship.alert) return ship;
+    return { ...ship, alert };
+  });
 }
 
-function applyPlayerDamage(sub: GameState['submarine'], damage: number) {
-  if (sub.invuln > 0) return sub;
-  const actual = damage * (1 - Math.min(0.28, sub.hullTier * 0.08));
-  return {
-    ...sub,
-    hp: clamp(sub.hp - actual, 0, sub.maxHp),
-    sysSonar: clamp(sub.sysSonar - actual / 700, 0, 1),
-    sysPropulsion: clamp(sub.sysPropulsion - actual / 550, 0.2, 1),
-    sysTubes: clamp(sub.sysTubes - actual / 650, 0, 1),
-    sysFlood: clamp(sub.sysFlood + actual / 500, 0, 1),
-    crewStress: clamp(sub.crewStress + actual / 150, 0, 1),
-  };
+/** Signed bow-relative bearing, wrapped to [-π, π]. */
+export function bowRelativeBearing(
+  boatHeading: number,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+): number {
+  const desired = Math.atan2(toY - fromY, toX - fromX);
+  return Math.atan2(Math.sin(desired - boatHeading), Math.cos(desired - boatHeading));
 }
+
+const HUNTER_KINDS: ReadonlySet<Ship['kind']> = new Set([
+  'destroyer',
+  'patrol',
+  'cruiser',
+  'battleship',
+  'sub',
+]);
 
 function applyPickup(sub: GameState['submarine'], pickup: Powerup): GameState['submarine'] {
   switch (pickup.kind) {
@@ -272,17 +241,20 @@ function applyPickup(sub: GameState['submarine'], pickup: Powerup): GameState['s
 }
 
 export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
-  applyCommands(state, commands) {
+  applyCommands(state, commands, dt) {
     let next = state;
     for (const command of commands) {
       if (command.type === 'helm') {
         // Sticky speed orders (0/I/O/P) own targetSpeed. WASD only steers and nudges depth
-        // so holding W cannot fight Flank / 1/3 / Stop.
+        // so holding W cannot fight Flank / 1/3 / Stop. The rudder needs flow —
+        // a stopped boat barely answers the helm.
+        const yawDelta = helmYawDelta(next.submarine, command.yaw);
         next = {
           ...next,
           submarine: {
             ...next.submarine,
-            heading: next.submarine.heading + (command.yaw * 0.85) / 60,
+            heading: next.submarine.heading + yawDelta,
+            yawRate: dt > 0 ? yawDelta / dt : next.submarine.yawRate,
             targetDepth: clampDepth(next.submarine.targetDepth + command.depth * 0.015),
           },
         };
@@ -359,6 +331,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
                 targetId: command.targetId ?? next.selectedTargetId,
                 phase: 'approach',
                 phaseTimer: 0,
+                emergency: false,
                 // Grace prevents the select tick from instantly firing + breakaway-fleeing.
                 shotTimer:
                   command.tactic &&
@@ -407,7 +380,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             }),
           };
         }
-      } else if (command.type === 'toggleSilentRunning')
+      } else if (command.type === 'emergencySurface') next = emergencySurface(next);
+      else if (command.type === 'toggleSilentRunning')
         next = {
           ...next,
           submarine: { ...next.submarine, silentRunning: !next.submarine.silentRunning },
@@ -438,6 +412,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             ...next,
             torpedoes: threat.torpedo ? [...next.torpedoes, threat.torpedo] : next.torpedoes,
             depthCharges: threat.charge ? [...next.depthCharges, threat.charge] : next.depthCharges,
+            shells: threat.shell ? [...next.shells, threat.shell] : next.shells,
           };
       } else if (command.type === 'fireWeapon') {
         const sub = next.submarine;
@@ -466,10 +441,17 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
           };
           continue;
         }
+        // A sinking hull is no longer a firing solution — fall through to the
+        // nearest live contact rather than aiming at the dying wreck.
         const target = usePointAim
           ? undefined
-          : (next.ships.find((ship) => ship.id === next.selectedTargetId) ??
-            next.ships.find((ship) => Math.hypot(ship.x - sub.x, ship.y - sub.y) <= 6));
+          : (next.ships.find(
+              (ship) => ship.id === next.selectedTargetId && ship.sinking === undefined,
+            ) ??
+            next.ships.find(
+              (ship) =>
+                ship.sinking === undefined && Math.hypot(ship.x - sub.x, ship.y - sub.y) <= 6,
+            ));
         // Prefer selected target; otherwise lock the nearest ship in engagement range.
         const engage = usePointAim
           ? undefined
@@ -489,7 +471,40 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         }
         const aim = fireTarget ?? target;
         const pointAim = usePointAim ? next.aimPoint : null;
-        if (next.weaponMode === 'decoy' && sub.decoys > 0) {
+        const deckRange =
+          fireTarget && sub.z < 0.14
+            ? Math.hypot(fireTarget.x - sub.x, fireTarget.y - sub.y)
+            : Infinity;
+        if (
+          next.weaponMode === 'torpedo' &&
+          fireTarget &&
+          sub.z < 0.14 &&
+          deckRange < 8.5 &&
+          sub.sysTubes >= 0.2
+        ) {
+          // Deck gun fires a real shell now — the hit lands when the round splashes.
+          const fired = makeShell(
+            next,
+            'player',
+            'player',
+            sub.x,
+            sub.y,
+            fireTarget.x,
+            fireTarget.y,
+            0.5,
+            next.rngState,
+          );
+          next = {
+            ...next,
+            rngState: fired.rngState,
+            submarine: { ...sub, noise: clamp(sub.noise + 0.42, 0, 1) },
+            shells: [...next.shells, fired.shell],
+            messages: [
+              ...next.messages,
+              { id: `deck-${next.tick}`, text: `DECK GUN → ${fireTarget.name}`, ttl: 1.8 },
+            ],
+          };
+        } else if (next.weaponMode === 'decoy' && sub.decoys > 0) {
           const cm: Countermeasure = {
             id: `foxer-${next.tick}`,
             kind: 'foxer',
@@ -603,7 +618,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         (next.autopilot.tactic === 'ambush' && distance > 3.2 && distance < 10) ||
         (next.autopilot.tactic === 'stalk' && distance > 4 && distance < 10) ||
         (next.autopilot.tactic === 'intercept' && distance < 9);
-      if (ready && inWindow) {
+      // Steering assistance stays on. Only this flag may spend ammunition.
+      if (ready && inWindow && next.assistanceAutoFire) {
         const firing =
           next.autopilot.tactic === 'intercept' && next.submarine.seekers > 0
             ? 'seeker'
@@ -621,6 +637,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
               shotTimer: next.autopilot.tactic === 'stalk' ? 8 : 5,
               phase: 'breakaway',
               phaseTimer: 0,
+              emergency: false,
             },
           };
         }
@@ -636,11 +653,13 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     let delta = desired - state.submarine.heading;
     while (delta > Math.PI) delta -= Math.PI * 2;
     while (delta < -Math.PI) delta += Math.PI * 2;
+    const turn = clamp(delta, -0.9 / 60, 0.9 / 60) * rudderAuthority(state.submarine);
     return {
       ...state,
       submarine: {
         ...state.submarine,
-        heading: state.submarine.heading + clamp(delta, -0.9 / 60, 0.9 / 60),
+        heading: state.submarine.heading + turn,
+        yawRate: dt > 0 ? turn / dt : state.submarine.yawRate,
       },
     };
   },
@@ -654,8 +673,12 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       sub.battery <= 0 && !sub.snorkel && sub.z > 0.12 ? 0.35 : Infinity,
       sub.maxSpeed * (0.45 + sub.sysPropulsion * 0.55),
     );
-    sub.speed += (wanted - sub.speed) * Math.min(1, 1.8 * dt);
-    sub.z = clampDepth(sub.z + (sub.targetDepth - sub.z) * Math.min(1, 1.8 * dt));
+    const diving = Math.abs(sub.targetDepth - sub.z) > 0.04;
+    sub.speed = approachSpeed(sub.speed, wanted * (diving ? 0.82 : 1), dt);
+    const depth = advanceDepth(sub, dt);
+    sub.z = depth.z;
+    sub.depthRate = depth.depthRate;
+    sub.blowTimer = depth.blowTimer;
     const nx = sub.x + Math.cos(sub.heading) * sub.speed * dt;
     const ny = sub.y + Math.sin(sub.heading) * sub.speed * dt;
     if (state.worldVersion === 'littoral-v2') {
@@ -700,6 +723,9 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     sub.cmCooldown = Math.max(0, sub.cmCooldown - dt);
     sub.invuln = Math.max(0, sub.invuln - dt);
     sub.displayHeading = sub.heading;
+    // Bank follows this step's realized yaw; turn sites rewrite yawRate each step.
+    sub.bank = advanceBank(sub, dt);
+    sub.yawRate = 0;
     sub.noise = clamp(
       0.08 +
         (sub.speed / Math.max(0.01, sub.maxSpeed)) * 0.55 +
@@ -723,12 +749,31 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       x = safe.x;
       y = safe.y;
     }
+    // Lift the hull before the crush test. Autopilot may still be ordering Deep;
+    // a hull already above the ceiling takes no rock damage this step.
+    const limit = hullDepthLimit(terrain, x, y);
+    const z = Math.min(clampDepth(sub.z), limit);
     const crush =
-      sub.invuln <= 0 && !inFob(state, x, y) && isCrushedBySeamount(terrain, x, y, sub.z)
+      sub.invuln <= 0 && !inFob(state, x, y) && isCrushedBySeamount(terrain, x, y, z)
         ? SEAMOUNT_CRUSH_DPS * dt
         : 0;
-    const hp = clamp(sub.hp - crush, 0, sub.maxHp);
-    return { ...state, submarine: { ...sub, x, y, z: clampDepth(sub.z), hp } };
+    // Absolute-depth hull stress — the boat groans past the deep limit no
+    // matter what the local terrain says.
+    const stress = sub.invuln <= 0 && !inFob(state, x, y) ? hullStressDamage(z, dt) : 0;
+    const hp = clamp(sub.hp - crush - stress, 0, sub.maxHp);
+    const targetDepth = Math.min(sub.targetDepth, limit);
+    return {
+      ...state,
+      submarine: {
+        ...sub,
+        x,
+        y,
+        z,
+        targetDepth,
+        hp,
+        lastDamage: crush > 0 || stress > 0 ? 'ground' : sub.lastDamage,
+      },
+    };
   },
   sonar: (state, _commands, dt) => updateSonar(state, dt),
   enemies(state, _commands, dt) {
@@ -736,22 +781,62 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     const sub = state.submarine;
     const torpedoes = [...state.torpedoes];
     const depthCharges = [...state.depthCharges];
+    const shells = [...state.shells];
+    let rngState = state.rngState;
+    let sweepJitter = 1;
+    const sweepPulse =
+      Math.floor(state.time / ESCORT_SWEEP_PERIOD) !==
+      Math.floor((state.time - dt) / ESCORT_SWEEP_PERIOD);
+    if (sweepPulse) {
+      const roll = nextRandom(rngState);
+      rngState = roll.state;
+      sweepJitter = 0.9 + roll.value * 0.2;
+    }
+    // Doctrine slots are claimed from the *current* state, not the map in
+    // progress — that is what keeps the attack-run cap honest.
+    const attackRunners = state.ships.filter(
+      (other) =>
+        DOCTRINE_KINDS.has(other.kind) &&
+        other.doctrine === 'attackRun' &&
+        other.sinking === undefined,
+    ).length;
+    // Ships that commit to a run in this same pass also claim a slot, so two
+    // escorts cannot pounce simultaneously on a fresh fix.
+    let claimedRuns = 0;
+    const chargesBefore = depthCharges.length;
+    const torpedoesBefore = torpedoes.length;
     const ships = state.ships.map((ship) => {
       if (ship.sinking !== undefined) return ship;
       const distance = Math.hypot(ship.x - sub.x, ship.y - sub.y);
-      const listenerDepth = ship.kind === 'sub' ? 0.35 : 0.02;
-      const masking = state.countermeasures.some(
-        (cm) => Math.hypot(cm.x - sub.x, cm.y - sub.y) <= cm.radius,
-      )
-        ? 0.5
-        : 1;
-      const detected =
-        distance <= passiveRange(ship.kind, sub.noise, listenerDepth, sub.z, masking) ||
-        (state.sonarPing > 0 && distance <= 24);
-      const holdContact = detected
+      const suspicionIn = ship.suspicion ?? 0;
+      const sweepRadius = escortSweepRadius(
+        sub,
+        state.time,
+        sweepJitter,
+        state.sonarPing > 0,
+        suspicionIn,
+      );
+      const hunting =
+        ESCORT_SWEEP_KINDS.has(ship.kind) && sweepRadius > 0 && distance <= sweepRadius;
+      const suspicion = ESCORT_SWEEP_KINDS.has(ship.kind)
+        ? clamp(suspicionIn + (hunting ? dt * 0.25 : -dt * 0.08), 0, 1)
+        : suspicionIn;
+      const detected = hasContact(ship, state);
+      const bubbleScreen = state.countermeasures.some(
+        (cm) => cm.kind === 'bubble' && Math.hypot(cm.x - sub.x, cm.y - sub.y) <= cm.radius,
+      );
+      const swept =
+        sweepPulse &&
+        sweepRadius > 0 &&
+        ESCORT_SWEEP_KINDS.has(ship.kind) &&
+        distance <= sweepRadius;
+      const contactDrain = 0.45 * (bubbleScreen ? BUBBLE_HOLD_DRAIN : 1);
+      let holdContact = detected
         ? Math.min(8, ship.holdContact + dt)
-        : Math.max(0, ship.holdContact - dt * 0.45);
-      const alert = clamp(
+        : Math.max(0, ship.holdContact - dt * contactDrain);
+      let lastKnownX = detected ? sub.x : ship.lastKnownX;
+      let lastKnownY = detected ? sub.y : ship.lastKnownY;
+      let alert = clamp(
         ship.alert +
           (detected ? dt * 0.3 : -dt * 0.06) -
           (state.countermeasures.some(
@@ -762,6 +847,15 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         0,
         1,
       );
+      if (swept) {
+        alert = Math.max(alert, 0.4);
+        holdContact = Math.max(holdContact, 1);
+        lastKnownX = sub.x;
+        lastKnownY = sub.y;
+      }
+      // A ping intercept is bearing-only: it raises the alarm net far beyond
+      // passive range but never sets the datum the doctrine hunts.
+      if (canHearPing(ship, state)) alert = Math.max(alert, 0.4);
       const clear = makeClear(terrain, shipClearRadius(ship.kind));
       const anchor = ship.formationAnchorId
         ? state.ships.find(
@@ -769,51 +863,101 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
           )
         : undefined;
       let path = ship.path;
-      let pursuit: number;
-      if (alert > 0.25 && holdContact > 0) {
-        pursuit = Math.atan2(sub.y - ship.y, sub.x - ship.x);
-      } else if (anchor) {
-        pursuit = formationSlotHeading(ship, anchor);
+      let basePursuit: number;
+      if (anchor) {
+        basePursuit = formationSlotHeading(ship, anchor, state.time);
       } else if (path.length > 0) {
         let goal = path[0]!;
         if (Math.hypot(ship.x - goal.x, ship.y - goal.y) < 1.35) {
           path = [...path.slice(1), goal];
           goal = path[0]!;
         }
-        pursuit = Math.atan2(goal.y - ship.y, goal.x - ship.x);
+        basePursuit = Math.atan2(goal.y - ship.y, goal.x - ship.x);
       } else {
-        pursuit = ship.heading + Math.sin((state.time + ship.patrolIndex) * 0.15) * 0.12;
+        basePursuit = ship.heading + Math.sin((state.time + ship.patrolIndex) * 0.15) * 0.12;
       }
+      const chase =
+        alert > 0.25 && holdContact > 0 && lastKnownX !== undefined && lastKnownY !== undefined
+          ? Math.atan2(lastKnownY - ship.y, lastKnownX - ship.x)
+          : null;
+      // Battle doctrine: escorts hunt a predicted datum track, merchants
+      // zig-zag or scatter. Both may override heading, speed, and weapons.
+      let doctrineFields: Partial<Ship> = {};
+      let doctrineSuspicion: number | undefined;
+      let intentHeading: number | null = null;
+      let intentSpeedFrac: number | null = null;
+      let drop: 'pattern' | 'hedgehog' | null = null;
+      let aimX: number | undefined;
+      let aimY: number | undefined;
+      if (DOCTRINE_KINDS.has(ship.kind)) {
+        const fix = detected || swept ? { x: sub.x, y: sub.y } : null;
+        const intent = escortIntent(
+          { ...ship, alert, holdContact },
+          fix,
+          state,
+          dt,
+          attackRunners + claimedRuns,
+        );
+        const updated = intent.ship;
+        if (updated.doctrine === 'attackRun' && ship.doctrine !== 'attackRun') claimedRuns += 1;
+        doctrineFields = {
+          doctrine: updated.doctrine,
+          datumX: updated.datumX,
+          datumY: updated.datumY,
+          datumVx: updated.datumVx,
+          datumVy: updated.datumVy,
+          doctrineTimer: updated.doctrineTimer,
+          lastFixTime: updated.lastFixTime,
+        };
+        // Search give-up resets suspicion inside the doctrine step.
+        doctrineSuspicion = updated.suspicion;
+        intentHeading = intent.heading;
+        intentSpeedFrac = intent.speedFrac;
+        drop = intent.action;
+        aimX = intent.aimX;
+        aimY = intent.aimY;
+      } else if (ship.kind === 'merchant') {
+        const intent = merchantIntent(ship, basePursuit, state, dt);
+        doctrineFields = {
+          scatterTimer: intent.ship.scatterTimer,
+          scatterX: intent.ship.scatterX,
+          scatterY: intent.ship.scatterY,
+        };
+        intentHeading = intent.heading;
+        intentSpeedFrac = intent.speedFrac;
+      }
+      const pursuit =
+        intentHeading ?? (ship.kind === 'merchant' ? basePursuit : chase ?? basePursuit);
       const lookAhead = Math.max(2.8, ship.speed * 1.8);
-      const heading = turnToward(
+      let heading = turnToward(
         ship.heading,
         steerAvoid(ship.x, ship.y, pursuit, lookAhead, clear),
         shipTurnRate[ship.kind] * (alert > 0.25 ? 1 : 0.72),
         dt,
       );
       // Cruise on patrol; full class speed only when alerted / pursuing.
-      const moveSpeed = alert > 0.25 && holdContact > 0 ? ship.speed : ship.speed * 0.62;
+      // Doctrine may order an explicit fraction of class max. Flooding and a
+      // wrecked stern shave real speed off the order.
+      const mobility = ship.speedFactor * (1 - 0.6 * ship.flooding);
+      const moveSpeed =
+        (intentSpeedFrac !== null
+          ? shipMaxSpeed[ship.kind] * intentSpeedFrac
+          : alert > 0.25 && holdContact > 0
+            ? ship.speed
+            : ship.speed * 0.62) * mobility;
       let x = clampSim(ship.x + Math.cos(heading) * moveSpeed * dt);
       let y = clampSim(ship.y + Math.sin(heading) * moveSpeed * dt);
       // Hard land clamp — soft steering alone still overshoots into islands.
       if (!clear(x, y)) {
-        let resolved = false;
-        for (let radius = 1; radius <= 10 && !resolved; radius++) {
-          for (let dy = -radius; dy <= radius && !resolved; dy++) {
-            for (let dx = -radius; dx <= radius; dx++) {
-              if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
-              const px = clampSim(ship.x + dx);
-              const py = clampSim(ship.y + dy);
-              if (clear(px, py)) {
-                x = px;
-                y = py;
-                resolved = true;
-                break;
-              }
-            }
-          }
-        }
-        if (!resolved) {
+        const stepped = resolveClearStep(ship.x, ship.y, heading, x, y, clear, (px, py) => ({
+          x: clampSim(px),
+          y: clampSim(py),
+        }));
+        if (clear(stepped.x, stepped.y)) {
+          x = stepped.x;
+          y = stepped.y;
+          heading = stepped.heading;
+        } else {
           const safe = snapToNavigable(terrain, x, y, 0.05);
           x = safe.x;
           y = safe.y;
@@ -824,245 +968,217 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         heading,
         x,
         y,
+        actualSpeed: moveSpeed,
         alert,
         holdContact,
+        lastKnownX,
+        lastKnownY,
         path,
+        suspicion: doctrineSuspicion ?? suspicion,
         weaponCooldown: Math.max(0, ship.weaponCooldown - dt),
+        ...doctrineFields,
       };
-      if (next.weaponCooldown > 0 || !detected || inFob(state)) return next;
+      if (next.weaponCooldown > 0 || inFob(state) || state.submarine.invuln > 0)
+        return next;
+      // Doctrine-driven ordnance works the predicted datum — no live fix needed
+      // at release, the run already committed to it.
+      if (drop === 'hedgehog') {
+        depthCharges.push(...hedgehogEllipse(state, next, aimX, aimY));
+        return { ...next, weaponCooldown: DC_PATTERN_COOLDOWN };
+      }
+      if (drop === 'pattern' && sub.z > 0.12) {
+        const pattern = depthChargePattern(state, next, rngState);
+        rngState = pattern.rngState;
+        depthCharges.push(...pattern.charges);
+        return { ...next, weaponCooldown: DC_PATTERN_COOLDOWN };
+      }
+      if (!detected) return next;
       const shallow = sub.z < 0.18;
       if (ship.kind === 'sub' && distance >= 2.5 && distance <= 14 && alert > 0.45) {
         const threat = makeThreat(state, 'torpedo', ship.id);
         if (threat?.torpedo) torpedoes.push(threat.torpedo);
         return { ...next, weaponCooldown: 7 + ((state.seed + state.tick + ship.patrolIndex) % 4) };
       }
-      if (
-        ship.kind === 'battleship' &&
-        !shallow &&
-        sub.z > 0.12 &&
-        distance <= DC_ENGAGE_RANGE &&
-        alert > 0.45
-      ) {
-        const threat = makeThreat(state, 'depthCharge', ship.id);
-        if (threat?.charge) depthCharges.push(threat.charge);
-        return { ...next, weaponCooldown: 4.5 };
-      }
-      if (
-        (ship.kind === 'destroyer' || ship.kind === 'patrol' || ship.kind === 'cruiser') &&
-        sub.z > 0.12 &&
-        distance < 5.5 &&
-        alert > 0.6 &&
-        holdContact > 1.5
-      ) {
-        for (let index = 0; index < 6; index++) {
-          const threat = makeThreat(state, 'hedgehog', ship.id, 'player', index);
-          if (threat?.charge)
-            depthCharges.push({
-              ...threat.charge,
-              x: threat.charge.x + Math.cos((index * Math.PI) / 3) * 0.8,
-              y: threat.charge.y + Math.sin((index * Math.PI) / 3) * 0.45,
-            });
-        }
-        return { ...next, weaponCooldown: 5.5 + ((state.seed + ship.patrolIndex) % 2) };
-      }
-      if (shallow && distance < (ship.kind === 'battleship' ? 10 : 7) && ship.kind !== 'merchant') {
-        const threat = makeThreat(state, 'shell', ship.id);
-        if (threat?.charge) depthCharges.push(threat.charge);
-        return { ...next, weaponCooldown: 2.8 };
+      if (shallow && distance < (ship.kind === 'battleship' ? DECK_GUN_RANGE : 7) && ship.kind !== 'merchant') {
+        // Battleships only shoot now; every warship's deck gun fires a live shell.
+        const aim = enemyShellAim(state, ship);
+        const fired = makeShell(
+          state,
+          'enemy',
+          ship.id,
+          ship.x,
+          ship.y,
+          aim.x,
+          aim.y,
+          shellDispersionScale(ship),
+          rngState,
+        );
+        rngState = fired.rngState;
+        shells.push(fired.shell);
+        return { ...next, weaponCooldown: DECK_GUN_RELOAD };
       }
       return next;
     });
-    return { ...state, ships, torpedoes, depthCharges };
+    const spread = spreadAlert(ships, state);
+    const released = releaseCallouts(
+      state,
+      depthCharges.slice(chargesBefore),
+      torpedoes.slice(torpedoesBefore),
+    );
+    return {
+      ...state,
+      rngState,
+      ships: separateShips(spread),
+      torpedoes,
+      depthCharges,
+      shells,
+      messages: released.length > 0 ? [...state.messages, ...released] : state.messages,
+    };
   },
   aircraft(state, _commands, dt) {
     let cooldown = state.aircraftCooldown - dt;
-    let aircraft = state.aircraft
-      .map((plane) => ({
-        ...plane,
-        x: plane.x + Math.cos(plane.heading) * 7.5 * dt,
-        y: plane.y + Math.sin(plane.heading) * 7.5 * dt,
-        life: plane.life - dt,
-      }))
+    const sub = state.submarine;
+    const seesBoat = sub.z <= 0.3;
+    const cues: { x: number; y: number }[] = [];
+    const AIRCRAFT_SPEED = 7.5;
+    const ORBIT_RADIUS = 3;
+    let aircraft: GameState['aircraft'] = state.aircraft
+      .map((plane) => {
+        // The datum tracks the boat only while the plane can still see it;
+        // once the boat goes deep the plane orbits the last fix.
+        let datumX = plane.datumX;
+        let datumY = plane.datumY;
+        if (seesBoat) {
+          datumX = sub.x;
+          datumY = sub.y;
+        }
+        let heading = plane.heading;
+        let cueTimer = (plane.cueTimer ?? 5) - dt;
+        if (!seesBoat && datumX !== undefined && datumY !== undefined) {
+          const angle = Math.atan2(plane.y - datumY, plane.x - datumX);
+          const sweep = (AIRCRAFT_SPEED * dt) / ORBIT_RADIUS;
+          const aimX = datumX + Math.cos(angle + sweep) * ORBIT_RADIUS;
+          const aimY = datumY + Math.sin(angle + sweep) * ORBIT_RADIUS;
+          heading = Math.atan2(aimY - plane.y, aimX - plane.x);
+          // Every few seconds the circling plane cues the escorts to its datum.
+          if (cueTimer <= 0) {
+            cueTimer = 5;
+            cues.push({ x: datumX, y: datumY });
+          }
+        }
+        return {
+          ...plane,
+          x: plane.x + Math.cos(heading) * AIRCRAFT_SPEED * dt,
+          y: plane.y + Math.sin(heading) * AIRCRAFT_SPEED * dt,
+          heading,
+          datumX,
+          datumY,
+          cueTimer,
+          life: plane.life - dt,
+        };
+      })
       .filter((plane) => plane.life > 0);
-    const depthSignature = state.submarine.z < 0.12 ? 0.95 : state.submarine.z < 0.3 ? 0.55 : 0.1;
+    const depthSignature = sub.z < 0.12 ? 0.95 : sub.z < 0.3 ? 0.55 : 0.1;
     const depthCharges = [...state.depthCharges];
     if (aircraft.length === 0 && cooldown <= 0) {
       aircraft = [
         {
           id: `aircraft-${state.tick}`,
-          x: state.submarine.x - 12,
-          y: state.submarine.y - 12,
+          x: sub.x - 12,
+          y: sub.y - 12,
           heading: Math.atan2(12, 12),
           life: 28,
           cooldown: 0,
           active: true,
+          cueTimer: 5,
         },
       ];
       cooldown = 55 + ((state.seed + state.tick) % 41);
     }
+    let bombed = false;
     for (const plane of aircraft) {
-      const distance = Math.hypot(plane.x - state.submarine.x, plane.y - state.submarine.y);
-      if (distance < 6 && depthSignature > 0.35 && state.submarine.noise > 0.15) {
-        depthCharges.push({
-          id: `bomb-${plane.id}-${state.tick}`,
-          kind: 'bomb',
-          sourceId: plane.id,
-          x: plane.x,
-          y: plane.y,
-          z: 0.05,
-          vz: 1.6,
-          fuse: 1.1,
-          damage: 28,
-          radius: 1.8,
-          targetDepth: state.submarine.z,
-        });
-        return {
-          ...state,
-          aircraft: [],
-          aircraftCooldown: cooldown,
-          depthCharges,
-          ships: state.ships.map((ship) => ({ ...ship, alert: clamp(ship.alert + 0.3, 0, 1) })),
-        };
+      const distance = Math.hypot(plane.x - sub.x, plane.y - sub.y);
+      if (distance < 6 && depthSignature > 0.35 && sub.noise > 0.15) {
+        depthCharges.push(aircraftBomb(state, plane));
+        bombed = true;
+        break;
       }
     }
-    return { ...state, aircraft, aircraftCooldown: cooldown, depthCharges };
+    let ships = state.ships;
+    if (cues.length > 0) {
+      ships = ships.map((ship) => {
+        const cue = cues.find(
+          (point) => Math.hypot(ship.x - point.x, ship.y - point.y) <= 30,
+        );
+        if (!cue) return ship;
+        return {
+          ...ship,
+          lastKnownX: cue.x,
+          lastKnownY: cue.y,
+          alert: Math.max(ship.alert, 0.3),
+        };
+      });
+    }
+    if (bombed) {
+      const released = releaseCallouts(state, depthCharges.slice(state.depthCharges.length), []);
+      return {
+        ...state,
+        aircraft: [],
+        aircraftCooldown: cooldown,
+        depthCharges,
+        ships: ships.map((ship) => ({ ...ship, alert: clamp(ship.alert + 0.3, 0, 1) })),
+        messages: released.length > 0 ? [...state.messages, ...released] : state.messages,
+      };
+    }
+    return { ...state, aircraft, aircraftCooldown: cooldown, depthCharges, ships };
   },
   ordnance(state, _commands, dt) {
-    const ships = state.ships.map((ship) => ({ ...ship }));
-    let submarine = { ...state.submarine };
-    const messages = [...state.messages];
-    let damageDealt = 0;
-    const torpedoes = state.torpedoes.flatMap((torpedo) => {
-      const prevX = torpedo.x;
-      const prevY = torpedo.y;
-      const step = torpedo.speed * dt;
-      let next = {
-        ...torpedo,
-        x: torpedo.x + Math.cos(torpedo.heading) * step,
-        y: torpedo.y + Math.sin(torpedo.heading) * step,
-        life: torpedo.life - dt,
-        armDelay: torpedo.armDelay - dt,
-        run: (torpedo.run ?? 0) + step,
-      };
-      if (next.kind === 'mk18' && next.targetId) {
-        const guide = ships.find((ship) => ship.id === next.targetId);
-        if (guide)
-          next = {
-            ...next,
-            heading: turnToward(
-              next.heading,
-              Math.atan2(guide.y - next.y, guide.x - next.x),
-              next.turnRate,
-              dt,
-            ),
-          };
-      }
-      const foxer =
-        next.owner === 'enemy' &&
-        state.countermeasures.find(
-          (cm) => cm.kind === 'foxer' && Math.hypot(cm.x - next.x, cm.y - next.y) <= cm.radius,
-        );
-      if (foxer) {
-        next = {
-          ...next,
-          heading: turnToward(
-            next.heading,
-            Math.atan2(foxer.y - next.y, foxer.x - next.x),
-            next.turnRate,
-            dt,
-          ),
-        };
-        if (Math.hypot(next.x - foxer.x, next.y - foxer.y) < 0.7) return [];
-      }
-      const armed = next.armDelay <= 0 || next.run >= TORPEDO_ARM_RUN;
-      if (armed && next.owner === 'player') {
-        const hits = ships.filter(
-          (ship) =>
-            !ship.sinking &&
-            distPointSegment(ship.x, ship.y, prevX, prevY, next.x, next.y) <= shipRadius(ship),
-        );
-        const preferred = next.targetId
-          ? hits.find((ship) => ship.id === next.targetId)
-          : undefined;
-        const victim = preferred ?? hits[0];
-        if (victim) {
-          const applied = Math.min(next.damage, Math.max(0, victim.hp));
-          victim.hp -= next.damage;
-          damageDealt += applied;
-          if (victim.hp <= 0) victim.sinking = 0.05;
-          messages.push({
-            id: `hit-${next.id}-${state.tick}`,
-            text: victim.hp <= 0 ? `HIT · ${victim.name} BREAKING UP` : `HIT · ${victim.name}`,
-            ttl: 2.8,
-          });
-          return [];
-        }
-      }
-      if (
-        armed &&
-        next.owner === 'enemy' &&
-        Math.hypot(next.x - submarine.x, next.y - submarine.y) <= 0.95 &&
-        Math.abs(next.z - submarine.z) < 0.4 &&
-        !inFob(state)
-      ) {
-        submarine = applyPlayerDamage(submarine, next.damage);
-        return [];
-      }
-      return next.life > 0 ? [next] : [];
-    });
-    const depthCharges = state.depthCharges.flatMap((charge) => {
-      const next = { ...charge, z: clampDepth(charge.z + charge.vz * dt), fuse: charge.fuse - dt };
-      if (next.fuse > 0) return [next];
-      const distance = Math.hypot(next.x - submarine.x, next.y - submarine.y);
-      if (
-        !inFob(state) &&
-        distance <= next.radius &&
-        Math.abs(next.targetDepth - submarine.z) <= next.radius
-      ) {
-        const bubble = state.countermeasures.some(
-          (cm) =>
-            cm.kind === 'bubble' && Math.hypot(cm.x - submarine.x, cm.y - submarine.y) <= cm.radius,
-        );
-        submarine = applyPlayerDamage(
-          submarine,
-          next.damage * (1 - distance / next.radius) * (bubble ? 0.75 : 1),
-        );
-      }
-      return [];
-    });
-    return {
-      ...state,
-      ships,
-      torpedoes,
-      depthCharges,
-      submarine,
-      messages,
-      stats:
-        damageDealt > 0
-          ? { ...state.stats, damageDealt: state.stats.damageDealt + damageDealt }
-          : state.stats,
-    };
+    return advanceOrdnance(state, dt);
   },
   damage(state, _commands, dt) {
     let sunk = 0;
     let sunkScore = 0;
+    const mortal: GameMessage[] = [];
     const ships = state.ships.flatMap((ship) => {
-      if (ship.sinking === undefined) return [ship];
-      const sinking = ship.sinking - dt;
-      if (sinking > 0) return [{ ...ship, sinking }];
-      sunk++;
-      sunkScore += scoreFor(ship);
-      return [];
+      const outcome = advanceShipDamage(ship, dt);
+      if (outcome.ship === null) {
+        sunk++;
+        sunkScore += scoreFor(ship);
+        return [];
+      }
+      if (outcome.becameSinking) {
+        mortal.push({
+          id: `mortal-flood-${ship.id}-${state.tick}`,
+          text: `MORTALLY HIT · ${ship.name}`,
+          ttl: 4,
+        });
+      }
+      return [outcome.ship];
     });
-    if (!sunk) return ships === state.ships ? state : { ...state, ships };
+    if (!sunk) {
+      if (mortal.length === 0 && ships.every((ship, index) => ship === state.ships[index]))
+        return state;
+      return { ...state, ships, messages: [...state.messages, ...mortal] };
+    }
     const shipsSunk = state.stats.shipsSunk + sunk;
     const waveCleared = ships.length === 0;
     const victory = waveCleared && shipsSunk >= VICTORY_TARGET;
+    // Only drop the firing solution when the locked ship went down — a screening
+    // escort eating a fish meant for the merchant must not clear the TDC.
+    const targetGone =
+      state.selectedTargetId !== null &&
+      !ships.some((ship) => ship.id === state.selectedTargetId);
+    // Each kill salvages a Mk-14 so a long fight keeps its teeth without docking.
+    const submarine = {
+      ...state.submarine,
+      torpedoes: Math.min(state.submarine.maxTorpedoes, state.submarine.torpedoes + sunk),
+    };
     return {
       ...state,
       ships,
-      selectedTargetId: null,
-      aimPoint: null,
+      submarine,
+      selectedTargetId: targetGone ? null : state.selectedTargetId,
+      aimPoint: targetGone ? null : state.aimPoint,
       stats: {
         ...state.stats,
         shipsSunk,
@@ -1071,6 +1187,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       },
       messages: [
         ...state.messages,
+        ...mortal,
         { id: `sunk-${state.tick}`, text: victory ? 'SECTOR CLEARED' : 'SHIP SUNK', ttl: 6 },
       ],
       ...(victory ? { phase: 'victory' as const } : {}),
@@ -1119,33 +1236,74 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             })),
           ]
         : remaining;
-    const waveCleared = state.ships.length === 0 && state.stats.shipsSunk < VICTORY_TARGET;
-    const nextStats = {
-      ...stats,
-      wave: waveCleared ? stats.wave + 1 : stats.wave,
-      powerupsTaken: stats.powerupsTaken + collected.length,
-    };
-    const nextPowerups = waveCleared
-      ? [...powerups, ...seedPowerups(state.seed + stats.wave * 101, 3, state.worldVersion)].slice(
-          0,
-          PICKUP_MAX,
-        )
-      : powerups;
+    const boardEmpty =
+      state.scenario !== 'convoy-strike' &&
+      state.phase === 'playing' &&
+      state.ships.length === 0 &&
+      state.stats.shipsSunk < VICTORY_TARGET;
+    const inbound = state.messages.find((message) => /^WAVE \d+ INBOUND$/.test(message.text));
+    const spawnWave = boardEmpty && inbound !== undefined && inbound.ttl <= dt;
+    const holding = boardEmpty && !spawnWave;
+    const gatedPowerups = holding ? remaining : powerups;
+    const gatedRespawn = holding
+      ? Math.max(pickupRespawn, dt)
+      : pickupRespawn <= 0
+        ? PICKUP_RESPAWN
+        : pickupRespawn;
+    const nextWave = stats.wave + 1;
+    const messages = !boardEmpty
+      ? state.messages
+      : spawnWave
+        ? state.messages.filter((message) => message !== inbound)
+        : inbound
+          ? state.messages
+          : [
+              ...state.messages,
+              {
+                id: `wave-inbound-${nextWave}`,
+                text: `WAVE ${nextWave} INBOUND`,
+                ttl: WAVE_BREATHER,
+              },
+            ];
+    const nextPowerups = spawnWave
+      ? [
+          ...gatedPowerups,
+          ...seedPowerups(state.seed + stats.wave * 101, 3, state.worldVersion),
+        ].slice(0, PICKUP_MAX)
+      : gatedPowerups;
     return {
       ...state,
       submarine: sub,
-      stats: nextStats,
+      stats: {
+        ...stats,
+        wave: spawnWave ? nextWave : stats.wave,
+        powerupsTaken: stats.powerupsTaken + collected.length,
+      },
       powerups: nextPowerups,
+      messages,
       dockHold,
-      pickupRespawn: pickupRespawn <= 0 ? PICKUP_RESPAWN : pickupRespawn,
-      ships: waveCleared
-        ? seedWave(state.seed, stats.wave + 1, undefined, state.worldVersion)
+      pickupRespawn: gatedRespawn,
+      ships: spawnWave
+        ? seedWave(state.seed, nextWave, undefined, state.worldVersion)
         : state.ships,
     };
   },
   cleanupEvents: (state, _commands, dt) => ({
     ...state,
-    phase: state.submarine.hp <= 0 ? 'gameover' : state.phase,
+    phase:
+      state.submarine.hp <= 0
+        ? 'gameover'
+        : state.scenario === 'convoy-strike' &&
+            state.phase === 'playing' &&
+            state.strikeExit != null &&
+            !state.ships.some((ship) => ship.id === 'strike-merchant') &&
+            state.stats.shipsSunk > 0 &&
+            Math.hypot(
+              state.submarine.x - state.strikeExit.x,
+              state.submarine.y - state.strikeExit.y,
+            ) <= 4
+          ? 'victory'
+          : state.phase,
     countermeasures: state.countermeasures
       .filter((cm) => cm.life - dt > 0)
       .map((cm) => ({ ...cm, life: cm.life - dt })),

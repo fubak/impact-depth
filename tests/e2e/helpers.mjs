@@ -7,6 +7,9 @@ export const SMOKE_TIMEOUT_MS = Number(process.env.BROWSER_SMOKE_TIMEOUT_MS || 4
 export const E2E_TIMEOUT_MS = Number(process.env.BROWSER_E2E_TIMEOUT_MS || 45000);
 export const POLL_MS = 100;
 
+/** Default patrol view mode after beginPatrol (OD4). */
+export const DEFAULT_PATROL_MODE = 'chase';
+
 /** Chromium launch args suitable for headless CI containers. */
 export const CHROMIUM_ARGS = ['--no-sandbox', '--disable-dev-shm-usage'];
 
@@ -442,20 +445,51 @@ export async function orbitTacticalCamera(page, dx = 180, dy = 40) {
  * @param {{ x?: number, y?: number }} [offset] client offset from canvas top-left
  * @returns {Promise<{ x: number, y: number, text: string }>}
  */
+/**
+ * Click the ocean canvas with a real mouse event.
+ * `locator.click` on this WebGL canvas stalls after "done scrolling"
+ * (reproduced on Chrome: actionability never reaches "performing click",
+ * waypoint stays null). The page does not navigate on a water click.
+ * @param {import('playwright').Page} page
+ * @param {{ x: number, y: number, button?: 'left' | 'right' }} point canvas-local pixels
+ */
+export async function clickCanvas(page, point) {
+  const canvas = page.locator('#scene');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Expected #scene for canvas click');
+  await page.mouse.click(box.x + point.x, box.y + point.y, {
+    button: point.button ?? 'left',
+    delay: 20,
+  });
+}
+
 export async function plotCanvasWater(page, offset = {}) {
   const canvas = page.locator('#scene');
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Expected #scene for water plot');
   const x = offset.x ?? Math.round(box.width * 0.58);
   const y = offset.y ?? Math.round(box.height * 0.38);
-  await canvas.click({ position: { x, y } });
+  await clickCanvas(page, { x, y });
   await pollUntil(
     page,
     5000,
     async () =>
       /PLOT\s+\d+\s*,\s*\d+/i.test(await page.locator('[data-field="course"]').innerText()),
     'PLOT course after water click',
-  );
+  ).catch(async (error) => {
+    const detail = await page.evaluate(() => {
+      const game = window.__silentDepths?.game;
+      const canvas = document.getElementById('scene');
+      return {
+        phase: game?.phase,
+        view: window.__silentDepths?.sim?.viewMode,
+        waypoint: game?.autopilot?.waypoint ?? null,
+        canvas: canvas ? { w: canvas.clientWidth, h: canvas.clientHeight } : null,
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+      };
+    });
+    throw new Error(`${error.message} click=${x},${y} ${JSON.stringify(detail)}`);
+  });
   const text = await page.locator('[data-field="course"]').innerText();
   const match = text.match(/PLOT\s+(\d+)\s*,\s*(\d+)/i);
   if (!match) throw new Error(`Expected PLOT x,y in orders; got: ${text}`);
@@ -577,10 +611,10 @@ export async function rightClickProjectedContact(page) {
   for (const ship of ships) {
     const projected = await projectSimToCanvas(page, ship.x, ship.y);
     if (!projected) continue;
-    const canvas = page.locator('#scene');
-    await canvas.click({
+    await clickCanvas(page, {
+      x: Math.round(projected.x),
+      y: Math.round(projected.y),
       button: 'right',
-      position: { x: Math.round(projected.x), y: Math.round(projected.y) },
     });
     await pollUntil(
       page,
@@ -607,9 +641,10 @@ export async function rightClickSceneFire(page) {
   const canvas = page.locator('#scene');
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Expected #scene for right-click fire');
-  await canvas.click({
+  await clickCanvas(page, {
+    x: Math.round(box.width * 0.56),
+    y: Math.round(box.height * 0.36),
     button: 'right',
-    position: { x: Math.round(box.width * 0.56), y: Math.round(box.height * 0.36) },
   });
   await pollUntil(
     page,
@@ -713,5 +748,5 @@ export async function restartPatrolViaReload(page) {
   await page.reload({ waitUntil: 'load', timeout: E2E_TIMEOUT_MS });
   await page.waitForSelector('button[data-action="begin"]', { timeout: E2E_TIMEOUT_MS });
   await beginPatrolAndSkipTutorial(page);
-  await assertMode(page, 'tactical');
+  await assertMode(page, DEFAULT_PATROL_MODE);
 }

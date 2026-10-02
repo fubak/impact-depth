@@ -47,6 +47,8 @@ describe('ambush full engagement', () => {
     let fired = 0;
     let hits = 0;
     let minRange = Infinity;
+    let sawDestroyed = false;
+    let wasSinking = false;
     const log: string[] = [];
     const limit = Math.ceil(180 / FIXED_DT);
 
@@ -58,11 +60,17 @@ describe('ambush full engagement', () => {
       const live = state.ships.find((s) => s.id === targetId);
       const hp = live?.hp ?? 0;
       if (hp < beforeHp) hits += 1;
+      // A mortal hit now stands the autopilot down long before the hull
+      // finishes sinking — the stand-down message can expire from the queue
+      // while we wait for removal, so latch it as it appears.
+      if (state.messages.some((m) => /CONTACT DESTROYED/.test(m.text))) sawDestroyed = true;
       if (live) {
         const range = Math.hypot(state.submarine.x - live.x, state.submarine.y - live.y);
         minRange = Math.min(minRange, range);
       }
-      if (i % Math.ceil(10 / FIXED_DT) === 0 || !live || live.sinking) {
+      const justStartedSinking =
+        live !== undefined && live.sinking !== undefined && !wasSinking;
+      if (i % Math.ceil(10 / FIXED_DT) === 0 || !live || justStartedSinking) {
         log.push(
           `t=${(i * FIXED_DT).toFixed(0)}s phase=${state.autopilot.phase} tactic=${state.autopilot.tactic} ` +
             `range=${live ? Math.hypot(state.submarine.x - live.x, state.submarine.y - live.y).toFixed(1) : 'SUNK'} ` +
@@ -70,6 +78,7 @@ describe('ambush full engagement', () => {
             `depth=${state.submarine.z.toFixed(2)} shotT=${state.autopilot.shotTimer.toFixed(1)}`,
         );
       }
+      wasSinking = live?.sinking !== undefined;
       if (!live || (live.sinking !== undefined && live.sinking <= 0)) break;
       if (live.sinking !== undefined) {
         // Wait for sink completion through damage system
@@ -78,9 +87,7 @@ describe('ambush full engagement', () => {
 
     const survivor = state.ships.find((s) => s.id === targetId);
     const sunk = !survivor || survivor.sinking !== undefined || (survivor.hp ?? 0) <= 0;
-    // eslint-disable-next-line no-console
     console.log(log.join('\n'));
-    // eslint-disable-next-line no-console
     console.log({
       startHp,
       endHp: survivor?.hp ?? 0,
@@ -101,6 +108,6 @@ describe('ambush full engagement', () => {
     expect(state.stats.shipsSunk > 0 || sunk).toBe(true);
     expect(state.autopilot.enabled).toBe(false);
     expect(state.autopilot.tactic).toBe('manual');
-    expect(state.messages.some((m) => /CONTACT DESTROYED/.test(m.text))).toBe(true);
+    expect(sawDestroyed).toBe(true);
   });
 });

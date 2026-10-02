@@ -99,6 +99,7 @@ type Slot = {
   age: number;
   ttl: number;
   scale: number;
+  seed: number;
 };
 
 export function surfaceEffectsProfileFor(quality: QualityName): SurfaceEffectsProfile {
@@ -124,14 +125,130 @@ export function canEmitSurfaceWake(depthMetres: number, speed: number): boolean 
   return depthMetres < SURFACE_WAKE_DEPTH_METRES && speed > 0.45;
 }
 
-function createLayerMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
-    color,
+export type ParticleStyle = 'spray' | 'ring' | 'bubble' | 'mote';
+
+/** Shared, lit particle look so every layer reads under the same sun as the sea. */
+export interface ParticleLighting {
+  sunColor: THREE.Color;
+  skyColor: THREE.Color;
+  sunDir: THREE.Vector3;
+}
+
+const PARTICLE_VERTEX = /* glsl */ `
+uniform float uBillboard;
+varying vec2 vUv;
+varying float vLife;
+varying float vSeed;
+varying vec3 vWorld;
+void main() {
+  vUv = uv;
+  #ifdef USE_INSTANCING_COLOR
+    vLife = instanceColor.r;
+    vSeed = instanceColor.g;
+  #else
+    vLife = 0.0;
+    vSeed = 0.0;
+  #endif
+  vec4 center = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  float scale = length(vec3(instanceMatrix[0].x, instanceMatrix[0].y, instanceMatrix[0].z));
+  vec3 world;
+  if (uBillboard > 0.5) {
+    // Camera-facing quad: view-space offset keeps soft sprites round from any angle.
+    vec4 viewCenter = viewMatrix * center;
+    viewCenter.xy += position.xy * scale;
+    world = center.xyz;
+    vWorld = world;
+    gl_Position = projectionMatrix * viewCenter;
+  } else {
+    // Flat on the sea (rings): XZ plane through the instance centre.
+    world = center.xyz + vec3(position.x, 0.0, position.y) * scale;
+    vWorld = world;
+    gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+  }
+}
+`;
+
+const PARTICLE_FRAGMENT = /* glsl */ `
+uniform vec3 uTint;
+uniform float uOpacity;
+uniform int uStyle;
+uniform vec3 uSunColor;
+uniform vec3 uSkyColor;
+uniform vec3 uSunDir;
+varying vec2 vUv;
+varying float vLife;
+varying float vSeed;
+varying vec3 vWorld;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+void main() {
+  vec2 p = vUv * 2.0 - 1.0;
+  float r = length(p);
+  float alpha;
+  vec3 V = normalize(cameraPosition - vWorld);
+  vec3 L = normalize(uSunDir);
+  // Spray is lit by sun + sky; droplets forward-scatter, so backlit spray glows.
+  float forward = pow(max(dot(-V, L), 0.0), 5.0);
+  vec3 lit = uSkyColor * 0.55 + uSunColor * (0.45 + max(L.y, 0.0) * 0.6) + uSunColor * forward * 2.4;
+  vec3 col = uTint * lit;
+  float fadeIn = smoothstep(0.0, 0.08, vLife);
+  float fadeOut = pow(1.0 - clamp(vLife, 0.0, 1.0), 1.4);
+  if (uStyle == 0) {
+    // Puffy spray: noisy soft disc that tears apart as it ages.
+    float n = vnoise(p * 2.6 + vSeed * 17.0 + vLife * 2.0);
+    float body = smoothstep(1.0, 0.15, r + (n - 0.5) * 0.55 * (0.4 + vLife));
+    alpha = body * (0.55 + 0.45 * n);
+  } else if (uStyle == 1) {
+    // Expanding foam ring with a torn inner edge.
+    float n = vnoise(vec2(atan(p.y, p.x) * 3.0, vSeed * 9.0) + r * 4.0);
+    float ring = exp(-pow((r - 0.72) / (0.12 + vLife * 0.1), 2.0));
+    float core = exp(-r * r * 6.0) * (1.0 - vLife);
+    alpha = (ring * (0.6 + 0.4 * n) + core * 0.7) * smoothstep(1.0, 0.92, r);
+    col = mix(col, vec3(1.0) * (uSkyColor * 0.6 + uSunColor * 0.5), 0.4);
+  } else if (uStyle == 2) {
+    // Bubble: transparent body, bright rim, tiny specular dot.
+    float rim = smoothstep(0.55, 0.92, r) * smoothstep(1.0, 0.92, r);
+    float dotSpec = smoothstep(0.22, 0.0, length(p - vec2(-0.32, 0.36)));
+    alpha = rim * 0.85 + dotSpec + 0.08 * step(r, 1.0);
+    col = mix(uTint * (uSkyColor * 0.8 + 0.1), vec3(1.0), dotSpec);
+  } else {
+    // Suspended motes: tiny soft dots, catch a little god-ray light.
+    alpha = smoothstep(1.0, 0.0, r) * 0.8;
+    col = uTint * (uSkyColor * 0.7 + uSunColor * 0.25);
+  }
+  alpha *= uOpacity * fadeIn * fadeOut;
+  if (alpha < 0.004) discard;
+  gl_FragColor = vec4(col, alpha);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}
+`;
+
+function styleIndex(style: ParticleStyle): number {
+  return style === 'spray' ? 0 : style === 'ring' ? 1 : style === 'bubble' ? 2 : 3;
+}
+
+function createLayerMaterial(color: number, opacity: number, style: ParticleStyle): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTint: { value: new THREE.Color(color) },
+      uOpacity: { value: opacity },
+      uStyle: { value: styleIndex(style) },
+      uBillboard: { value: style === 'ring' ? 0 : 1 },
+      uSunColor: { value: new THREE.Color(1, 0.94, 0.82) },
+      uSkyColor: { value: new THREE.Color(0.5, 0.7, 0.9) },
+      uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.2) },
+    },
+    vertexShader: PARTICLE_VERTEX,
+    fragmentShader: PARTICLE_FRAGMENT,
     transparent: true,
-    opacity,
     depthWrite: false,
     depthTest: true,
-    toneMapped: true,
     side: THREE.DoubleSide,
   });
 }
@@ -142,6 +259,7 @@ class InstancedLayer {
   readonly capacity: number;
   cap: number;
   private readonly dummy = new THREE.Object3D();
+  private readonly lifeColor = new THREE.Color();
 
   constructor(
     geometry: THREE.BufferGeometry,
@@ -162,6 +280,7 @@ class InstancedLayer {
       age: 0,
       ttl: 1,
       scale: 1,
+      seed: 0,
     }));
     this.mesh = new THREE.InstancedMesh(geometry, material, capacity);
     this.mesh.name = name;
@@ -169,6 +288,9 @@ class InstancedLayer {
     this.mesh.count = 0;
     this.mesh.renderOrder = 5;
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // Allocate instanceColor up front (life/seed channel) so the program never recompiles.
+    for (let i = 0; i < capacity; i++) this.mesh.setColorAt(i, this.lifeColor.setRGB(0, 0, 0));
+    this.mesh.instanceColor?.setUsage(THREE.DynamicDrawUsage);
   }
 
   get alive(): number {
@@ -227,13 +349,17 @@ class InstancedLayer {
       const life = slot.age / slot.ttl;
       this.dummy.position.set(slot.x, slot.y, slot.z);
       this.dummy.scale.setScalar(slot.scale * (0.85 + life * 0.65));
-      this.dummy.rotation.set(0, written * 0.37, 0);
+      this.dummy.rotation.set(0, 0, 0);
       this.dummy.updateMatrix();
       this.mesh.setMatrixAt(written, this.dummy.matrix);
+      // Per-instance life + stable seed drive fade and noise in the shader.
+      this.lifeColor.setRGB(life, slot.seed, 0);
+      this.mesh.setColorAt(written, this.lifeColor);
       written += 1;
     }
     this.mesh.count = written;
     this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
   dispose(): void {
@@ -244,7 +370,7 @@ class InstancedLayer {
 
 function spawnInto(
   layer: InstancedLayer,
-  init: Omit<Slot, 'alive' | 'age'> & { age?: number },
+  init: Omit<Slot, 'alive' | 'age' | 'seed'> & { age?: number; seed?: number },
 ): boolean {
   const slot = layer.acquire();
   if (!slot) return false;
@@ -258,6 +384,8 @@ function spawnInto(
   slot.ttl = init.ttl;
   slot.scale = init.scale;
   slot.age = init.age ?? 0;
+  // Golden-ratio hash of the slot position: stable, no RNG draw (keeps seeded sequences intact).
+  slot.seed = init.seed ?? (((init.x * 0.618 + init.z * 0.382) % 1) + 1) % 1;
   return true;
 }
 
@@ -283,31 +411,33 @@ export class SurfaceEffects {
     this.group.name = 'surface-effects';
 
     const max = SURFACE_EFFECTS_PROFILES.high;
+    // Unit quads; size comes from the instance scale (see PARTICLE_VERTEX).
     this.spray = new InstancedLayer(
-      new THREE.PlaneGeometry(0.55, 0.85),
-      createLayerMaterial(0xe8fbff, 0.42),
+      new THREE.PlaneGeometry(1.1, 1.1),
+      createLayerMaterial(0xf2fbff, 0.7, 'spray'),
       max.sprayCap,
       'surface-spray',
     );
+    // Rings lie flat on the sea in the shader; no mesh rotation (that used to lift
+    // every splash to y = z).
     this.splash = new InstancedLayer(
-      new THREE.RingGeometry(0.15, 0.7, 12),
-      createLayerMaterial(0xd8f4ff, 0.5),
+      new THREE.PlaneGeometry(1.6, 1.6),
+      createLayerMaterial(0xe8f8ff, 0.75, 'ring'),
       max.splashCap,
       'surface-splash',
     );
     this.bubbles = new InstancedLayer(
-      new THREE.SphereGeometry(0.12, 6, 4),
-      createLayerMaterial(0xb8e8f0, 0.38),
+      new THREE.PlaneGeometry(0.26, 0.26),
+      createLayerMaterial(0xb8e8f0, 0.55, 'bubble'),
       max.bubbleCap,
       'underwater-bubbles',
     );
     this.particulate = new InstancedLayer(
-      new THREE.PlaneGeometry(0.08, 0.08),
-      createLayerMaterial(0x6a9aa0, 0.22),
+      new THREE.PlaneGeometry(0.1, 0.1),
+      createLayerMaterial(0x8ab8bc, 0.35, 'mote'),
       max.particulateCap,
       'underwater-particulate',
     );
-    this.splash.mesh.rotation.x = -Math.PI / 2;
     this.layers = [this.spray, this.splash, this.bubbles, this.particulate];
     for (const layer of this.layers) this.group.add(layer.mesh);
     this.applyQualityCaps();
@@ -317,6 +447,16 @@ export class SurfaceEffects {
     if (quality === this.quality) return;
     this.quality = quality;
     this.applyQualityCaps();
+  }
+
+  /** Light particles with the same sun/sky as the sea (warm spray at golden hour). */
+  setLighting(lighting: ParticleLighting): void {
+    for (const layer of this.layers) {
+      const u = (layer.mesh.material as THREE.ShaderMaterial).uniforms;
+      (u.uSunColor!.value as THREE.Color).copy(lighting.sunColor);
+      (u.uSkyColor!.value as THREE.Color).copy(lighting.skyColor);
+      (u.uSunDir!.value as THREE.Vector3).copy(lighting.sunDir);
+    }
   }
 
   setReducedMotion(value: boolean): void {
@@ -504,6 +644,28 @@ export class SurfaceEffects {
         ttl: 0.5 + this.rng() * 0.2,
         scale: 0.28 + Math.min(0.5, wake.speed * 0.04),
       });
+      // Bow spray: a moving hull throws water off both shoulders; more when the
+      // sea is up and she is driving into it.
+      if (wake.speed > 2.4) {
+        const fx = Math.cos(wake.heading);
+        const fz = Math.sin(wake.heading);
+        const bow = stern * 0.92;
+        const throwRate = Math.min(1, (wake.speed - 2.4) / 6) * (0.55 + (frame.seaState ?? 0.3));
+        if (this.rng() < throwRate) {
+          const side = this.rng() < 0.5 ? -1 : 1;
+          const out = 0.9 + this.rng() * 1.4;
+          spawnInto(this.spray, {
+            x: wake.x + fx * bow - fz * side * 0.8,
+            y: SURFACE_SPLASH_Y + 0.25,
+            z: wake.z + fz * bow + fx * side * 0.8,
+            vx: fx * wake.speed * 0.35 - fz * side * out,
+            vy: 1.6 + this.rng() * 1.6 * storm,
+            vz: fz * wake.speed * 0.35 + fx * side * out,
+            ttl: 0.6 + this.rng() * 0.35,
+            scale: 0.5 + Math.min(0.8, wake.speed * 0.06),
+          });
+        }
+      }
     }
 
     for (const body of frame.submerged ?? []) {

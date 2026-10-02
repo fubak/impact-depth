@@ -107,6 +107,10 @@ function ship(partial: Partial<SurfaceShipState> & Pick<SurfaceShipState, 'id'>)
     heave: 0,
     pitch: 0,
     roll: 0,
+    sinkProgress: 0,
+    listSide: 1,
+    fire: 0,
+    flooding: 0,
     ...partial,
   };
 }
@@ -142,6 +146,19 @@ describe('camera framing (plan 018 I6/I7)', () => {
     }
   });
 
+  it('tactical look-at stays on the player boat, not the convoy centroid', () => {
+    const rig = new CameraRig(16 / 9);
+    const state = sim({
+      vessel: vessel({ x: 0, z: 0 }),
+      ships: [ship({ id: 'far', x: 400, z: 0 })],
+    });
+    snap(rig, state, 'tactical');
+    const look = new THREE.Vector3();
+    rig.camera.getWorldDirection(look);
+    const toPlayer = new THREE.Vector3(0, 0, 0).sub(rig.camera.position).normalize();
+    expect(look.dot(toPlayer)).toBeGreaterThan(0.92);
+  });
+
   it('chase at attack depth follows the hull instead of pinning above empty water', () => {
     const rig = new CameraRig(16 / 9);
     const depth = 12;
@@ -149,7 +166,7 @@ describe('camera framing (plan 018 I6/I7)', () => {
     snap(rig, state, 'chase');
 
     expect(rig.camera.position.y).toBeLessThan(0);
-    expect(rig.camera.position.y).toBeCloseTo(-depth + 3.8, 5);
+    expect(rig.camera.position.y).toBeCloseTo(-depth + 1.15 + 26 * Math.cos(1.32), 1);
     expect(rig.camera.position.x).toBeLessThan(0);
 
     const hull = new THREE.Vector3(0, -depth, 0).project(rig.camera);

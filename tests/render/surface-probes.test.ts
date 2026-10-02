@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PROBE_CADENCE_HZ,
   PROBE_MAX_AGE,
+  PROBE_SPATIAL_TOLERANCE_M,
   SurfaceProbeQueue,
   buildFootprintRequests,
   decodeProbeOutput,
   filterProbeResults,
   isFreshProbe,
+  prioritizeProbeRequests,
   probeSampleId,
+  shouldRequestProbes,
   type SurfaceProbeResult,
 } from '../../src/render/ocean/surface-probes';
 
@@ -23,6 +27,8 @@ function sample(overrides: Partial<SurfaceProbeResult> = {}): SurfaceProbeResult
     time: 10,
     queryX: 4,
     queryZ: -2,
+    originX: 4,
+    originZ: -2,
     missionGeneration: 3,
     backendGeneration: 2,
     ...overrides,
@@ -60,6 +66,8 @@ describe('surface probe tagging', () => {
     expect(first.time).toBe(12.5);
     expect(first.queryX).toBe(1);
     expect(first.queryZ).toBe(2);
+    expect(first.originX).toBe(1);
+    expect(first.originZ).toBe(2);
     expect(first.missionGeneration).toBe(7);
     expect(first.backendGeneration).toBe(4);
   });
@@ -98,10 +106,11 @@ describe('surface probe freshness', () => {
       }),
     ).toBe(false);
     expect(
-      filterProbeResults(
-        [sample(), sample({ entityId: 'dead', id: 'dead:center' })],
-        { missionGeneration: 3, backendGeneration: 2, livingIds: live },
-      ),
+      filterProbeResults([sample(), sample({ entityId: 'dead', id: 'dead:center' })], {
+        missionGeneration: 3,
+        backendGeneration: 2,
+        livingIds: live,
+      }),
     ).toHaveLength(1);
   });
 
@@ -114,6 +123,89 @@ describe('surface probe freshness', () => {
       }),
     ).toBe(true);
   });
+
+  it('rejects a sample whose query point has moved beyond the spatial tolerance', () => {
+    const live = new Set(['ship-a']);
+    const query = {
+      missionGeneration: 3,
+      backendGeneration: 2,
+      now: 10.1,
+      livingIds: live,
+      positions: new Map([['ship-a', { x: 40, z: -2 }]]),
+      maxSpatialError: PROBE_SPATIAL_TOLERANCE_M,
+    };
+    expect(
+      isFreshProbe(sample({ queryX: 4, queryZ: -2, x: 4, z: -2, originX: 4, originZ: -2 }), query),
+    ).toBe(false);
+    expect(
+      isFreshProbe(
+        sample({ queryX: 39.5, queryZ: -2.2, x: 39.5, z: -2.2, originX: 39.5, originZ: -2.2 }),
+        query,
+      ),
+    ).toBe(true);
+  });
+
+  it('does not treat bow/stern site offset as spatial drift of the hull', () => {
+    const live = new Set(['ship-a']);
+    expect(
+      isFreshProbe(
+        sample({
+          site: 'stern',
+          x: -4,
+          z: -2,
+          queryX: -4,
+          queryZ: -2,
+          originX: 4,
+          originZ: -2,
+        }),
+        {
+          missionGeneration: 3,
+          backendGeneration: 2,
+          now: 10.1,
+          livingIds: live,
+          positions: new Map([['ship-a', { x: 6, z: -2 }]]),
+          maxSpatialError: PROBE_SPATIAL_TOLERANCE_M,
+        },
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('surface probe cadence and priority', () => {
+  it('issues around 10 Hz and never while a readback is pending', () => {
+    expect(PROBE_CADENCE_HZ).toBe(10);
+    expect(shouldRequestProbes(false, null, 1)).toBe(true);
+    expect(shouldRequestProbes(true, 1, 1.5)).toBe(false);
+    expect(shouldRequestProbes(false, 1, 1.05)).toBe(false);
+    expect(shouldRequestProbes(false, 1, 1.11)).toBe(true);
+  });
+
+  it('keeps the player and near-camera hulls when the batch exceeds capacity', () => {
+    const far = Array.from({ length: 12 }, (_, i) => ({
+      entityId: `far-${i}`,
+      x: 400 + i * 20,
+      z: 400,
+      heading: 0,
+      span: 8,
+      depth: 0,
+    }));
+    const requests = prioritizeProbeRequests(
+      [
+        { entityId: 'player', x: 0, z: 0, heading: 0, span: 7, depth: 0 },
+        { entityId: 'near', x: 12, z: 4, heading: 0.2, span: 8, depth: 0 },
+        ...far,
+      ],
+      { x: 0, z: 0 },
+      16,
+    );
+    expect(requests.some((item) => item.entityId === 'player')).toBe(true);
+    expect(requests.some((item) => item.entityId === 'near')).toBe(true);
+    expect(requests.some((item) => item.entityId === 'camera')).toBe(true);
+    expect(requests.length).toBeLessThanOrEqual(16);
+    expect(requests.filter((item) => item.entityId.startsWith('far-')).length).toBeLessThan(
+      far.length * 5,
+    );
+  });
 });
 
 describe('SurfaceProbeQueue reset', () => {
@@ -122,9 +214,7 @@ describe('SurfaceProbeQueue reset', () => {
     expect(queue.hasPendingReadback).toBe(false);
     expect(queue.capacity).toBe(8);
     queue.reset();
-    expect(
-      queue.consume({ missionGeneration: 1, backendGeneration: 1 }),
-    ).toEqual([]);
+    expect(queue.consume({ missionGeneration: 1, backendGeneration: 1 })).toEqual([]);
     queue.reset();
     expect(queue.hasPendingReadback).toBe(false);
     queue.dispose();

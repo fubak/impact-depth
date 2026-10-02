@@ -2,6 +2,7 @@ import { DEFAULT_SETTINGS } from '../../core/settings';
 import type { SimState } from '../../core/types';
 import { sampleAttitude, scaledWaves } from '../../core/waves';
 import { depthToMeters, simToWorldMeters } from '../sim/coords';
+import { submarineDivePitch } from '../sim/submarine-motion';
 import type { GameState, ShipKind } from '../sim/types';
 
 function clamp(value: number, lo: number, hi: number): number {
@@ -62,7 +63,16 @@ export function adaptToLookDevSim(game: GameState): LookDevSim {
       battery: game.submarine.battery,
       noise: game.submarine.noise,
       heave: own.heave * surfaceBlend,
-      pitch: clamp(own.pitch * surfaceBlend * 0.9, -0.4, 0.4),
+      pitch: clamp(
+        own.pitch * surfaceBlend * 0.55 +
+          // The bow follows the realized vertical rate, not the order.
+          submarineDivePitch(
+            game.submarine.z,
+            game.submarine.z + game.submarine.depthRate,
+          ),
+        -0.4,
+        0.4,
+      ),
       roll: clamp(game.submarine.bank * 0.35 + own.roll * surfaceBlend * 0.75, -0.45, 0.45),
     },
     ships: game.ships.map((ship) => {
@@ -79,6 +89,10 @@ export function adaptToLookDevSim(game: GameState): LookDevSim {
         ship.heading,
         attitudeSpan(ship.kind),
       );
+      const sinkProgress =
+        ship.sinking !== undefined
+          ? clamp(1 - ship.sinking / Math.max(0.01, ship.sinkDuration), 0, 1)
+          : 0;
       return {
         id: ship.id,
         kind,
@@ -88,11 +102,19 @@ export function adaptToLookDevSim(game: GameState): LookDevSim {
         depth,
         heading: ship.heading,
         speed: ship.speed * 5,
+        // Progressive flooding heels the wounded side before the hull is lost.
         heave: att.heave * blend,
         pitch: clamp(att.pitch * blend * 0.85, -0.38, 0.38),
-        roll: ship.sinking
-          ? -Math.min(1.1, ship.sinking * 0.45)
-          : clamp(att.roll * blend * 0.7, -0.4, 0.4),
+        roll: clamp(
+          att.roll * blend * 0.7 + ship.flooding * 0.15 * ship.listSide,
+          -0.5,
+          0.5,
+        ),
+        sinkProgress,
+        sinkStyle: ship.sinkStyle,
+        listSide: ship.listSide,
+        fire: ship.fire,
+        flooding: ship.flooding,
       };
     }),
   };

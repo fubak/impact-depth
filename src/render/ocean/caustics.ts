@@ -65,6 +65,7 @@ export interface CausticFrame {
   readonly coastalOrigin?: { x: number; z: number };
   readonly coastalExtent?: number;
   readonly swellDirection?: { x: number; z: number };
+  readonly sampledWaterHeight?: number;
 }
 
 export interface CausticReceiverUniforms {
@@ -77,6 +78,8 @@ export interface CausticReceiverUniforms {
   uCausticStrength: { value: number };
   uCausticEnabled: { value: number };
   uCausticRoleGain: { value: number };
+  uCausticWaterHeight: { value: number };
+  uCausticHullMode: { value: number };
 }
 
 export interface CausticDiagnostics {
@@ -163,6 +166,32 @@ export function quantizeFollowRegion(
   };
 }
 
+export interface ReceiverCausticInput {
+  readonly receiverY: number;
+  readonly waterHeight: number;
+  readonly role: CausticReceiverRole;
+  readonly bedEnergy?: number;
+}
+
+/** Per-receiver envelope. Above water is zero; hulls do not keep bed-focused energy. */
+export function receiverCausticEnergy(input: ReceiverCausticInput): number {
+  const submergence = input.waterHeight - input.receiverY;
+  const energy = input.bedEnergy ?? 1;
+  if (submergence < 0.05) return 0;
+  const beer = Math.exp(-submergence * 0.08);
+  if (input.role === 'seabed' || input.role === 'rock') {
+    return energy * beer;
+  }
+  const enter = glslSmoothstep(0.15, 3, submergence);
+  const leave = 1 - glslSmoothstep(14, 24, submergence);
+  return energy * beer * enter * leave * 0.55;
+}
+
+function glslSmoothstep(edge0: number, edge1: number, x: number): number {
+  const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 export function causticAttenuation(input: CausticAttenuationInput): number {
   const depth = Math.max(0, input.depthMetres);
   const beer = Math.exp(-depth * 0.055);
@@ -199,18 +228,11 @@ export function projectSunRayToBed(input: {
   if (!refracted || refracted.y >= -1e-5) return null;
   const t = (input.bedY - input.surface.y) / refracted.y;
   if (t < 0) return null;
-  return new THREE.Vector2(
-    input.surface.x + refracted.x * t,
-    input.surface.z + refracted.z * t,
-  );
+  return new THREE.Vector2(input.surface.x + refracted.x * t, input.surface.z + refracted.z * t);
 }
 
 /** Concentration from source/projected area. Zero when rays miss or TIR. */
-export function rayAreaConcentration(
-  sourceArea: number,
-  projectedArea: number,
-  max = 12,
-): number {
+export function rayAreaConcentration(sourceArea: number, projectedArea: number, max = 12): number {
   if (sourceArea <= 0 || projectedArea <= 1e-8) return 0;
   return Math.min(max, sourceArea / projectedArea);
 }
@@ -322,6 +344,8 @@ uniform float uCausticDetailExtent;
 uniform float uCausticStrength;
 uniform float uCausticEnabled;
 uniform float uCausticRoleGain;
+uniform float uCausticWaterHeight;
+uniform float uCausticHullMode;
 vec2 causticUvRaw(vec2 world, vec2 origin, float extent) {
   return (world - origin) / max(extent, 1.0) + 0.5;
 }
@@ -340,16 +364,20 @@ vec3 sampleProjectedCaustics(vec3 world) {
   float wide = texture2D(uCausticWide, clamp(uvWide, 0.0, 1.0)).r * causticInside(uvWide);
   float detail = texture2D(uCausticDetail, clamp(uvDetail, 0.0, 1.0)).r * causticInside(uvDetail);
   float energy = wide * 0.78 + detail * 0.68;
-  return vec3(0.78, 0.94, 1.0) * energy * uCausticStrength * uCausticRoleGain * altitudeFade;
+  float submergence = uCausticWaterHeight - world.y;
+  if (submergence < 0.05) return vec3(0.0);
+  float beer = exp(-submergence * 0.08);
+  float hull = uCausticHullMode;
+  float enter = smoothstep(0.15, 3.0, submergence);
+  float leave = 1.0 - smoothstep(14.0, 24.0, submergence);
+  float envelope = mix(1.0, enter * leave * 0.55, hull);
+  return vec3(0.78, 0.94, 1.0) * energy * uCausticStrength * uCausticRoleGain * altitudeFade * beer * envelope;
 }
 `;
 
 function injectCausticShader(shader: THREE.WebGLProgramParametersWithUniforms): void {
   shader.vertexShader = shader.vertexShader
-    .replace(
-      '#include <common>',
-      `#include <common>\nvarying vec3 vCausticWorld;`,
-    )
+    .replace('#include <common>', `#include <common>\nvarying vec3 vCausticWorld;`)
     .replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
@@ -388,6 +416,8 @@ export function createCausticReceiverUniforms(
     uCausticStrength: { value: 0 },
     uCausticEnabled: { value: 0 },
     uCausticRoleGain: { value: 1 },
+    uCausticWaterHeight: { value: 0 },
+    uCausticHullMode: { value: 0 },
   };
 }
 
@@ -444,6 +474,8 @@ export function attachCausticLighting(
       uCausticStrength: uniforms.uCausticStrength,
       uCausticEnabled: uniforms.uCausticEnabled,
       uCausticRoleGain: { value: receiverRoleGain(bag.role) },
+      uCausticWaterHeight: uniforms.uCausticWaterHeight,
+      uCausticHullMode: { value: bag.role === 'hull' || bag.role === 'weapon' ? 1 : 0 },
     });
     injectCausticShader(shader);
   };
@@ -604,7 +636,8 @@ export class UnderwaterCaustics {
   update(renderer: THREE.WebGLRenderer | null, frame: CausticFrame): void {
     if (this.disposed) return;
     const storm =
-      frame.storm ?? (frame.seaState !== undefined && frame.seaState >= 0.6 ? 1 : frame.seaState ?? 0);
+      frame.storm ??
+      (frame.seaState !== undefined && frame.seaState >= 0.6 ? 1 : (frame.seaState ?? 0));
     const night = frame.night === true || frame.sunDir.y < 0.06 ? 1 : 0;
     const cover = frame.surfaceCover ?? 0;
     this.strength = this.enabled
@@ -612,6 +645,7 @@ export class UnderwaterCaustics {
       : 0;
     this.receiverUniforms.uCausticStrength.value = this.strength;
     this.receiverUniforms.uCausticEnabled.value = this.enabled && frame.maps ? 1 : 0;
+    this.receiverUniforms.uCausticWaterHeight.value = frame.sampledWaterHeight ?? 0;
 
     const wideCell = followCellMetres(this.quality, 'wide');
     const detailCell = followCellMetres(this.quality, 'detail');
@@ -643,7 +677,13 @@ export class UnderwaterCaustics {
 
     withRendererPass(renderer, () => {
       this.renderTarget(renderer, this.wide, wideFollow.x, wideFollow.z, profile.wideExtent);
-      this.renderTarget(renderer, this.detail, detailFollow.x, detailFollow.z, profile.detailExtent);
+      this.renderTarget(
+        renderer,
+        this.detail,
+        detailFollow.x,
+        detailFollow.z,
+        profile.detailExtent,
+      );
     });
     this.passCount += 1;
     this.dirty = false;
@@ -741,7 +781,10 @@ export class UnderwaterCaustics {
       u.uCoastalEnabled.value = 0;
     }
     if (frame.swellDirection) {
-      (u.uSwellDirection.value as THREE.Vector2).set(frame.swellDirection.x, frame.swellDirection.z);
+      (u.uSwellDirection.value as THREE.Vector2).set(
+        frame.swellDirection.x,
+        frame.swellDirection.z,
+      );
     }
   }
 

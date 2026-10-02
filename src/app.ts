@@ -1,12 +1,22 @@
 import * as THREE from 'three';
-import { loadSettings, saveSettings } from './core/settings';
+import {
+  applyPreset,
+  isPresetId,
+  loadPlayPreferences,
+  loadSettings,
+  saveSettings,
+} from './core/settings';
 import { advanceAccumulator, FIXED_DT } from './core/sim';
 import type { LookDevSettings, SimState, ViewMode } from './core/types';
+import { deriveCombatEvents, type CombatEvent } from './game/adapt/combat-events';
+import { detonationShake } from './game/adapt/combat-feel';
 import { adaptToLookDevSim } from './game/adapt/lookdev';
 import type { GameCommand } from './game/commands/types';
 import {
+  blowTanks,
   cancelAutopilot,
   clearEngagement,
+  createConvoyStrike,
   createGame,
   deployCountermeasure,
   fireWeapon,
@@ -26,22 +36,61 @@ import {
   toggleTorpedoSpread,
   updateGame,
 } from './game/sim/api';
-import { worldMetersToSim } from './game/sim/coords';
+import { nearMissCue, verticalMissCue } from './game/adapt/cue-map';
+import { actionTimeScale } from './game/sim/action-feel';
+import { hasContact } from './game/sim/contact';
+import { depthToMeters, simToWorldMeters, worldMetersToSim } from './game/sim/coords';
 import { GameAudio } from './game/audio/audio';
 import type { GameState, Point } from './game/sim/types';
 import { InputController } from './input/controls';
 import { canPlotFromView, resolveWorldClick } from './input/world-click';
 import { CameraRig } from './render/cameras';
+import { presentationBedY } from './render/presentation/world-bed';
 import { RendererHost } from './render/renderer';
 import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-selection';
 import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
+import { bloomEnabledFor } from './render/post';
 import { GameScene } from './render/scene';
+import { entityDepthY } from './render/presentation/coordinates';
+import {
+  idleTrack,
+  startTrack,
+  stepTrack,
+  type CinemaPoint,
+  type CinemaTrack,
+} from './render/presentation/cinema-follow';
+import { hideBootOverlay, setBootProgress } from './ui/boot';
+import {
+  bindMasterVolume,
+  ErrorToast,
+  recordCapturedError,
+  presentationEvents,
+  reducedMotionGates,
+  resolveReducedMotion,
+  resolveStartupQuality,
+  type ErrorRecord,
+} from './ui/error-toast';
 import { Hud } from './ui/hud';
 import { PatrolOverlay } from './ui/overlays';
 import { LookDevPanel } from './ui/panel';
 import { PeriscopeOverlay } from './ui/periscope';
 import { SonarScope } from './ui/sonar';
-import { TutorialOverlay } from './ui/tutorial';
+import {
+  computeThreatMarkers,
+  ThreatIndicatorLayer,
+  type ThreatProjection,
+} from './ui/threat-indicators';
+import {
+  TutorialOverlay,
+  dodgeLessonDone,
+  fireLessonDone,
+  patrolClockRuns,
+  phaseWhileTutorial,
+  steerLessonDone,
+  steerLessonMark,
+  threateningHedgehogPattern,
+} from './ui/tutorial';
+import './styles/threats.css';
 
 function $(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -63,6 +112,10 @@ export class App {
   private readonly sonar: SonarScope;
   private readonly peri: PeriscopeOverlay;
   private readonly tutorial: TutorialOverlay;
+  private readonly threatRoot: HTMLElement;
+  private readonly threats: ThreatIndicatorLayer;
+  private readonly threatForward = new THREE.Vector3();
+  private tutorialHeldPause = false;
   private readonly audio = new GameAudio();
   private readonly pauseBanner: HTMLElement;
   private readonly appRoot: HTMLElement;
@@ -78,9 +131,28 @@ export class App {
   private readonly runtime: RuntimeSelection;
   private missionGeneration = 0;
   private activeQuality: RuntimeSelection['quality'];
+  private hitFreeze = 0;
+  private cameraShake = 0;
+  private cinema: CinemaTrack = idleTrack();
+  private helmSample = { heading: 0, speed: 0, ready: false };
+  private bootVisible = true;
+  private readonly combatLog: CombatEvent[] = [];
+  private errorCount = 0;
+  private errorToast: ErrorToast | null = null;
+  private lessonOrigin: {
+    x: number;
+    y: number;
+    heading: number;
+    fired: number;
+    hp: number;
+    mark: { x: number; y: number } | null;
+  } | null = null;
 
   constructor() {
-    this.runtime = parseRuntimeSelection(window.location.search);
+    const play = loadPlayPreferences();
+    const parsed = parseRuntimeSelection(window.location.search);
+    const startup = resolveStartupQuality(parsed, play.quality);
+    this.runtime = { ...parsed, quality: startup.quality, qualityForced: startup.qualityForced };
     if (this.runtime.diagnostics.length > 0) {
       console.warn('[silent-depths]', this.runtime.diagnostics.join('; '));
     }
@@ -90,12 +162,17 @@ export class App {
     });
     this.activeQuality = this.runtime.quality;
     this.settings = loadSettings();
+    // `?look=sunset-passage` boots straight into a preset (shareable look links, captures).
+    const look = new URLSearchParams(window.location.search).get('look');
+    if (look && isPresetId(look)) this.settings = applyPreset(look);
     this.game = {
       ...createGame(19, this.runtime.world),
       settings: this.settings,
     };
     this.sim = adaptToLookDevSim(this.game);
-    this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    const systemReduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    this.reducedMotion = resolveReducedMotion(play.reducedMotion, systemReduce);
+    bindMasterVolume(this.audio, play.masterVolume);
 
     const canvas = $('scene') as HTMLCanvasElement;
     this.appRoot = $('app');
@@ -104,8 +181,12 @@ export class App {
     this.recoveryBanner.setAttribute('role', 'status');
     this.recoveryBanner.hidden = true;
     this.appRoot.append(this.recoveryBanner);
+    this.errorToast = new ErrorToast(this.appRoot);
     this.renderer = new RendererHost(canvas);
     this.renderer.setQuality(QUALITY_PROFILES[this.runtime.quality]);
+    this.renderer.setBloomEnabled(
+      bloomEnabledFor(this.activeQuality, window.location.search),
+    );
     this.renderer.setExposure(this.settings.atmosphere.exposure);
     this.scene = new GameScene();
     this.scene.setPresentationWorld(this.runtime.world, this.game.terrainSeed);
@@ -149,8 +230,18 @@ export class App {
       $('patrol-overlay'),
       () => this.beginPatrol(),
       () => this.restartPatrol(),
+      (action) => this.menuAction(action),
     );
-    this.tutorial = new TutorialOverlay($('tutorial-overlay'));
+    this.tutorial = new TutorialOverlay($('tutorial-overlay'), (open) => {
+      if (!open) this.clearTutorialHazards();
+      this.holdForTutorial(open);
+    });
+    this.tutorial.onBeat = (index) => this.onTutorialBeat(index);
+    this.tutorial.mayAdvance = (step) => this.tutorialMayAdvance(step);
+    this.threatRoot = document.createElement('div');
+    this.threatRoot.id = 'threat-indicators';
+    this.appRoot.append(this.threatRoot);
+    this.threats = new ThreatIndicatorLayer(this.threatRoot);
 
     this.panel = new LookDevPanel($('lookdev'), this.settings, {
       onChange: (s) => {
@@ -162,9 +253,11 @@ export class App {
       onClose: () => this.panel.setVisible(false),
     });
     this.panel.setVisible(false);
-    void this.scene.whenAssetsReady().then(() => {
+    void this.whenAssetsReady().then(() => {
       this.panel.setAssetCredits([...this.scene.getAssetLicenses()]);
+      this.finishBoot();
     });
+    this.syncBootProgress();
 
     this.input = new InputController(canvas, {
       setViewMode: (mode) => this.changeView(mode),
@@ -172,9 +265,13 @@ export class App {
       togglePanel: () => this.panel.toggle(),
       orbit: (dx, dy) => this.cameras.orbit(dx, dy),
       periLook: (dx, dy) => this.cameras.periLook(dx, dy),
+      bridgeLook: (dx, dy) => this.cameras.bridgeLook(dx, dy),
       zoom: (d) => this.cameras.zoom(d),
       getViewMode: () => this.sim.viewMode,
       interact: (button, x, y) => this.handleWorldInteraction(button, x, y),
+      toggleCompress: () => {
+        this.game = { ...this.game, compressEnabled: !this.game.compressEnabled };
+      },
     });
 
     window.addEventListener('keydown', this.onKeyDown);
@@ -183,9 +280,18 @@ export class App {
     this.patrol.render(this.game);
     window.addEventListener('pointerdown', () => this.audio.unlock(), { once: true });
 
+    window.addEventListener('blur', () => {
+      this.input.clearHeldKeys();
+      if (loadPlayPreferences().pauseOnBlur && this.game.phase === 'playing') this.inputPause();
+    });
     window.addEventListener('resize', this.onResize);
     window.addEventListener('beforeunload', this.onUnload);
     this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /** Settles when the asset registry has finished its first preload pass. */
+  whenAssetsReady(): Promise<void> {
+    return this.scene.whenAssetsReady();
   }
 
   getEnvironmentDiagnostics() {
@@ -196,8 +302,81 @@ export class App {
     return this.scene.getOutdoorLightingDiagnostics();
   }
 
+  getSurfaceDiagnostics() {
+    return this.scene.getSurfaceDiagnostics();
+  }
+
   getAudioDiagnostics() {
     return this.audio.getDiagnostics();
+  }
+
+  /** Live patrol snapshot. `incoming` is the count of enemy torpedoes still running. */
+  getGameSummary() {
+    const sub = this.game.submarine;
+    return {
+      phase: this.game.phase,
+      wave: this.game.stats.wave,
+      time: this.game.time,
+      hp: sub.hp,
+      maxHp: sub.maxHp,
+      torpedoes: sub.torpedoes,
+      decoys: sub.decoys,
+      cmCharges: sub.cmCharges,
+      shipsSunk: this.game.stats.shipsSunk,
+      score: this.game.stats.score,
+      viewMode: this.game.viewMode,
+      ships: this.game.ships.map((ship) => ({
+        id: ship.id,
+        kind: ship.kind,
+        alert: ship.alert,
+        hp: ship.hp,
+        maxHp: ship.maxHp,
+        range: Math.hypot(ship.x - sub.x, ship.y - sub.y),
+      })),
+      incoming: this.game.torpedoes.filter((torpedo) => torpedo.owner === 'enemy').length,
+      errors: this.errorCount,
+    };
+  }
+
+  /** Count a window error or rejection and show the copyable toast. */
+  noteCapturedError(record: ErrorRecord): void {
+    const recorded = recordCapturedError(this.errorCount, record);
+    this.errorCount = recorded.count;
+    const sha = import.meta.env.VITE_COMMIT || 'dev';
+    const mode = import.meta.env.MODE ?? 'dev';
+    const context = `${mode}@${sha} phase=${this.game.phase} seed=${this.game.seed} scenario=${this.game.scenario} hp=${this.game.submarine.hp} lastDamage=${this.game.submarine.lastDamage ?? 'none'}`;
+    this.errorToast?.show(`${recorded.summary}\n${context}`, recorded.count);
+  }
+
+  /** Newest combat cues, capped at 64. Oldest events drop first. */
+  getCombatEventLog(): CombatEvent[] {
+    return this.combatLog.slice();
+  }
+
+  getPresentationGauntlet() {
+    return {
+      audio: this.audio.getDiagnostics(),
+      vfx: this.scene.getVfxDiagnostics(),
+      surface: this.scene.surfaceEffects.getDiagnostics(),
+      assets: this.scene.getAssetProbe(
+        this.game.ships.map((ship) => ({ id: ship.id, kind: ship.kind })),
+      ),
+      vesselDepth: this.game.submarine.z,
+      targetDepth: this.game.submarine.targetDepth,
+      immersion: this.cameras.getImmersion(),
+      cameraY: this.cameras.camera.position.y,
+      contacts: this.scene.getContactHeights(),
+    };
+  }
+
+  debugBurstPresentationFx() {
+    this.audio.unlock();
+    return this.scene.debugBurstPresentationFx();
+  }
+
+  debugSetDepth(order: 'surface' | 'periscope' | 'attack' | 'deep') {
+    this.game = setDepthOrder(this.game, order);
+    return { z: this.game.submarine.z, target: this.game.submarine.targetDepth };
   }
 
   getPerformanceProbe() {
@@ -215,14 +394,50 @@ export class App {
       },
       environment: this.getEnvironmentDiagnostics(),
       outdoorLighting: this.getOutdoorLightingDiagnostics(),
+      surface: this.getSurfaceDiagnostics(),
       graphics: this.renderer.getPerformanceDiagnostics(),
     };
   }
 
+  private menuAction(action: 'begin' | 'strike' | 'new-seed' | 'retry'): void {
+    if (action === 'retry') {
+      this.restartPatrol();
+      return;
+    }
+    if (action === 'new-seed') {
+      const seed = 1 + (Date.now() % 9000);
+      this.game = {
+        ...createGame(seed),
+        settings: this.settings,
+        worldVersion: this.runtime.world,
+      };
+      this.beginPatrol();
+      return;
+    }
+    if (action === 'strike') {
+      this.game = {
+        ...createConvoyStrike(19),
+        settings: this.settings,
+        worldVersion: this.runtime.world,
+      };
+      this.beginPatrol();
+      return;
+    }
+    this.game = {
+      ...createGame(this.game.seed),
+      settings: this.settings,
+      worldVersion: this.runtime.world,
+    };
+    this.beginPatrol();
+  }
+
   private beginPatrol(): void {
     this.missionGeneration += 1;
+    this.cinema = idleTrack();
+    this.clearTutorialHazards();
     this.scene.resetEnvironment(this.missionGeneration);
-    this.game = { ...startMission(this.game), settings: this.settings };
+    this.game = { ...startMission(this.game), settings: this.settings, viewMode: 'chase' };
+    this.cameras.setMode('chase');
     const freighter = this.game.ships[0];
     if (freighter) this.game = selectTarget(this.game, freighter.id);
     this.sim = adaptToLookDevSim(this.game);
@@ -233,6 +448,7 @@ export class App {
 
   private restartPatrol(): void {
     this.missionGeneration += 1;
+    this.cinema = idleTrack();
     this.scene.resetEnvironment(this.missionGeneration);
     this.game = {
       ...createGame(this.game.seed),
@@ -246,11 +462,14 @@ export class App {
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     if (e.code === 'KeyF' && this.game.phase === 'playing') {
-      this.game = fireWeapon(this.game);
-      this.sim = adaptToLookDevSim(this.game);
+      this.applyFire((g) => fireWeapon(g));
     }
     if (e.code === 'KeyR' && this.game.phase === 'playing') {
       this.game = toggleSilentRunning(this.game);
+      this.sim = adaptToLookDevSim(this.game);
+    }
+    if (e.code === 'KeyG' && this.game.phase === 'playing') {
+      this.game = blowTanks(this.game);
       this.sim = adaptToLookDevSim(this.game);
     }
     if (e.code === 'KeyC' && this.game.phase === 'playing') {
@@ -303,7 +522,12 @@ export class App {
     if (action === 'screen') this.game = deployCountermeasure(this.game);
     if (action === 'spread') this.game = toggleTorpedoSpread(this.game);
     if (action === 'sonar') this.game = sonarPulse(this.game);
-    if (action === 'fire') this.game = fireWeapon(this.game);
+    if (action === 'fire') {
+      this.applyFire((g) => fireWeapon(g));
+      this.audio.unlock();
+      this.audio.sfxClick();
+      return;
+    }
     if (action === 'silent') this.game = toggleSilentRunning(this.game);
     if (action === 'scope') this.game = toggleScope(this.game);
     if (action === 'snorkel') this.game = toggleSnorkel(this.game);
@@ -315,6 +539,7 @@ export class App {
       );
     if (action === 'stop-ai') this.game = cancelAutopilot(this.game);
     if (action === 'clear') this.game = clearEngagement(this.game);
+    if (action === 'blow') this.game = blowTanks(this.game);
     if (action === 'depth' && value)
       this.game = setDepthOrder(this.game, value as 'surface' | 'periscope' | 'attack' | 'deep');
     if (action === 'speed' && value)
@@ -324,7 +549,138 @@ export class App {
     this.sim = adaptToLookDevSim(this.game);
   }
 
+  /** Drops exercise charges and the steer mark. Help and explain cards stay clean. */
+  private clearTutorialHazards(): void {
+    this.lessonOrigin = null;
+    this.hud.setTutorialMark(null);
+    if (!this.game.depthCharges.some((charge) => charge.id.startsWith('tutorial-hog-'))) return;
+    this.game = {
+      ...this.game,
+      depthCharges: this.game.depthCharges.filter(
+        (charge) => !charge.id.startsWith('tutorial-hog-'),
+      ),
+    };
+  }
+
+  /** Tutorial holds the sim on explain cards. Exercises run and record a start pose. */
+  private onTutorialBeat(_index: number): void {
+    this.clearTutorialHazards();
+    const exercise = this.tutorial.currentExercise();
+    const sub = this.game.submarine;
+    const mark = exercise === 'steer' ? steerLessonMark(sub.x, sub.y, sub.heading) : null;
+    this.lessonOrigin = {
+      x: sub.x,
+      y: sub.y,
+      heading: sub.heading,
+      fired: this.game.stats.torpedoesFired,
+      hp: sub.hp,
+      mark,
+    };
+    this.hud.setTutorialMark(mark);
+    if (exercise === 'dodge') {
+      this.game = {
+        ...this.game,
+        depthCharges: [
+          ...this.game.depthCharges,
+          ...threateningHedgehogPattern(sub.x, sub.y, sub.heading),
+        ],
+      };
+    }
+    this.holdForTutorial(this.tutorial.isOpen());
+  }
+
+  private tutorialMayAdvance(_step: number): boolean {
+    const exercise = this.tutorial.currentExercise();
+    const origin = this.lessonOrigin;
+    if (!exercise || !origin) return true;
+    const sub = this.game.submarine;
+    if (exercise === 'steer' && origin.mark) return steerLessonDone(sub.x, sub.y, origin.mark);
+    if (exercise === 'fire') return fireLessonDone(origin.fired, this.game.stats.torpedoesFired);
+    const dx = sub.x - origin.x;
+    const dy = sub.y - origin.y;
+    const cross = Math.abs(-Math.sin(origin.heading) * dx + Math.cos(origin.heading) * dy);
+    return dodgeLessonDone(cross, origin.hp, sub.hp);
+  }
+
+  /** A hit during the dodge puts the boat back and lays a fresh pattern ahead. */
+  private recoverDodge(): void {
+    const origin = this.lessonOrigin;
+    if (this.tutorial.currentExercise() !== 'dodge' || !origin) return;
+    if (this.game.submarine.hp >= origin.hp) return;
+    const sub = {
+      ...this.game.submarine,
+      hp: origin.hp,
+      x: origin.x,
+      y: origin.y,
+      heading: origin.heading,
+    };
+    this.game = {
+      ...this.game,
+      submarine: sub,
+      depthCharges: [
+        ...this.game.depthCharges.filter((charge) => !charge.id.startsWith('tutorial-hog-')),
+        ...threateningHedgehogPattern(origin.x, origin.y, origin.heading),
+      ],
+    };
+  }
+
+  private holdForTutorial(open: boolean): void {
+    const next = phaseWhileTutorial(
+      this.game.phase,
+      open,
+      this.tutorialHeldPause,
+      this.tutorial.exerciseLive(),
+    );
+    this.tutorialHeldPause = next.heldByTutorial;
+    if (next.phase !== this.game.phase) {
+      this.game = setPhase(this.game, next.phase);
+      this.sim = adaptToLookDevSim(this.game);
+    }
+    this.pauseBanner.hidden = this.tutorialHeldPause || this.game.phase !== 'paused';
+  }
+
+  /**
+   * Edge chevrons from the live camera. `projectNdc.clipW` is an out-of-frustum
+   * flag, not clip-space w, so a point behind the lens is the view-direction dot.
+   * Those contacts keep the raw mirrored pixels and `behind: true`.
+   */
+  private syncThreats(): void {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    this.cameras.camera.getWorldDirection(this.threatForward);
+    const markers = computeThreatMarkers(
+      this.game,
+      (x, y, z) => this.projectThreat(x, y, z, width, height),
+      { width, height },
+      { underwater: this.game.submarine.z > 0.2 },
+    );
+    this.threats.render(markers);
+  }
+
+  private projectThreat(
+    x: number,
+    y: number,
+    z: number,
+    width: number,
+    height: number,
+  ): ThreatProjection {
+    const world = simToWorldMeters(x, y);
+    const altitude = entityDepthY(z);
+    const ndc = this.cameras.projectNdc(world.x, altitude, world.z);
+    const sx = (ndc.ndcX * 0.5 + 0.5) * width;
+    const sy = (-ndc.ndcY * 0.5 + 0.5) * height;
+    const camera = this.cameras.camera.position;
+    const ahead =
+      (world.x - camera.x) * this.threatForward.x +
+      (altitude - camera.y) * this.threatForward.y +
+      (world.z - camera.z) * this.threatForward.z;
+    const behind = ahead <= 0;
+    const onScreen = !behind && sx >= 0 && sx <= width && sy >= 0 && sy <= height;
+    return { sx, sy, onScreen, behind };
+  }
+
   private inputPause(): void {
+    if (this.tutorial.isOpen() && !this.tutorial.exerciseLive()) return;
     if (this.game.phase !== 'playing' && this.game.phase !== 'paused') return;
     this.game = setPhase(this.game, this.game.phase === 'paused' ? 'playing' : 'paused');
     this.sim = adaptToLookDevSim(this.game);
@@ -358,21 +714,16 @@ export class App {
     const decision = resolveWorldClick(rayHit, screenProximate);
     if (button === 2) {
       if (decision.action === 'select') {
-        this.game = updateGame(
-          this.game,
-          [{ type: 'selectTarget', id: decision.id }, { type: 'fireWeapon' }],
-          0,
+        this.applyFire((g) =>
+          updateGame(g, [{ type: 'selectTarget', id: decision.id }, { type: 'fireWeapon' }], 0),
         );
       } else {
         const point = this.pickWaterSimPoint(clientX, clientY, rect);
         if (!point) return;
-        this.game = updateGame(
-          this.game,
-          [{ type: 'setAimPoint', point }, { type: 'fireWeapon' }],
-          0,
+        this.applyFire((g) =>
+          updateGame(g, [{ type: 'setAimPoint', point }, { type: 'fireWeapon' }], 0),
         );
       }
-      this.sim = adaptToLookDevSim(this.game);
       return;
     }
     if (decision.action === 'select') {
@@ -383,6 +734,44 @@ export class App {
     const point = this.pickWaterSimPoint(clientX, clientY, rect);
     if (!point) return;
     this.plot(point.x, point.y);
+  }
+
+  private applyFire(mutate: (state: GameState) => GameState): void {
+    const before = this.game;
+    this.game = mutate(before);
+    const prev = new Set(before.torpedoes.filter((t) => t.owner === 'player').map((t) => t.id));
+    const fresh = this.game.torpedoes.find((t) => t.owner === 'player' && !prev.has(t.id));
+    if (fresh) {
+      this.cinema = startTrack(fresh.id, performance.now());
+    }
+    this.sim = adaptToLookDevSim(this.game);
+  }
+
+  private cinemaPresentation(): {
+    cinema?: CinemaPoint;
+    snapToTarget?: boolean;
+  } {
+    const sub = this.game.submarine;
+    const helmActive =
+      this.helmSample.ready &&
+      (Math.abs(sub.heading - this.helmSample.heading) > 0.02 ||
+        Math.abs(sub.speed - this.helmSample.speed) > 0.05);
+    this.helmSample = { heading: sub.heading, speed: sub.speed, ready: true };
+    const escortFix = this.game.ships.some((ship) => hasContact(ship, this.game));
+    const torpedo = this.cinema.id
+      ? this.game.torpedoes.find((t) => t.id === this.cinema.id)
+      : undefined;
+    const world = torpedo ? simToWorldMeters(torpedo.x, torpedo.y) : null;
+    const fish =
+      torpedo && world
+        ? { x: world.x, y: -depthToMeters(torpedo.z), z: world.z, heading: torpedo.heading }
+        : undefined;
+    const step = stepTrack(this.cinema, fish, escortFix, performance.now(), helmActive);
+    this.cinema = step.track;
+    return {
+      ...(step.cinema ? { cinema: step.cinema } : {}),
+      ...(step.snapToTarget ? { snapToTarget: true } : {}),
+    };
   }
 
   /** Intersect the active camera ray with the y=0 sea plane, then convert to sim coords. */
@@ -456,38 +845,82 @@ export class App {
     this.dispose();
   };
 
+  private syncBootProgress(): void {
+    if (!this.bootVisible) return;
+    const states = Object.values(this.scene.getAssetProbe().loaded);
+    const loaded = states.filter((state) => state !== 'pending').length;
+    setBootProgress(loaded, states.length);
+  }
+
+  private finishBoot(): void {
+    if (!this.bootVisible) return;
+    this.bootVisible = false;
+    const states = Object.values(this.scene.getAssetProbe().loaded);
+    setBootProgress(states.length, states.length);
+    hideBootOverlay();
+  }
+
   private readonly frame = (now: number): void => {
     if (!this.running) return;
+    this.syncBootProgress();
     const elapsed = (now - this.last) / 1000;
     this.last = now;
 
     this.input.update();
 
-    const tick = advanceAccumulator(this.accum, elapsed);
+    this.hitFreeze = Math.max(0, this.hitFreeze - elapsed);
+    this.cameraShake *= Math.max(0, 1 - elapsed * 3.2);
+    const scaled = this.hitFreeze > 0 ? 0 : elapsed * actionTimeScale(this.game);
+    const tick = advanceAccumulator(this.accum, scaled);
     this.accum = tick.accum;
     const renderDt = tick.elapsedUsed;
 
-    if (this.game.phase === 'playing') {
+    const combat: CombatEvent[] = [];
+    if (!this.tutorial.exerciseLive()) this.clearTutorialHazards();
+    else this.recoverDodge();
+    this.tutorial.setAdvanceEnabled(
+      this.tutorial.currentExercise() === null || this.tutorialMayAdvance(0),
+    );
+    if (patrolClockRuns(this.game.phase, this.tutorial.isOpen(), this.tutorial.exerciseLive())) {
       for (let i = 0; i < tick.steps; i++) {
+        const prev = this.game;
         const command: GameCommand = { type: 'helm', ...this.input.intent };
         this.game = updateGame(this.game, [command], FIXED_DT);
+        combat.push(...deriveCombatEvents(prev, this.game));
       }
       this.sim = adaptToLookDevSim(this.game);
     }
 
+    // Wrecks adopt the live hull before syncGame drops ships that just sank.
+    this.presentCombat(combat, this.game.time);
     this.scene.syncGame(this.game, this.sim, this.settings, renderDt);
+    const cinema = this.cinemaPresentation();
     this.cameras.update(this.sim, renderDt, {
       lightning: this.scene.weatherLightning,
+      shake: this.cameraShake,
       reducedMotion: this.reducedMotion,
       waterHeight: this.scene.sampledWaterHeight,
+      sampleTerrainY: (x, z) =>
+        presentationBedY(this.game.worldVersion, this.game.terrainSeed, x, z),
+      cinema: cinema.cinema,
+      snapToTarget: cinema.snapToTarget,
     });
+    const batteryFrac =
+      this.game.submarine.maxBattery > 0
+        ? this.game.submarine.battery / this.game.submarine.maxBattery
+        : 1;
     this.scene.applyImmersion(this.cameras.camera);
-    this.renderer.setExposure(this.settings.atmosphere.exposure);
+    this.renderer.setExposure(
+      this.settings.atmosphere.exposure *
+        (0.52 + 0.48 * Math.max(0, Math.min(1, batteryFrac))) *
+        this.scene.immersionExposureFactor,
+    );
     if (this.renderer.canSubmit) {
       this.scene.preRenderWater(this.renderer.renderer, this.cameras.camera);
       this.renderer.render(this.scene.scene, this.cameras.camera);
     }
 
+    this.syncThreats();
     this.hud.render(this.game, this.sim, this.settings);
     this.audio.observe(this.game);
     this.peri.render(this.sim, this.settings, this.cameras.periYaw);
@@ -501,14 +934,120 @@ export class App {
     if (profile !== this.activeQuality && this.renderer.canSubmit) {
       this.activeQuality = profile;
       this.renderer.setQuality(QUALITY_PROFILES[profile]);
+      this.renderer.setBloomEnabled(
+        bloomEnabledFor(profile, window.location.search),
+        );
       this.scene.setQuality(QUALITY_PROFILES[profile]);
     }
     if (this.panel.isVisible()) {
       this.panel.setPerf(this.fpsEma, this.frameMsEma, profile);
+      this.panel.setSurfaceDiagnostics(this.scene.formatSurfaceDiagnostics());
     }
 
     this.raf = requestAnimationFrame(this.frame);
   };
+
+  /** Dispatch one frame of fixed-step cues. `now` is sim seconds. */
+  private presentCombat(events: readonly CombatEvent[], now: number): void {
+    if (events.length > 0) {
+      this.combatLog.push(...events);
+      if (this.combatLog.length > 64) this.combatLog.splice(0, this.combatLog.length - 64);
+      this.applyCombatFeel(events);
+      for (const event of events) this.playCombatCue(event);
+    }
+    const gates = reducedMotionGates(this.reducedMotion);
+    // `now` is simulation seconds, including 4× compression. Wreck life follows that clock.
+    this.scene.playCombatEvents(presentationEvents(events, gates.emitFlash), now);
+    const alert = this.game.ships.reduce((max, ship) => Math.max(max, ship.alert), 0);
+    this.audio.setTension(this.game.phase === 'playing' ? alert : 0);
+  }
+
+  /** Hit shake 0.5, player-hit shake 0.9, sink freeze 0.4 s. All zero under reduced motion. */
+  private applyCombatFeel(events: readonly CombatEvent[]): void {
+    const gates = reducedMotionGates(this.reducedMotion);
+    for (const event of events) {
+      if (event.type === 'torpedoHit') {
+        this.cameraShake = Math.max(this.cameraShake, 0.5 * gates.shakeScale);
+      } else if (event.type === 'detonation') {
+        // Blasts shake the boat by proximity — a distant splash barely registers.
+        const world = simToWorldMeters(event.x, event.y);
+        const distance = Math.hypot(
+          world.x - this.cameras.camera.position.x,
+          world.z - this.cameras.camera.position.z,
+          entityDepthY(event.z) - this.cameras.camera.position.y,
+        );
+        this.cameraShake = Math.max(
+          this.cameraShake,
+          detonationShake({
+            yieldPower: event.yield,
+            distanceMeters: distance,
+            shakeScale: gates.shakeScale,
+          }),
+        );
+      } else if (event.type === 'playerHit') {
+        this.cameraShake = Math.max(this.cameraShake, 0.9 * gates.shakeScale);
+      } else if (event.type === 'shipSunk') {
+        this.hitFreeze = Math.max(this.hitFreeze, 0.4 * gates.freezeScale);
+      }
+    }
+  }
+
+  private playCombatCue(event: CombatEvent): void {
+    const sub = this.game.submarine;
+    const distanceOf = (x: number, y: number): number => Math.hypot(x - sub.x, y - sub.y);
+    switch (event.type) {
+      case 'torpedoLaunch':
+        this.audio.playCue(event.owner === 'enemy' ? 'incoming' : 'launch', {
+          distance: distanceOf(event.x, event.y),
+        });
+        return;
+      case 'torpedoHit':
+        this.audio.playCue('hit', { distance: distanceOf(event.x, event.y) });
+        return;
+      case 'shipSunk':
+        this.audio.playCue('sink', { distance: distanceOf(event.x, event.y) });
+        return;
+      case 'chargeBlast': {
+        const distance = distanceOf(event.x, event.y);
+        if (event.near) this.audio.playCue('hullHit', { distance });
+        else if (verticalMissCue(distance, false)) this.audio.playCue('distantBoom', { distance });
+        return;
+      }
+      case 'playerHit':
+        this.audio.playCue('hullHit');
+        return;
+      case 'countermeasure':
+        this.audio.playCue('decoy', { distance: distanceOf(event.x, event.y) });
+        return;
+      case 'waveStart':
+        this.audio.playCue('waveStart');
+        return;
+      case 'victory':
+        this.audio.playCue('victory');
+        return;
+      case 'gameover':
+        this.audio.playCue('gameover');
+        return;
+      case 'shellLaunch':
+        this.audio.playCue('distantBoom', { distance: distanceOf(event.x, event.y) });
+        return;
+      case 'torpedoExpired':
+        if (nearMissCue(distanceOf(event.x, event.y))) {
+          this.audio.playCue('incoming', { distance: distanceOf(event.x, event.y) });
+        }
+        return;
+      case 'detonation':
+        // Visual bursts are the scene's job; audio already fires on hit/blast cues.
+        return;
+      case 'sonarPing':
+      case 'pickup':
+        return;
+      default: {
+        const unreachable: never = event;
+        return unreachable;
+      }
+    }
+  }
 
   dispose(): void {
     this.running = false;
@@ -518,8 +1057,11 @@ export class App {
     window.removeEventListener('keydown', this.onKeyDown);
     this.input.dispose();
     this.tutorial.dispose();
+    this.threatRoot.remove();
     this.audio.dispose();
+    this.errorToast?.dispose();
     this.recoveryBanner.remove();
+    this.finishBoot();
     this.scene.dispose();
     this.renderer.dispose();
   }

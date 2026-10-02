@@ -46,6 +46,9 @@ jobs:
       - name: Browser smoke
         run: npm run test:smoke
 
+      - name: Patrol E2E
+        run: npm run test:e2e -- http://127.0.0.1:8080/
+
       - name: Stop preview
         if: always()
         run: |

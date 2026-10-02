@@ -1,16 +1,11 @@
 import * as THREE from 'three';
 
-const HULL = 0x243032;
-const HULL_LIGHT = 0x3a484a;
+const HULL = 0x56676c;
+const HULL_LIGHT = 0x8a9a9d;
 const BRASS = 0xbd8b4e;
-const DECK = 0x1a2224;
-const SUPER = 0x2a3234;
-const FUNNEL = 0x3a322c;
-const hullAlbedo = new THREE.TextureLoader().load('/assets/textures/hull-metal-albedo.png');
-hullAlbedo.colorSpace = THREE.SRGBColorSpace;
-hullAlbedo.wrapS = THREE.RepeatWrapping;
-hullAlbedo.wrapT = THREE.RepeatWrapping;
-hullAlbedo.repeat.set(2, 1);
+const DECK = 0x46545a;
+const SUPER = 0x74848a;
+const FUNNEL = 0x7a5a48;
 
 function mat(
   color: number,
@@ -24,7 +19,6 @@ function mat(
     side: THREE.FrontSide,
     shadowSide: THREE.FrontSide,
   });
-  if (opts.metalness && opts.metalness > 0.3) material.map = hullAlbedo;
   return material;
 }
 
@@ -59,14 +53,16 @@ function createTaperedHull(
     bevelEnabled: true,
     bevelThickness: height * 0.12,
     bevelSize: Math.min(beam * 0.06, height * 0.15),
-    bevelSegments: 2,
-    curveSegments: 1,
+    bevelSegments: 5,
+    curveSegments: 8,
+    steps: 2,
   });
   geo.rotateX(-Math.PI / 2);
   geo.translate(0, height * 0.5, 0);
   geo.computeVertexNormals();
 
   const mesh = new THREE.Mesh(geo, mat(color, { roughness: 0.58, metalness: 0.38 }));
+  mesh.name = 'hull-body';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
@@ -98,8 +94,8 @@ export function createSubmarine(): THREE.Group {
 
   // Pressure hull — longer, slightly flattened fleet-boat silhouette
   const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.92, 12.4, 8, 18),
-    mat(0x1a262c, { roughness: 0.48, metalness: 0.52 }),
+    new THREE.CapsuleGeometry(0.92, 12.4, 12, 28),
+    mat(0x324a55, { roughness: 0.48, metalness: 0.52 }),
   );
   body.rotation.z = Math.PI / 2;
   body.scale.set(1, 0.86, 1);
@@ -124,7 +120,7 @@ export function createSubmarine(): THREE.Group {
 
   // Bulbous bow / sonar dome
   const bow = new THREE.Mesh(
-    new THREE.SphereGeometry(0.95, 14, 10),
+    new THREE.SphereGeometry(0.95, 22, 16),
     mat(HULL_LIGHT, { roughness: 0.42, metalness: 0.48 }),
   );
   bow.scale.set(1.35, 0.78, 0.9);
@@ -157,7 +153,7 @@ export function createSubmarine(): THREE.Group {
   g.add(sailCap);
   const sailBridge = new THREE.Mesh(
     new THREE.BoxGeometry(1.1, 0.55, 0.95),
-    mat(0x3a484c, { metalness: 0.4, roughness: 0.45 }),
+    mat(0x718c94, { metalness: 0.4, roughness: 0.45 }),
   );
   sailBridge.position.set(0.35, 2.55, 0);
   g.add(sailBridge);
@@ -166,7 +162,7 @@ export function createSubmarine(): THREE.Group {
   for (const [x, h, color] of [
     [0.55, 3.1, BRASS],
     [0.15, 2.7, 0x4a5254],
-    [-0.35, 2.4, 0x3a4446],
+    [-0.35, 2.4, 0x718488],
   ] as const) {
     const mast = new THREE.Mesh(
       new THREE.CylinderGeometry(0.055, 0.065, h, 6),
@@ -209,13 +205,13 @@ export function createSubmarine(): THREE.Group {
   // Deck gun for silhouette interest
   const gunMount = new THREE.Mesh(
     new THREE.CylinderGeometry(0.28, 0.34, 0.35, 8),
-    mat(0x2a3032, { metalness: 0.55 }),
+    mat(0x515d61, { metalness: 0.55 }),
   );
   gunMount.position.set(2.6, 1.15, 0);
   g.add(gunMount);
   const barrel = new THREE.Mesh(
     new THREE.CylinderGeometry(0.07, 0.09, 1.8, 8),
-    mat(0x2a3032, { metalness: 0.6 }),
+    mat(0x515d61, { metalness: 0.6 }),
   );
   barrel.rotation.z = Math.PI / 2;
   barrel.position.set(3.45, 1.35, 0);
@@ -266,7 +262,7 @@ export function createDestroyer(): THREE.Group {
   addDeckHouse(g, 2.2, 5.7, 0, 2.6, 0.9, 2.2, DECK);
 
   const funnel = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.55, 0.75, 3.2, 10),
+    new THREE.CylinderGeometry(0.55, 0.75, 3.2, 16),
     mat(FUNNEL, { metalness: 0.4, roughness: 0.55 }),
   );
   funnel.position.set(-2.8, 5.0, 0);
@@ -274,7 +270,7 @@ export function createDestroyer(): THREE.Group {
   g.add(funnel);
 
   const funnel2 = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.45, 0.6, 2.6, 10),
+    new THREE.CylinderGeometry(0.45, 0.6, 2.6, 16),
     mat(FUNNEL, { metalness: 0.4, roughness: 0.55 }),
   );
   funnel2.position.set(-5.5, 4.6, 0);
@@ -282,12 +278,12 @@ export function createDestroyer(): THREE.Group {
 
   const mast = new THREE.Mesh(
     new THREE.CylinderGeometry(0.07, 0.09, 7.5, 6),
-    mat(0x3a4242, { metalness: 0.6, roughness: 0.4 }),
+    mat(0x718080, { metalness: 0.6, roughness: 0.4 }),
   );
   mast.position.set(1.2, 7.2, 0);
   g.add(mast);
 
-  const yard = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 3.2), mat(0x3a4242));
+  const yard = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 3.2), mat(0x718080));
   yard.position.set(1.2, 9.4, 0);
   g.add(yard);
 
@@ -311,8 +307,8 @@ export function createDestroyer(): THREE.Group {
   addDeckHouse(g, -7.2, 3.55, 0, 2.8, 1.4, 2.4, DECK);
 
   const gun = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.16, 0.2, 3.4, 8),
-    mat(0x2a3030, { metalness: 0.65, roughness: 0.4 }),
+    new THREE.CylinderGeometry(0.16, 0.2, 3.4, 12),
+    mat(0x515d5d, { metalness: 0.65, roughness: 0.4 }),
   );
   gun.rotation.z = Math.PI / 2;
   gun.position.set(9.2, 3.35, 0);
@@ -343,7 +339,7 @@ export function createMerchant(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'merchant';
 
-  g.add(createTaperedHull(38, 6.8, 3.4, 0x232a2c));
+  g.add(createTaperedHull(38, 6.8, 3.4, 0x445155));
 
   const deck = new THREE.Mesh(
     new THREE.BoxGeometry(30, 0.32, 5.6),
@@ -357,14 +353,14 @@ export function createMerchant(): THREE.Group {
   for (let i = 0; i < 3; i++) {
     const hold = new THREE.Mesh(
       new THREE.BoxGeometry(6.2, 1.8, 4.6),
-      mat(0x3a342e, { roughness: 0.7, metalness: 0.25 }),
+      mat(0x716559, { roughness: 0.7, metalness: 0.25 }),
     );
     hold.position.set(9 - i * 8.5, 4.5, 0);
     hold.castShadow = true;
     g.add(hold);
     const hatch = new THREE.Mesh(
       new THREE.BoxGeometry(4.2, 0.25, 3.2),
-      mat(0x2a2622, { roughness: 0.65 }),
+      mat(0x514a42, { roughness: 0.65 }),
     );
     hatch.position.set(9 - i * 8.5, 5.5, 0);
     g.add(hatch);
@@ -374,8 +370,8 @@ export function createMerchant(): THREE.Group {
   addDeckHouse(g, -13.5, 7.9, 0, 3.4, 1.2, 3.6, DECK);
 
   const funnel = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.85, 1.05, 4.2, 10),
-    mat(0x4a3a28, { metalness: 0.35, roughness: 0.55 }),
+    new THREE.CylinderGeometry(0.85, 1.05, 4.2, 16),
+    mat(0x90714e, { metalness: 0.35, roughness: 0.55 }),
   );
   funnel.position.set(-13.5, 9.5, 0);
   funnel.castShadow = true;
@@ -383,12 +379,12 @@ export function createMerchant(): THREE.Group {
 
   const mast = new THREE.Mesh(
     new THREE.CylinderGeometry(0.08, 0.1, 8, 6),
-    mat(0x3a4040, { metalness: 0.55 }),
+    mat(0x717c7c, { metalness: 0.55 }),
   );
   mast.position.set(4, 8.2, 0);
   g.add(mast);
 
-  const boom = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.12, 0.12), mat(0x3a4040));
+  const boom = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.12, 0.12), mat(0x717c7c));
   boom.position.set(5.8, 10.4, 0.35);
   boom.rotation.z = -0.35;
   g.add(boom);
@@ -429,7 +425,7 @@ export function createPatrolBoat(): THREE.Group {
 export function createCruiser(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'cruiser';
-  g.add(createTaperedHull(34, 5.2, 2.8, 0x2c3a3e));
+  g.add(createTaperedHull(34, 5.2, 2.8, 0x557178));
   const deck = new THREE.Mesh(new THREE.BoxGeometry(24, 0.28, 4.2), mat(DECK, { metalness: 0.45 }));
   deck.position.set(-0.5, 2.95, 0);
   g.add(deck);
@@ -437,7 +433,7 @@ export function createCruiser(): THREE.Group {
   addDeckHouse(g, 3.2, 6.6, 0, 3.6, 1.1, 2.6, DECK);
   for (const x of [8.5, -6.5, -12]) {
     const barbette = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.95, 1.1, 0.7, 12),
+      new THREE.CylinderGeometry(0.95, 1.1, 0.7, 20),
       mat(HULL_LIGHT),
     );
     barbette.position.set(x, 3.5, 0);
@@ -455,7 +451,7 @@ export function createCruiser(): THREE.Group {
     funnel.position.set(x, 5.6, 0);
     g.add(funnel);
   }
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 9, 6), mat(0x3a4040));
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 9, 6), mat(0x717c7c));
   mast.position.set(2.2, 8.2, 0);
   g.add(mast);
   g.scale.setScalar(0.55);
@@ -465,14 +461,14 @@ export function createCruiser(): THREE.Group {
 export function createBattleship(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'battleship';
-  g.add(createTaperedHull(42, 6.4, 3.4, 0x243034));
+  g.add(createTaperedHull(42, 6.4, 3.4, 0x465d65));
   const deck = new THREE.Mesh(new THREE.BoxGeometry(30, 0.35, 5.2), mat(DECK, { metalness: 0.48 }));
   deck.position.set(-1, 3.55, 0);
   g.add(deck);
   addDeckHouse(g, 2.0, 5.6, 0, 8.5, 4.0, 4.4);
   addDeckHouse(g, 1.5, 8.0, 0, 4.5, 1.4, 3.2, DECK);
   for (const x of [11, 4, -8, -14]) {
-    const barbette = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.45, 0.9, 14), mat(0x465052));
+    const barbette = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.45, 0.9, 22), mat(0x465052));
     barbette.position.set(x, 4.1, 0);
     g.add(barbette);
     for (const z of [-0.55, 0.55]) {
@@ -485,12 +481,12 @@ export function createBattleship(): THREE.Group {
   for (const x of [-2, -5.5]) {
     const funnel = new THREE.Mesh(
       new THREE.CylinderGeometry(0.7, 0.95, 4.4, 10),
-      mat(0x3a2e28, { metalness: 0.28 }),
+      mat(0x71594e, { metalness: 0.28 }),
     );
     funnel.position.set(x, 6.8, 0);
     g.add(funnel);
   }
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 11, 6), mat(0x3a4040));
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 11, 6), mat(0x717c7c));
   mast.position.set(0.5, 10.5, 0);
   g.add(mast);
   g.scale.setScalar(0.48);
@@ -501,7 +497,7 @@ export function createUboat(): THREE.Group {
   const g = createSubmarine();
   g.name = 'uboat';
   g.scale.multiplyScalar(1.48);
-  const conningTower = new THREE.Mesh(new THREE.BoxGeometry(3.3, 1.4, 1.5), mat(0x283236));
+  const conningTower = new THREE.Mesh(new THREE.BoxGeometry(3.3, 1.4, 1.5), mat(0x4e6169));
   conningTower.position.set(-0.7, 3.6, 0);
   g.add(conningTower);
   return g;
@@ -511,7 +507,7 @@ export function createAircraft(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'aircraft';
   const fuse = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.42, 5.4, 6, 12),
+    new THREE.CapsuleGeometry(0.42, 5.4, 10, 20),
     mat(0x4a6458, { roughness: 0.48, metalness: 0.28 }),
   );
   fuse.rotation.z = Math.PI / 2;
@@ -519,7 +515,7 @@ export function createAircraft(): THREE.Group {
   g.add(fuse);
   const nose = new THREE.Mesh(
     new THREE.ConeGeometry(0.4, 1.1, 10),
-    mat(0x2a3430, { metalness: 0.35 }),
+    mat(0x51655d, { metalness: 0.35 }),
   );
   nose.rotation.z = -Math.PI / 2;
   nose.position.x = 3.4;
@@ -543,7 +539,7 @@ export function createAircraft(): THREE.Group {
   for (const side of [-1, 1]) {
     const eng = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.28, 1.4, 4, 8),
-      mat(0x323a38, { metalness: 0.45 }),
+      mat(0x61716d, { metalness: 0.45 }),
     );
     eng.rotation.z = Math.PI / 2;
     eng.position.set(0.15, -0.2, side * 2.4);
@@ -572,7 +568,7 @@ export function createFob(): THREE.Group {
     const a = (i / 6) * Math.PI * 2;
     const leg = new THREE.Mesh(
       new THREE.CylinderGeometry(0.45, 0.55, 3.2, 8),
-      mat(0x3a4040, { metalness: 0.4 }),
+      mat(0x717c7c, { metalness: 0.4 }),
     );
     leg.position.set(Math.cos(a) * 6.8, -0.9, Math.sin(a) * 6.8);
     g.add(leg);
@@ -587,7 +583,7 @@ export function createFob(): THREE.Group {
   addDeckHouse(g, 0, 9.4, 0, 4.2, 1.4, 4.2, DECK);
   const mast = new THREE.Mesh(
     new THREE.CylinderGeometry(0.1, 0.14, 5.5, 6),
-    mat(0x3a4040, { metalness: 0.55 }),
+    mat(0x717c7c, { metalness: 0.55 }),
   );
   mast.position.set(0.4, 12.2, 0);
   g.add(mast);
@@ -619,7 +615,7 @@ export function createTorpedo(): THREE.Group {
   g.name = 'torpedo';
   const body = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.16, 1.25, 4, 8),
-    mat(0x263236, { metalness: 0.72 }),
+    mat(0x4a6169, { metalness: 0.72 }),
   );
   body.rotation.z = Math.PI / 2;
   g.add(body);
@@ -637,7 +633,7 @@ export function createCrate(): THREE.Group {
     mat(0x8b5a30, { roughness: 0.85, metalness: 0.04 }),
   );
   g.add(box);
-  const strap = new THREE.Mesh(new THREE.BoxGeometry(1.46, 1.05, 0.12), mat(0x33302b));
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(1.46, 1.05, 0.12), mat(0x635d53));
   g.add(strap);
   return g;
 }

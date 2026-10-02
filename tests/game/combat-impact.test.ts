@@ -41,6 +41,100 @@ describe('torpedo impact and tactics', () => {
     expect(state.messages.some((m) => /HIT/.test(m.text))).toBe(true);
   });
 
+  it('a torpedo hit alerts the victim and nearby warships so the hunt is on', () => {
+    let state = startMission(createGame(19));
+    for (let i = 0; i < 60; i++) state = updateGame(state, [], FIXED_DT);
+    const victim = state.ships.find((s) => s.kind === 'merchant')!;
+    const escort = state.ships.find((s) => s.kind !== 'merchant' && s.id !== victim.id)!;
+    state = {
+      ...state,
+      selectedTargetId: victim.id,
+      ships: state.ships.map((s) =>
+        s.id === escort.id ? { ...s, x: victim.x + 8, y: victim.y, alert: 0, holdContact: 0 } : { ...s, alert: 0, holdContact: 0 },
+      ),
+      submarine: { ...state.submarine, x: victim.x - 2.4, y: victim.y, heading: 0, z: 0.28, targetDepth: 0.28 },
+    };
+    expect(state.ships.every((s) => s.alert === 0)).toBe(true);
+    state = fireWeapon(state);
+    for (let i = 0; i < 300 && state.torpedoes.length > 0; i++) state = updateGame(state, [], FIXED_DT);
+    expect(state.messages.some((m) => /HIT/.test(m.text))).toBe(true);
+    const alertedEscort = state.ships.find((s) => s.id === escort.id)!;
+    // A silent, unseen shooter is only "found" because the impact gave the position away.
+    expect(alertedEscort.alert).toBeGreaterThan(0.5);
+    expect(alertedEscort.holdContact).toBeGreaterThan(0);
+  });
+
+  it('each sinking salvages one Mk-14 up to the magazine limit', () => {
+    let state = startMission(createGame(19));
+    const doomed = state.ships[0]!;
+    state = {
+      ...state,
+      submarine: { ...state.submarine, torpedoes: 3 },
+      ships: state.ships.map((s) => (s.id === doomed.id ? { ...s, sinking: 0.001 } : s)),
+    };
+    state = updateGame(state, [], FIXED_DT);
+    expect(state.submarine.torpedoes).toBe(4);
+    state = {
+      ...state,
+      submarine: { ...state.submarine, torpedoes: state.submarine.maxTorpedoes },
+      ships: state.ships.map((s, i) => (i === 0 ? { ...s, sinking: 0.001 } : s)),
+    };
+    state = updateGame(state, [], FIXED_DT);
+    expect(state.submarine.torpedoes).toBe(state.submarine.maxTorpedoes);
+  });
+
+  it('an escort\'s opening depth-charge run leaves a window to react — but punishes holding still', () => {
+    const stage = (speed: number) => {
+      const base = startMission(createGame(19));
+      const escort = base.ships.find((s) => s.kind === 'cruiser')!;
+      return {
+        ...base,
+        ships: base.ships.map((s) =>
+          s.id === escort.id
+            ? {
+                ...s,
+                // Escort faces away with the boat directly astern, so the run drops
+                // the stern/K-gun pattern on it instead of hedgehogs.
+                x: base.submarine.x - 0.8,
+                y: base.submarine.y,
+                heading: Math.PI,
+                alert: 1,
+                holdContact: 8,
+                weaponCooldown: 0,
+              }
+            : { ...s, x: s.x + 200, y: s.y + 200 },
+        ),
+        submarine: {
+          ...base.submarine,
+          invuln: 0,
+          hp: 100,
+          noise: 0.6,
+          silentRunning: false,
+          speed,
+          targetSpeed: speed,
+        },
+      };
+    };
+
+    // Charges need seconds to sink to pistol depth: a boat holding still takes
+    // no damage for the first 2 s — that sink time *is* the reaction window.
+    let still = stage(0);
+    for (let i = 0; i < Math.ceil(2 / FIXED_DT); i++) {
+      still = updateGame(still, [], FIXED_DT);
+      expect(still.submarine.hp).toBe(100);
+    }
+    expect(still.depthCharges.some((c) => c.kind === 'depthCharge')).toBe(true);
+
+    // A boat that keeps moving outruns the drop and survives comfortably.
+    let moving = stage(2.5);
+    let minHp = moving.submarine.hp;
+    for (let i = 0; i < Math.ceil(6 / FIXED_DT); i++) {
+      moving = updateGame(moving, [], FIXED_DT);
+      minHp = Math.min(minHp, moving.submarine.hp);
+    }
+    expect(minHp).toBeGreaterThanOrEqual(75);
+  });
+
   it('ambush autopilot closes range and can fire a shot', () => {
     let state = startMission(createGame(19));
     state = setDepthOrder(state, 'periscope');

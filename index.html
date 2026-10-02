@@ -7,6 +7,7 @@
     <title>Silent Depths — Look Dev</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/src/styles/main.css" />
+    <link rel="stylesheet" href="/src/styles/boot.css" />
   </head>
   <body>
     <div id="app">
@@ -27,6 +28,29 @@
       <div id="pause-banner" class="pause-banner" hidden>PAUSED</div>
       <div id="patrol-overlay" class="patrol-overlay" aria-live="polite"></div>
       <div id="tutorial-overlay" class="tutorial-overlay" hidden></div>
+      <div
+        id="boot-overlay"
+        class="boot-overlay"
+        role="status"
+        aria-live="polite"
+        data-boot="loading"
+      >
+        <div class="boot-card">
+          <p class="boot-kicker">Silent Depths</p>
+          <h1 class="boot-title">Preparing the boat</h1>
+          <p id="boot-status" class="boot-status">Loading fleet assets…</p>
+          <div
+            class="boot-track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+            aria-labelledby="boot-status"
+          >
+            <div id="boot-bar" class="boot-bar"></div>
+          </div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

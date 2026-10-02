@@ -3,6 +3,7 @@ import type { WorldVersion } from '../world/definition';
 import { playerNavProfile, snapWorld } from '../world/littoral';
 import { getWorld } from '../world/queries';
 import { createGame as makeGame, seedPowerups, seedWave } from './create';
+import { createConvoyStrike } from './scenarios/convoy-strike';
 import { stepGame } from './step';
 import type {
   ApiResult,
@@ -18,13 +19,25 @@ import { snapToNavigable as snap, getTerrain } from './world';
 
 export const createGame = (seed?: number, worldVersion?: WorldVersion): GameState =>
   makeGame(seed, worldVersion);
-export const startMission = (state: GameState): GameState => ({
-  ...state,
-  phase: 'playing',
-  ships: seedWave(state.seed, 1, state.ships[0], state.worldVersion),
-  powerups: seedPowerups(state.seed, 7, state.worldVersion),
-  submarine: { ...state.submarine, invuln: 8 },
-});
+export { createConvoyStrike };
+export const startMission = (state: GameState): GameState => {
+  if (state.scenario === 'convoy-strike') {
+    return {
+      ...state,
+      phase: 'playing',
+      viewMode: 'chase',
+      submarine: { ...state.submarine, invuln: 8 },
+    };
+  }
+  return {
+    ...state,
+    phase: 'playing',
+    viewMode: 'chase',
+    ships: seedWave(state.seed, 1, state.ships[0], state.worldVersion, state.submarine),
+    powerups: seedPowerups(state.seed, 7, state.worldVersion),
+    submarine: { ...state.submarine, invuln: 8 },
+  };
+};
 export const restartGame = (state: GameState): GameState =>
   makeGame(state.seed, state.worldVersion);
 export const setPhase = (state: GameState, phase: GamePhase): GameState => ({ ...state, phase });
@@ -92,6 +105,8 @@ export const fireWeapon = (state: GameState, aimPoint?: Point): GameState =>
     : stepGame(state, [{ type: 'fireWeapon' }], 0);
 export const sonarPulse = (state: GameState): GameState =>
   stepGame(state, [{ type: 'sonarPulse' }], 0);
+export const blowTanks = (state: GameState): GameState =>
+  stepGame(state, [{ type: 'emergencySurface' }], 0);
 export const updateGame = (
   state: GameState,
   commands: GameCommand[] = [],

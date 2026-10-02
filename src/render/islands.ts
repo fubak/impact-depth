@@ -8,10 +8,7 @@ import {
 } from '../core/terrain';
 import type { EnvironmentSettings } from '../core/types';
 import { SHORE_WET_BAND_METRES } from './environment/terrain-texture';
-import {
-  VegetationField,
-  type VegetationQuality,
-} from './environment/vegetation';
+import { VegetationField, type VegetationQuality } from './environment/vegetation';
 
 function tintIslandVertex(
   h: number,
@@ -38,7 +35,7 @@ function createIslandTerrainMaterial(): THREE.MeshStandardMaterial {
     flatShading: false,
   });
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uWetBand = { value: SHORE_WET_BAND_METRES * 0.14 };
+    shader.uniforms.uWetBand = { value: SHORE_WET_BAND_METRES * 0.28 };
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
       `#include <common>\nvarying float vIslandHeight;`,
@@ -56,7 +53,7 @@ function createIslandTerrainMaterial(): THREE.MeshStandardMaterial {
       `#include <roughnessmap_fragment>
        float wet = 1.0 - smoothstep(0.05, uWetBand, vIslandHeight);
        roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.42, wet * 0.85);
-       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.78, 0.82, 0.86), wet * 0.35);`,
+       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.62, 0.70, 0.74), wet * 0.55);`,
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <normal_fragment_maps>',
@@ -102,7 +99,11 @@ function buildIslandGeometry(spec: IslandSpec, rings = 44, sectors = 64): THREE.
     const radius = maxR * rt;
     for (let s = 0; s < sectors; s++) {
       const ang = (s / sectors) * Math.PI * 2;
-      const wobble = 1 + 0.04 * Math.sin(ang * 3 + spec.seed) + 0.025 * Math.cos(ang * 5 - spec.seed);
+      const wobble =
+        1 +
+        0.13 * Math.sin(ang * 3 + spec.seed) +
+        0.07 * Math.cos(ang * 5 - spec.seed) +
+        0.045 * Math.sin(ang * 8 + spec.seed * 0.4);
       const lx = Math.cos(ang) * radius * wobble;
       const lz = Math.sin(ang) * radius * wobble;
       const h = sampleIslandHeight(lx, lz, spec);
@@ -228,13 +229,7 @@ export class IslandField {
   ): void {
     this.windDirection = 0.85 + Math.sin(time * 0.04) * 0.35;
     this.windStrength = reducedMotion ? windDetail * 0.18 : 0.28 + windDetail * 0.55;
-    this.vegetation.update(
-      time,
-      this.windDirection,
-      this.windStrength,
-      cameraPosition,
-      paused,
-    );
+    this.vegetation.update(time, this.windDirection, this.windStrength, cameraPosition, paused);
   }
 
   dispose(): void {

@@ -1,0 +1,112 @@
+{
+  "emergencyRetreatAfter20SecondsOfDoctrineUpdates": {
+    "tactic": "exfil",
+    "phase": "breakaway",
+    "phaseTimer": 0,
+    "waypoint": null,
+    "base": {
+      "x": 13.24,
+      "y": 13.24,
+      "radius": 4.8
+    }
+  },
+  "fireAtDeepOrder": {
+    "before": 0,
+    "after": 1
+  },
+  "surfaceChargeVsDeepBoat": {
+    "before": 100,
+    "after": 70,
+    "depthDifference": 0.93,
+    "radius": 1.8
+  },
+  "doctrineOutcomes": [
+    {
+      "seed": 1,
+      "tactic": "evade",
+      "time": 16.83,
+      "hp": 100,
+      "phase": "idle",
+      "distanceToBase": 61.97
+    },
+    {
+      "seed": 1,
+      "tactic": "exfil",
+      "time": 31.55,
+      "hp": 0,
+      "phase": "approach",
+      "distanceToBase": 52.98
+    },
+    {
+      "seed": 7,
+      "tactic": "evade",
+      "time": 13.57,
+      "hp": 0,
+      "phase": "breakaway",
+      "distanceToBase": 63.49
+    },
+    {
+      "seed": 7,
+      "tactic": "exfil",
+      "time": 13.17,
+      "hp": 0,
+      "phase": "breakaway",
+      "distanceToBase": 63.77
+    },
+    {
+      "seed": 19,
+      "tactic": "evade",
+      "time": 18.83,
+      "hp": 100,
+      "phase": "idle",
+      "distanceToBase": 60.96
+    },
+    {
+      "seed": 19,
+      "tactic": "exfil",
+      "time": 100.2,
+      "hp": 40,
+      "phase": "approach",
+      "distanceToBase": 4.79
+    },
+    {
+      "seed": 42,
+      "tactic": "evade",
+      "time": 13.57,
+      "hp": 0,
+      "phase": "breakaway",
+      "distanceToBase": 65.21
+    },
+    {
+      "seed": 42,
+      "tactic": "exfil",
+      "time": 13.5,
+      "hp": 0,
+      "phase": "breakaway",
+      "distanceToBase": 63.51
+    },
+    {
+      "seed": 91,
+      "tactic": "evade",
+      "time": 13.57,
+      "hp": 0,
+      "phase": "breakaway",
+      "distanceToBase": 69.07
+    },
+    {
+      "seed": 91,
+      "tactic": "exfil",
+      "time": 25.03,
+      "hp": 0,
+      "phase": "breakaway",
+      "distanceToBase": 55.82
+    }
+  ],
+  "waveCounts": {
+    "wave1": 5,
+    "wave2": 10
+  },
+  "seed7EvadeDamageBySystem": {
+    "worldCollision": 99.99999999999964
+  }
+}

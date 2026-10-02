@@ -4,12 +4,22 @@
   --canvas-2: #0b1112;
   --graphite: #151b1c;
   --border: rgba(190, 205, 197, 0.22);
-  --text: #d8ded8;
-  --muted: #7f8b86;
+  --text: #f7faf8;
+  --muted: #e7eeea;
   --brass: #bd8b4e;
+  /* HUD text brass. The fill brass fails AA on a translucent panel over bright water. */
+  --brass-ink: #f8e2b0;
   --warning: #d4653b;
   --sonar: #5cae9d;
-  --focus: #bd8b4e;
+  --focus: #f8e2b0;
+  --hud-panel-rgb: 11, 17, 18;
+  --hud-panel-alpha: 0.62;
+  --hud-blur: 0px;
+  --hud-pad-y: 6px;
+  --hud-btn-min: 26px;
+  --hud-map-size: 112px;
+  /* Top stop of the #app wash. HUD text contrast is measured against a panel over this. */
+  --hud-contrast-sky: #c8e8f8;
   --font-ui: 'Arial Narrow', 'Helvetica Condensed', 'Franklin Gothic Medium', 'UI Condensed', sans-serif;
   --font-data: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
@@ -35,7 +45,7 @@ body {
   position: relative;
   width: 100%;
   height: 100%;
-  background: linear-gradient(180deg, #c8e8f8, #9fd0e8);
+  background: linear-gradient(180deg, var(--hud-contrast-sky), #9fd0e8);
 }
 
 #scene {
@@ -70,8 +80,10 @@ select:focus-visible {
   position: absolute;
   overflow: visible;
   border: 1px solid var(--border);
-  background: rgba(11, 17, 18, 0.72);
-  padding: 10px 12px;
+  background: rgba(var(--hud-panel-rgb), var(--hud-panel-alpha));
+  backdrop-filter: blur(var(--hud-blur));
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  padding: var(--hud-pad-y) 8px;
 }
 
 .hud-identity {
@@ -81,11 +93,11 @@ select:focus-visible {
 }
 
 .hud-title {
-  font-size: 22px;
+  font-size: 16px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.05;
 }
 
 .hud-sub {
@@ -119,7 +131,7 @@ select:focus-visible {
 }
 
 .tel .v.accent {
-  color: var(--brass);
+  color: var(--brass-ink);
 }
 
 .hud-mission {
@@ -163,8 +175,8 @@ select:focus-visible {
 
 .order-grid {
   display: grid;
-  gap: 4px;
-  margin-top: 8px;
+  gap: 2px;
+  margin-top: 4px;
 }
 
 .order-row {
@@ -183,7 +195,7 @@ select:focus-visible {
 
 .order-row b.changing { color: #9fd7ff; }
 .order-row b.settled { color: #b8e0c2; }
-.order-row b.engaged { color: var(--brass); }
+.order-row b.engaged { color: var(--brass-ink); }
 .order-row b.ready,
 .panel-label span.ready { color: #8fefb0; }
 .order-row b.locked,
@@ -195,8 +207,8 @@ select:focus-visible {
 }
 
 .upgrade-pips {
-  margin-top: 8px;
-  color: var(--brass);
+  margin-top: 4px;
+  color: var(--brass-ink);
   font: 10px var(--font-data);
   letter-spacing: 0.06em;
   display: flex;
@@ -212,13 +224,17 @@ select:focus-visible {
 
 .ship.sub { fill: #5ec4c8; }
 .plot { fill: none; stroke: #9fd7ff; stroke-width: 0.7; }
+.exit { fill: none; stroke: #e2b657; stroke-width: 0.8; }
+.exit.pending { stroke-dasharray: 1.4 1; opacity: 0.55; }
+.exit.open { stroke-width: 1.1; opacity: 1; }
+.lesson-mark { fill: none; stroke: #e2b657; stroke-width: 0.9; }
 
 .status-grid,
 .hud-score {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 5px 12px;
-  margin-top: 10px;
+  gap: 3px 10px;
+  margin-top: 6px;
   font: 11px var(--font-data);
 }
 
@@ -238,24 +254,54 @@ select:focus-visible {
 .hud-score {
   top: 16px;
   right: 16px;
-  width: 235px;
-  padding: 8px 10px;
+  width: 220px;
+  padding: var(--hud-pad-y) 8px;
+}
+
+.hud-score [data-field='objective'],
+.hud-score [data-field='callout'] {
+  grid-column: 1 / -1;
+  white-space: normal;
+}
+
+.score-pop {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--brass);
+  background: rgba(7, 11, 12, 0.88);
+  color: #ffe0a6;
+  font: 12px var(--font-data);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .panel-label {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  gap: 6px;
+  margin-bottom: 2px;
   color: var(--muted);
   font: 10px var(--font-data);
   letter-spacing: 0.13em;
 }
 
+.panel-label .hud-btn {
+  flex: 0 0 auto;
+  min-width: 64px;
+  min-height: 22px;
+  padding: 2px 6px;
+}
+
 .hud-contacts {
-  top: 102px;
+  top: 188px;
   right: 16px;
-  width: 235px;
-  max-height: 270px;
+  width: 220px;
+  max-height: min(220px, calc(100vh - 460px));
 }
 
 .contact {
@@ -274,15 +320,17 @@ select:focus-visible {
 }
 
 .contact span { color: var(--muted); }
-.contact.active { color: var(--brass); }
+.contact.active { color: var(--brass-ink); }
 .empty { margin: 0; color: var(--muted); font: 11px var(--font-data); }
 
-.hud-magazine { bottom: 58px; left: 16px; width: 342px; }
+.hud-magazine { bottom: 58px; left: 16px; width: 320px; }
 .mag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .mag-primary { grid-template-columns: 1fr 1fr 1.15fr; }
 .mag-secondary { margin-top: 6px; grid-template-columns: repeat(2, 1fr); }
 .mag-secondary.is-collapsed,
-.doctrine-row.is-collapsed {
+.doctrine-row.is-collapsed,
+.contacts-detail.is-collapsed,
+.map-legend.is-collapsed {
   display: none;
 }
 .fold-row {
@@ -294,16 +342,16 @@ select:focus-visible {
   letter-spacing: 0.08em;
   color: var(--muted);
 }
-.hud-tactics { bottom: 58px; left: 368px; width: 308px; }
-.hud-depth { bottom: 58px; left: 686px; width: 198px; }
-.hud-speed { bottom: 58px; left: 894px; width: 198px; }
+.hud-tactics { bottom: 58px; left: 348px; width: 268px; }
+.hud-depth { bottom: 58px; left: 628px; width: 188px; }
+.hud-speed { bottom: 58px; left: 828px; width: 188px; }
 .control-row { display: flex; gap: 4px; margin-top: 4px; }
 .doctrine-row {
   flex-wrap: wrap;
 }
 
 .hud-btn {
-  min-height: 30px;
+  min-height: var(--hud-btn-min);
   flex: 1;
   border: 1px solid var(--border);
   background: rgba(21, 27, 28, 0.92);
@@ -316,7 +364,13 @@ select:focus-visible {
 }
 
 .hud-btn:hover { border-color: var(--brass); }
-.hud-btn.active { border-color: var(--brass); background: rgba(189, 139, 78, 0.18); color: #ffe0a6; }
+.hud-btn.active { border-color: var(--brass); background: rgba(189, 139, 78, 0.18); color: var(--brass-ink); }
+.hud-btn:focus-visible,
+.contact:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(248, 226, 176, 0.9);
+}
 .hud-btn:disabled { opacity: 0.48; cursor: not-allowed; }
 
 /* Hover tips sit in empty canvas, not over sibling HUD controls. */
@@ -373,11 +427,17 @@ select:focus-visible {
 .hud-minimap {
   right: 16px;
   bottom: 58px;
-  width: 206px;
-  padding: 8px;
+  width: calc(var(--hud-map-size) + 16px);
+  padding: var(--hud-pad-y);
 }
 
-.map { display: block; width: 188px; height: 188px; background: #061417; cursor: crosshair; }
+.map {
+  display: block;
+  width: var(--hud-map-size);
+  height: var(--hud-map-size);
+  background: #061417;
+  cursor: crosshair;
+}
 .land { fill: #75684b; opacity: 0.9; }
 svg.map .land { pointer-events: none; }
 .fob { fill: none; stroke: var(--sonar); stroke-width: 0.8; }
@@ -425,6 +485,11 @@ svg.map .land { pointer-events: none; }
   background: transparent;
   border-radius: 50%;
 }
+.map-legend .lg.exit {
+  border: 1px solid #e2b657;
+  background: transparent;
+  border-radius: 50%;
+}
 
 .hud-chrome {
   position: absolute;
@@ -450,7 +515,7 @@ svg.map .land { pointer-events: none; }
   gap: 8px 14px;
   padding: 6px 12px;
   border: 1px solid var(--border);
-  background: rgba(11, 17, 18, 0.78);
+  background: rgba(var(--hud-panel-rgb), var(--hud-panel-alpha));
   font-family: var(--font-data);
   font-size: 11px;
   color: var(--muted);
@@ -821,6 +886,13 @@ svg.map .land { pointer-events: none; }
   transform: translateY(-50%);
 }
 
+.peri-reticle {
+  /* lead pip offset in px from arcade gyro */
+}
+#periscope-overlay .peri-reticle {
+  box-shadow: calc(var(--lead, 0) * 1px) 0 0 0 rgba(189, 139, 78, 0.9);
+}
+
 .peri-bearing {
   position: absolute;
   top: 28px;
@@ -1001,17 +1073,17 @@ svg.map .land { pointer-events: none; }
     width: min(240px, 34vw);
   }
 
-  .hud-tactics { left: 316px; width: 268px; }
-  .hud-depth { left: 594px; }
-  .hud-speed { left: 802px; }
+  .hud-tactics { left: 316px; width: 248px; }
+  .hud-depth { left: 574px; }
+  .hud-speed { left: 770px; }
   .hud-magazine { width: 290px; }
-  .hud-minimap { width: 172px; }
-  .map { width: 154px; height: 154px; }
+  .hud-minimap { width: calc(var(--hud-map-size) + 16px); }
+  .map { width: var(--hud-map-size); height: var(--hud-map-size); }
 }
 
 @media (max-height: 760px), (max-width: 1100px) {
   .hud-title {
-    font-size: 18px;
+    font-size: 15px;
   }
 
   .help-strip {
@@ -1023,11 +1095,11 @@ svg.map .land { pointer-events: none; }
     bottom: 44px;
   }
 
-  .hud-contacts { top: 92px; max-height: 190px; }
+  .hud-contacts { top: 188px; max-height: 120px; }
   .hud-magazine, .hud-tactics, .hud-depth, .hud-speed { bottom: 44px; }
   /* Keep ORDERS readable — do not cover it with TACTICS on short/narrow viewports. */
   .hud-orders { top: 156px; left: 16px; width: 290px; z-index: 2; }
-  .hud-tactics { display: block; top: 156px; bottom: auto; left: 316px; width: 268px; }
+  .hud-tactics { display: block; top: 156px; bottom: auto; left: 316px; width: 248px; }
   .hud-depth { left: 316px; }
   .hud-speed { left: 524px; }
   .hud-minimap { bottom: 44px; }

@@ -7,6 +7,26 @@ export type SeabedHeightSampler = (worldX: number, worldZ: number) => number;
 /** Rebuild only after a large world drift so the floor does not crawl under the hull. */
 export const SEABED_FOLLOW_FRACTION = 0.22;
 
+/** Height/slope albedo only. Dynamic caustics own moving light. */
+export function seabedAlbedoColor(
+  wx: number,
+  wz: number,
+  y: number,
+  sand: THREE.Color,
+  dark: THREE.Color,
+  reef: THREE.Color,
+  deepTeal: THREE.Color,
+): THREE.Color {
+  const tone = classifySeabedTone(wx, wz);
+  const c = sand.clone().lerp(dark, tone * 0.4);
+  if (tone > 0.72 && y > -9) c.lerp(reef, 0.22);
+  const depth = Math.max(0, -y);
+  const atten = Math.min(1, Math.max(0, (depth - 2.5) / 15));
+  c.lerp(deepTeal, atten * 0.4);
+  c.multiplyScalar(0.9 - atten * 0.12);
+  return c;
+}
+
 export function shouldRebuildSeabedFollow(
   originX: number,
   originZ: number,
@@ -42,6 +62,7 @@ export class Seabed {
     const verts = (segments + 1) * (segments + 1);
     const positions = new Float32Array(verts * 3);
     const colors = new Float32Array(verts * 3);
+    const uvs = new Float32Array(verts * 2);
     const indices: number[] = [];
 
     for (let iz = 0; iz <= segments; iz++) {
@@ -67,6 +88,7 @@ export class Seabed {
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     this.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    this.geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     this.geometry.setIndex(indices);
 
     this.material = new THREE.MeshStandardMaterial({
@@ -76,7 +98,7 @@ export class Seabed {
       metalness: 0.02,
       flatShading: false,
     });
-    const sandTexture = new THREE.TextureLoader().load('/assets/textures/seabed-sand-albedo.png');
+    const sandTexture = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}assets/textures/seabed-sand-albedo.png`);
     sandTexture.colorSpace = THREE.SRGBColorSpace;
     sandTexture.wrapS = THREE.RepeatWrapping;
     sandTexture.wrapT = THREE.RepeatWrapping;
@@ -105,6 +127,7 @@ export class Seabed {
     this.originZ = oz;
     const pos = this.geometry.attributes.position as THREE.BufferAttribute;
     const col = this.geometry.attributes.color as THREE.BufferAttribute;
+    const uv = this.geometry.attributes.uv as THREE.BufferAttribute;
     const sand = new THREE.Color(sandHex).multiplyScalar(0.92);
     const dark = sand.clone().multiplyScalar(0.78);
     const reef = new THREE.Color(0x4a8870).lerp(sand, 0.4);
@@ -118,18 +141,12 @@ export class Seabed {
       const y = this.heightSampler(wx, wz);
       pos.setY(i, y);
 
-      const tone = classifySeabedTone(wx, wz);
-      const c = sand.clone().lerp(dark, tone * 0.4);
-      if (tone > 0.72 && y > -9) c.lerp(reef, 0.22);
-      const depth = Math.max(0, -y);
-      const atten = Math.min(1, Math.max(0, (depth - 2.5) / 15));
-      c.lerp(deepTeal, atten * 0.4);
-      c.multiplyScalar(0.9 - atten * 0.12);
-      const caustic = 0.95 + 0.07 * Math.sin(wx * 0.32) * Math.sin(wz * 0.26);
-      c.multiplyScalar(caustic);
+      const c = seabedAlbedoColor(wx, wz, y, sand, dark, reef, deepTeal);
       col.setXYZ(i, c.r, c.g, c.b);
+      uv.setXY(i, wx / this.size, wz / this.size);
     }
     pos.needsUpdate = true;
+    uv.needsUpdate = true;
     col.needsUpdate = true;
     this.geometry.computeVertexNormals();
   }

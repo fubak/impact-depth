@@ -1,4 +1,5 @@
 import { formatDepth, formatSpeed, headingDegrees } from '../core/sim';
+import { loadPlayPreferences } from '../core/settings';
 import { ISLAND_MESH_RADIUS_FACTOR, ISLAND_SPECS } from '../core/terrain';
 import type { LookDevSettings, SimState } from '../core/types';
 import {
@@ -8,8 +9,18 @@ import {
   METERS_PER_UNIT,
   WORLD_SIZE,
 } from '../game/sim/constants';
+import { bowRelativeBearing, TUBE_ARC_RAD } from '../game/sim/systems';
+import { actionTimeScale } from '../game/sim/action-feel';
+import { defenseCallout } from '../game/sim/defense-callout';
+import { extractionCue, strikeStage } from '../game/sim/scenarios/convoy-strike';
 import { worldMetersToSim } from '../game/sim/coords';
-import type { AutopilotTactic, DepthOrder, GameState, SpeedOrder } from '../game/sim/types';
+import type {
+  AutopilotTactic,
+  DepthOrder,
+  GameMessage,
+  GameState,
+  SpeedOrder,
+} from '../game/sim/types';
 import { getTerrain, isLand } from '../game/sim/world';
 import { findPixelProximateContact, MAP_PROXIMATE_PX } from '../input/world-click';
 import { listFirmContacts, type FirmContact } from './sonar';
@@ -65,23 +76,96 @@ const DEPTH_LABEL: Record<DepthOrder, string> = {
 
 const HUD_PANEL_KEY = 'silent-depths-hud-panels-v1';
 
-type PanelPrefs = { gear: boolean; doctrine: boolean };
+export type HudPanelPrefs = {
+  gear: boolean;
+  doctrine: boolean;
+  contacts: boolean;
+  legend: boolean;
+};
 
-function loadPanelPrefs(): PanelPrefs {
+/** Persistent bottom-clearance label. `null` when the hull is clear of the limit. */
+export function bottomClearanceText(limit: number, z: number): string | null {
+  return limit - z < 0.08 ? 'BOTTOM' : null;
+}
+
+/** Player-facing patrol objective. Victory still requires the sim sink target. */
+export function objectiveText(game?: {
+  scenario?: 'patrol' | 'convoy-strike';
+  phase?: string;
+  ships?: readonly { id: string }[];
+  stats?: { shipsSunk: number };
+  strikeExit?: { x: number; y: number } | null;
+  submarine?: { x: number; y: number };
+}): string {
+  if (!game || game.scenario !== 'convoy-strike' || !game.submarine || !game.stats || !game.ships) {
+    return 'Clear two waves';
+  }
+  const stage = strikeStage(game as GameState);
+  if (stage === 'extract' || stage === 'complete') {
+    const cue = extractionCue(game as GameState);
+    return cue
+      ? `Reach the exit ${String(cue.bearingDeg).padStart(3, '0')}° ${Math.ceil(cue.distance)}u`
+      : 'Reach the exit';
+  }
+  return 'Sink the merchant';
+}
+
+/** Pure formatter: extracts new hit/sunk pops from messages since last seen. */
+export function formatScorePops(
+  messages: readonly GameMessage[],
+  seenIds: Set<string>,
+): { label: string | null; newIds: string[] } {
+  const hits = messages.filter((m) => m.text.startsWith('HIT · '));
+  const sinks = messages.filter((m) => m.text === 'SHIP SUNK' || m.text === 'SECTOR CLEARED');
+
+  const newHits = hits.filter((m) => !seenIds.has(m.id));
+  const newSinks = sinks.filter((m) => !seenIds.has(m.id));
+
+  const allNewIds = [...newHits.map((m) => m.id), ...newSinks.map((m) => m.id)];
+
+  if (allNewIds.length === 0) {
+    return { label: null, newIds: [] };
+  }
+
+  const parts: string[] = [];
+  if (newHits.length > 0) parts.push(`+${newHits.length} HIT`);
+  if (newSinks.length > 0) parts.push(`+${newSinks.length} SUNK`);
+
+  return { label: parts.join(' / '), newIds: allNewIds };
+}
+
+const FOLDED_PANELS: HudPanelPrefs = {
+  gear: false,
+  doctrine: false,
+  contacts: false,
+  legend: false,
+};
+
+/** Missing keys stay folded. Only an explicit `true` opens a section. */
+export function resolveHudPanelPrefs(raw: string | null): HudPanelPrefs {
+  if (!raw) return { ...FOLDED_PANELS };
   try {
-    const raw = localStorage.getItem(HUD_PANEL_KEY);
-    if (!raw) return { gear: true, doctrine: true };
-    const parsed = JSON.parse(raw) as Partial<PanelPrefs>;
+    const parsed = JSON.parse(raw) as Partial<HudPanelPrefs>;
     return {
-      gear: parsed.gear !== false,
-      doctrine: parsed.doctrine !== false,
+      gear: parsed.gear === true,
+      doctrine: parsed.doctrine === true,
+      contacts: parsed.contacts === true,
+      legend: parsed.legend === true,
     };
   } catch {
-    return { gear: true, doctrine: true };
+    return { ...FOLDED_PANELS };
   }
 }
 
-function savePanelPrefs(prefs: PanelPrefs): void {
+function loadPanelPrefs(): HudPanelPrefs {
+  try {
+    return resolveHudPanelPrefs(localStorage.getItem(HUD_PANEL_KEY));
+  } catch {
+    return resolveHudPanelPrefs(null);
+  }
+}
+
+function savePanelPrefs(prefs: HudPanelPrefs): void {
   try {
     localStorage.setItem(HUD_PANEL_KEY, JSON.stringify(prefs));
   } catch {
@@ -134,6 +218,20 @@ function orderedDepth(target: number): DepthOrder {
   return best;
 }
 
+/** Target card line: identity, range, hull, then damage states the crew would report. */
+function targetCardText(ship: GameState['ships'][number], range: number | null): string {
+  const states: string[] = [];
+  if (ship.sinking !== undefined) states.push('SINKING');
+  else {
+    if (ship.flooding > 0.05) states.push('FLOODING');
+    if (ship.fire > 0.05) states.push('ON FIRE');
+    if (ship.speedFactor < 0.2) states.push('DEAD IN WATER');
+  }
+  const hp = Math.round((ship.hp / Math.max(1, ship.maxHp)) * 100);
+  const base = `${ship.name} · ${Math.ceil(range ?? 0)}u · ${hp}% HP`;
+  return states.length ? `${base} · ${states.join(' · ')}` : base;
+}
+
 function contactsMarkup(contacts: readonly FirmContact[], selectedTargetId: string | null): string {
   if (!contacts.length) return '<p class="empty">Listening… no firm contacts</p>';
   return contacts
@@ -145,7 +243,7 @@ function contactsMarkup(contacts: readonly FirmContact[], selectedTargetId: stri
     .join('');
 }
 
-function fireStatus(game: GameState): { ready: boolean; label: string; tip: string } {
+export function fireStatus(game: GameState): { ready: boolean; label: string; tip: string } {
   const sub = game.submarine;
   if (sub.sysTubes < 0.35)
     return { ready: false, label: 'TUBES DAMAGED', tip: 'Repair at FOB Argus' };
@@ -166,12 +264,18 @@ function fireStatus(game: GameState): { ready: boolean; label: string; tip: stri
         label: `RELOAD ${Math.ceil(sub.reloadMk14)}s`,
         tip: 'Mk-14 tube reloading',
       };
+    const target = game.ships.find((ship) => ship.id === game.selectedTargetId);
+    const outsideArc =
+      target !== undefined &&
+      Math.abs(bowRelativeBearing(sub.heading, sub.x, sub.y, target.x, target.y)) > TUBE_ARC_RAD;
     return {
       ready: true,
-      label: game.selectedTargetId ? 'MK-14 READY' : 'PICK TARGET',
-      tip: game.selectedTargetId
-        ? 'Straight-running torpedo — aim with target selected'
-        : 'Select a contact (list, map, or T) then fire',
+      label: !game.selectedTargetId ? 'PICK TARGET' : outsideArc ? 'ARC LIMIT' : 'MK-14 READY',
+      tip: outsideArc
+        ? 'Tubes launch within 60° of the bow. This shot leaves on the arc edge.'
+        : game.selectedTargetId
+          ? 'Straight-running torpedo — aim with target selected. 60° bow arc.'
+          : 'Select a contact (list, map, or T) then fire',
     };
   }
   if (game.weaponMode === 'seeker') {
@@ -226,7 +330,9 @@ export class Hud {
   private landSeed: number | null = null;
   private chromeKey = '';
   private lastActionAt = 0;
-  private panels: PanelPrefs = loadPanelPrefs();
+  private panels: HudPanelPrefs = loadPanelPrefs();
+  private seenPopIds: Set<string> = new Set();
+  private tutorialMark: { x: number; y: number } | null = null;
 
   constructor(
     root: HTMLElement,
@@ -237,7 +343,7 @@ export class Hud {
     this.help = help;
     this.help.innerHTML = `
       <span class="help-group"><kbd>WASD</kbd> steer</span>
-      <span class="help-group"><kbd>Q</kbd>/<kbd>E</kbd> trim · <kbd>Z</kbd><kbd>X</kbd><kbd>B</kbd><kbd>V</kbd> depth</span>
+      <span class="help-group"><kbd>Q</kbd>/<kbd>E</kbd> trim · <kbd>Z</kbd><kbd>X</kbd><kbd>B</kbd><kbd>V</kbd> depth · <kbd>G</kbd> blow tanks</span>
       <span class="help-group"><kbd>0</kbd><kbd>I</kbd><kbd>O</kbd><kbd>P</kbd> speed</span>
       <span class="help-group"><kbd>F</kbd>/<kbd>RMB</kbd> fire · <kbd>T</kbd> target</span>
       <span class="help-group"><kbd>R</kbd> quiet · <kbd>C</kbd> bubbles</span>
@@ -257,6 +363,16 @@ export class Hud {
     const opacity = settings.presentation.hudOpacity;
     this.root.style.opacity = String(opacity);
     this.help.style.opacity = String(Math.min(1, opacity + 0.05));
+
+    // Compute score pops and manage seen ids before chromeKey branch
+    const popResult = formatScorePops(game.messages, this.seenPopIds);
+    popResult.newIds.forEach((id) => this.seenPopIds.add(id));
+    const messageIds = new Set(game.messages.map((m) => m.id));
+    for (const id of this.seenPopIds) {
+      if (!messageIds.has(id)) {
+        this.seenPopIds.delete(id);
+      }
+    }
 
     if (this.landSeed !== game.terrainSeed) {
       this.landSeed = game.terrainSeed;
@@ -280,16 +396,16 @@ export class Hud {
     this.lastShips = game.ships.map((ship) => ({ id: ship.id, x: ship.x, y: ship.y }));
     const fobSafe = Math.hypot(sub.x - game.base.x, sub.y - game.base.y) <= game.base.radius;
     const weapon = game.weaponMode;
-    const message = game.messages[0];
+    const message = loadPlayPreferences().captions ? game.messages[0] : undefined;
+    // Sim message BOTTOM is the source until hullDepthLimit is wired.
+    const showBottom = game.messages.some((entry) => entry.text === 'BOTTOM');
     const depthOrder = orderedDepth(sub.targetDepth);
     const depthSettled = Math.abs(sub.z - sub.targetDepth) < 0.02;
     const speedSettled = Math.abs(sub.speed - sub.targetSpeed) < 0.05;
     const tubes = fireStatus(game);
     const target = game.ships.find((ship) => ship.id === game.selectedTargetId);
     const targetRange = target ? Math.hypot(target.x - sub.x, target.y - sub.y) : null;
-    const headingDeg = Math.round(
-      (((sub.displayHeading ?? sub.heading) * 180) / Math.PI + 360) % 360,
-    );
+    const headingDeg = headingDegrees(sub.displayHeading ?? sub.heading);
     const course =
       game.autopilot.waypoint != null
         ? `PLOT ${Math.round(game.autopilot.waypoint.x)},${Math.round(game.autopilot.waypoint.y)}`
@@ -324,6 +440,8 @@ export class Hud {
       this.cb.isMuted() ? 1 : 0,
       this.panels.gear ? 1 : 0,
       this.panels.doctrine ? 1 : 0,
+      this.panels.contacts ? 1 : 0,
+      this.panels.legend ? 1 : 0,
       game.selectedTargetId ?? '',
       contacts.map((c) => c.id).join('|'),
       sub.torpedoes,
@@ -344,7 +462,9 @@ export class Hud {
         targetRange,
         fobSafe,
         message,
+        showBottom,
         contacts,
+        scorePop: popResult.label,
       });
       return;
     }
@@ -397,26 +517,54 @@ export class Hud {
             .filter(Boolean)
             .join(' · ')}</b></div>
           <div class="order-row"${tipAttr('Selected contact for fire and doctrine')}><span>Target</span><b data-field="target" class="${target ? 'engaged' : ''}">${
-            target
-              ? `${target.name} · ${Math.ceil(targetRange ?? 0)}u · ${Math.round(target.hp)}% HP`
-              : 'None — map / list / T'
+            target ? targetCardText(target, targetRange) : 'None — map / list / T'
           }</b></div>
         </div>
       </section>
       <section class="hud-block hud-score" aria-label="Patrol score">
+        <span data-field="objective">${objectiveText(game)}</span>
+        <span data-field="callout">${defenseCallout(game) ?? ''}</span>
+        <span data-field="compress">${actionTimeScale(game) === 4 ? '4×' : ''}</span>
         <span>Score <b data-field="score">${game.stats.score}</b></span>
         <span>Wave <b data-field="wave">${game.stats.wave}</b></span>
         <span>Sunk <b data-field="sunk">${game.stats.shipsSunk}</b></span>
         <span>Time <b data-field="time">${Math.floor(game.stats.timeSurvived / 60)}:${String(Math.floor(game.stats.timeSurvived % 60)).padStart(2, '0')}</b></span>
+        <div class="score-pop" data-field="score-pop" aria-hidden="true">${popResult.label ?? ''}</div>
       </section>
       <section class="hud-block hud-contacts" data-tutorial="contacts" aria-label="Hydrophone contacts">
-        <div class="panel-label" ${tipAttr('Same contacts as the sonar plot — select to aim')}>CONTACTS <span data-field="contact-count">${contacts.length}/6</span></div>
-        <div data-field="contacts">
+        <div class="panel-label" ${tipAttr('Same contacts as the sonar plot — select to aim')}>
+          <span class="panel-label-text">CONTACTS <span data-field="contact-count">${contacts.length}/6</span></span>
+          ${button(
+            'toggle-contacts',
+            this.panels.contacts ? 'List ▴' : 'List ▾',
+            this.panels.contacts,
+            undefined,
+            false,
+            false,
+            this.panels.contacts
+              ? 'Hide the contact list'
+              : 'Show bearing and range for each contact',
+          )}
+        </div>
+        <div class="contacts-detail${this.panels.contacts ? '' : ' is-collapsed'}" data-field="contacts">
         ${contactsMarkup(contacts, game.selectedTargetId)}
         </div>
       </section>
       <section class="hud-block hud-magazine" data-tutorial="magazine" aria-label="Weapons">
-        <div class="panel-label">WEAPONS <span data-field="mag-status" class="${tubes.ready ? 'ready' : 'locked'}"${tipAttr(tubes.tip)}>${tubes.label}</span></div>
+        <div class="panel-label">
+          <span class="panel-label-text">WEAPONS <span data-field="mag-status" class="${tubes.ready ? 'ready' : 'locked'}"${tipAttr(tubes.tip)}>${tubes.label}</span></span>
+          ${button(
+            'toggle-gear',
+            this.panels.gear ? 'Gear ▴' : 'Gear ▾',
+            this.panels.gear,
+            undefined,
+            false,
+            false,
+            this.panels.gear
+              ? 'Hide decoys, bubbles, spread, and sonar'
+              : 'Show decoys, bubbles, spread, and sonar',
+          )}
+        </div>
         <div class="mag-grid mag-primary">
           ${button(
             'weapon',
@@ -441,19 +589,6 @@ export class Hud {
               : 'Acoustic Mk-18 seeker — tracks noisy contacts',
           )}
           ${button('fire', tubes.ready ? 'FIRE' : tubes.label, false, undefined, fireDisabled, false, tubes.tip)}
-        </div>
-        <div class="control-row fold-row">
-          ${button(
-            'toggle-gear',
-            this.panels.gear ? 'Gear ▴' : 'Gear ▾',
-            this.panels.gear,
-            undefined,
-            false,
-            false,
-            this.panels.gear
-              ? 'Hide decoys, bubbles, spread, and sonar'
-              : 'Show decoys, bubbles, spread, and sonar',
-          )}
         </div>
         <div class="mag-grid mag-secondary${this.panels.gear ? '' : ' is-collapsed'}" data-panel="gear">
           ${button(
@@ -499,17 +634,12 @@ export class Hud {
         </div>
       </section>
       <section class="hud-block hud-tactics" data-tutorial="tactics" aria-label="Tactical controls">
-        <div class="panel-label">HELM <span data-field="tactic-status">${
-          game.autopilot.enabled
-            ? `${game.autopilot.tactic === 'exfil' ? 'HOME' : game.autopilot.tactic.toUpperCase()} · ${game.autopilot.phase.toUpperCase()}`
-            : 'MANUAL'
-        }</span></div>
-        <div class="control-row">
-          ${button('silent', 'Quiet', sub.silentRunning, undefined, false, false, 'Silent running — lower noise, slower battery use when careful')}
-          ${button('scope', 'Scope', sub.scopeUp, undefined, false, false, 'Raise periscope — useful at peri depth, exposes you')}
-          ${button('snorkel', 'Snorkel', sub.snorkel, undefined, false, false, 'Snorkel — recharge battery shallow, leaves a plume')}
-        </div>
-        <div class="control-row fold-row">
+        <div class="panel-label">
+          <span class="panel-label-text">HELM <span data-field="tactic-status">${
+            game.autopilot.enabled
+              ? `${game.autopilot.tactic === 'exfil' ? 'HOME' : game.autopilot.tactic.toUpperCase()} · ${game.autopilot.phase.toUpperCase()}`
+              : 'MANUAL'
+          }</span></span>
           ${button(
             'toggle-doctrine',
             this.panels.doctrine ? 'Doctrine ▴' : 'Doctrine ▾',
@@ -519,6 +649,11 @@ export class Hud {
             false,
             this.panels.doctrine ? 'Hide ambush/stalk AI modes' : 'Show combat AI modes',
           )}
+        </div>
+        <div class="control-row">
+          ${button('silent', 'Quiet', sub.silentRunning, undefined, false, false, 'Silent running — lower noise, slower battery use when careful')}
+          ${button('scope', 'Scope', sub.scopeUp, undefined, false, false, 'Raise periscope — useful at peri depth, exposes you')}
+          ${button('snorkel', 'Snorkel', sub.snorkel, undefined, false, false, 'Snorkel — recharge battery shallow, leaves a plume')}
         </div>
         <div class="control-row doctrine-row${this.panels.doctrine ? '' : ' is-collapsed'}" data-panel="doctrine">
           ${TACTICS.map(([tactic, label, tip]) =>
@@ -539,7 +674,7 @@ export class Hud {
         </div>
       </section>
       <section class="hud-block hud-depth" data-tutorial="depth" aria-label="Depth order">
-        <div class="panel-label">DEPTH <span data-field="depth-label">${formatDepth(v.depth)} → ${DEPTH_LABEL[depthOrder]}</span></div>
+        <div class="panel-label">DEPTH <span data-field="depth-label">${formatDepth(v.depth)} → ${DEPTH_LABEL[depthOrder]}${showBottom ? ' BOTTOM' : ''}</span></div>
         <div class="control-row">${DEPTHS.map(([order, label, tip]) =>
           button(
             'depth',
@@ -551,6 +686,7 @@ export class Hud {
             tip,
           ),
         ).join('')}</div>
+        <div class="control-row">${button('blow', 'Blow tanks', false, undefined, false, false, 'Emergency surface — loud, fast, costly (G)')}</div>
       </section>
       <section class="hud-block hud-speed" aria-label="Speed order">
         <div class="panel-label">SPEED <span data-field="speed-label">${formatSpeed(v.speed)} → ${formatSpeed(sub.maxSpeed * SPEED_FRACTION[sub.speedOrder] * 5)}</span></div>
@@ -567,7 +703,18 @@ export class Hud {
         ).join('')}</div>
       </section>
       <section class="hud-block hud-minimap" data-tutorial="minimap" aria-label="Minimap; click to plot course">
-        <div class="panel-label" ${tipAttr('Click water to plot a course · click a contact to select it')}>PLOT <span data-field="view-mode">${MODE_LABEL[sim.viewMode]}</span></div>
+        <div class="panel-label" ${tipAttr('Click water to plot a course · click a contact to select it')}>
+          <span class="panel-label-text">PLOT <span data-field="view-mode">${MODE_LABEL[sim.viewMode]}</span></span>
+          ${button(
+            'toggle-legend',
+            this.panels.legend ? 'Key ▴' : 'Key ▾',
+            this.panels.legend,
+            undefined,
+            false,
+            false,
+            this.panels.legend ? 'Hide the map key' : 'Show the map key',
+          )}
+        </div>
         <svg class="map" viewBox="0 0 ${WORLD_SIZE} ${WORLD_SIZE}" role="img" aria-label="Sector map">
           <g data-field="land">${this.landSvg}</g>
           <circle class="fob" cx="${game.base.x}" cy="${game.base.y}" r="${game.base.radius}"/><circle class="player" data-field="player" cx="${sub.x}" cy="${sub.y}" r="2"/>
@@ -578,19 +725,34 @@ export class Hud {
             )
             .join('')}</g>
           <g data-field="crates">${game.powerups.map((pickup) => `<rect class="crate" x="${pickup.x - 1}" y="${pickup.y - 1}" width="2" height="2"/>`).join('')}</g>
+          <g data-field="exit">${
+            game.strikeExit
+              ? `<circle class="exit ${strikeStage(game) === 'attack' ? 'pending' : 'open'}" cx="${game.strikeExit.x}" cy="${game.strikeExit.y}" r="4" data-exit="${strikeStage(game) === 'attack' ? 'later' : 'open'}"/>`
+              : ''
+          }</g>
+          <g data-field="lesson">${
+            this.tutorialMark
+              ? `<circle class="lesson-mark" cx="${this.tutorialMark.x}" cy="${this.tutorialMark.y}" r="2.2" data-lesson-mark="1"/>`
+              : ''
+          }</g>
           <g data-field="plot">${
             game.autopilot.waypoint
               ? `<circle class="plot" cx="${game.autopilot.waypoint.x}" cy="${game.autopilot.waypoint.y}" r="1.8"/>`
               : ''
           }</g>
         </svg>
-        <ul class="map-legend" aria-label="Map legend">
+        <ul class="map-legend${this.panels.legend ? '' : ' is-collapsed'}" aria-label="Map legend">
           <li><i class="lg player"></i> You</li>
           <li><i class="lg ship"></i> Contact</li>
           <li><i class="lg fob"></i> FOB</li>
           <li><i class="lg crate"></i> Crate</li>
           <li><i class="lg land"></i> Land</li>
           <li><i class="lg plot"></i> Plot</li>
+          ${
+            game.strikeExit
+              ? `<li><i class="lg exit"></i> ${strikeStage(game) === 'attack' ? 'Exit later' : 'Exit'}</li>`
+              : ''
+          }
         </ul>
       </section>
       <section class="hud-block hud-chrome" aria-label="Game controls">
@@ -616,7 +778,9 @@ export class Hud {
       targetRange: number | null;
       fobSafe: boolean;
       message: GameState['messages'][number] | undefined;
+      showBottom: boolean;
       contacts: readonly FirmContact[];
+      scorePop: string | null;
     },
   ): void {
     const sub = game.submarine;
@@ -671,11 +835,12 @@ export class Hud {
     );
     set(
       'target',
-      extras.target
-        ? `${extras.target.name} · ${Math.ceil(extras.targetRange ?? 0)}u · ${Math.round(extras.target.hp)}% HP`
-        : 'None — map / list / T',
+      extras.target ? targetCardText(extras.target, extras.targetRange) : 'None — map / list / T',
       extras.target ? 'engaged' : '',
     );
+    set('objective', objectiveText(game));
+    set('callout', defenseCallout(game) ?? '');
+    set('compress', actionTimeScale(game) === 4 ? '4×' : '');
     set('score', String(game.stats.score));
     set('wave', String(game.stats.wave));
     set('sunk', String(game.stats.shipsSunk));
@@ -683,7 +848,11 @@ export class Hud {
       'time',
       `${Math.floor(game.stats.timeSurvived / 60)}:${String(Math.floor(game.stats.timeSurvived % 60)).padStart(2, '0')}`,
     );
-    set('depth-label', `${formatDepth(v.depth)} → ${DEPTH_LABEL[extras.depthOrder]}`);
+    set('score-pop', extras.scorePop ?? '');
+    set(
+      'depth-label',
+      `${formatDepth(v.depth)} → ${DEPTH_LABEL[extras.depthOrder]}${extras.showBottom ? ' BOTTOM' : ''}`,
+    );
     set(
       'speed-label',
       `${formatSpeed(v.speed)} → ${formatSpeed(sub.maxSpeed * SPEED_FRACTION[sub.speedOrder] * 5)}`,
@@ -724,6 +893,12 @@ export class Hud {
         )
         .join('');
     }
+    const lesson = this.root.querySelector('[data-field="lesson"]');
+    if (lesson) {
+      lesson.innerHTML = this.tutorialMark
+        ? `<circle class="lesson-mark" cx="${this.tutorialMark.x}" cy="${this.tutorialMark.y}" r="2.2" data-lesson-mark="1"/>`
+        : '';
+    }
     const plot = this.root.querySelector('[data-field="plot"]');
     if (plot) {
       plot.innerHTML = game.autopilot.waypoint
@@ -741,7 +916,11 @@ export class Hud {
     }
   }
 
-  private togglePanel(which: 'gear' | 'doctrine'): void {
+  setTutorialMark(mark: { x: number; y: number } | null): void {
+    this.tutorialMark = mark;
+  }
+
+  private togglePanel(which: keyof HudPanelPrefs): void {
     this.panels = {
       ...this.panels,
       [which]: !this.panels[which],
@@ -766,6 +945,14 @@ export class Hud {
     }
     if (action === 'toggle-doctrine') {
       this.togglePanel('doctrine');
+      return;
+    }
+    if (action === 'toggle-contacts') {
+      this.togglePanel('contacts');
+      return;
+    }
+    if (action === 'toggle-legend') {
+      this.togglePanel('legend');
       return;
     }
     this.cb.command(action, target.dataset.value);

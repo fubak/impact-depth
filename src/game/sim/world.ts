@@ -102,6 +102,14 @@ export function snapToNavigable(terrain: Terrain, x: number, y: number, depth = 
   return { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
 }
 
+/** Below this depth fraction the rock can crush the hull; shallower is always safe. */
+export const SEAMOUNT_CRUSH_DEPTH = 0.62;
+
+/** Deepest ordered depth that stays above the seamount crush ceiling. */
+export function hullDepthLimit(terrain: Terrain, x: number, y: number): number {
+  return Math.max(SEAMOUNT_CRUSH_DEPTH, clampDepth(1 - terrainHeight(terrain, x, y) + 0.2) - 0.03);
+}
+
 export function isCrushedBySeamount(
   terrain: Terrain,
   x: number,
@@ -110,5 +118,5 @@ export function isCrushedBySeamount(
 ): boolean {
   // Require clear encroachment into the rock — attack-depth transit near
   // shallow shelves must not be an instant hull shredder.
-  return depth > 0.62 && depth > clampDepth(1 - terrainHeight(terrain, x, y) + 0.2);
+  return depth > SEAMOUNT_CRUSH_DEPTH && depth > clampDepth(1 - terrainHeight(terrain, x, y) + 0.2);
 }

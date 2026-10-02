@@ -38,7 +38,7 @@ export class WaterRipplePass {
       side: THREE.DoubleSide,
     });
 
-    const map = new THREE.TextureLoader().load('/assets/textures/water-ripple.png');
+    const map = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}assets/textures/water-ripple.png`);
     map.colorSpace = THREE.NoColorSpace;
     map.flipY = false;
     this.plusMaterial = new THREE.MeshBasicMaterial({
@@ -139,9 +139,9 @@ export class WaterRipplePass {
 
   /** Convenience: emit a wake ripple behind a moving hull. */
   emitWake(x: number, z: number, heading: number, speed: number, stern = 6): void {
-    if (speed < 0.55) return;
+    if (speed < 0.12) return;
     this.tmp.set(x - Math.cos(heading) * stern, 0, z - Math.sin(heading) * stern);
-    this.spawn(this.tmp.x, this.tmp.z, Math.min(0.7, 0.18 + speed * 0.1));
+    this.spawn(this.tmp.x, this.tmp.z, Math.min(0.85, 0.22 + speed * 0.14));
   }
 
   dispose(): void {

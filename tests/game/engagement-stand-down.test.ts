@@ -89,6 +89,7 @@ describe('engagement stand-down after kill', () => {
           waypoint: null,
           path: [],
           repathTimer: 0,
+          emergency: false,
         },
       };
 
