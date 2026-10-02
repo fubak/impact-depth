@@ -124,6 +124,7 @@ export class LookDevPanel {
           <button type="button" class="btn ${s.preset === 'caribbean-noon' ? 'active' : ''}" data-preset="caribbean-noon">Caribbean Noon</button>
           <button type="button" class="btn ${s.preset === 'trade-wind-morning' ? 'active' : ''}" data-preset="trade-wind-morning">Trade Wind Morning</button>
           <button type="button" class="btn ${s.preset === 'golden-cay' ? 'active' : ''}" data-preset="golden-cay">Golden Cay</button>
+          <button type="button" class="btn ${s.preset === 'sunset-passage' ? 'active' : ''}" data-preset="sunset-passage">Sunset Passage</button>
         </div>
       </section>
 

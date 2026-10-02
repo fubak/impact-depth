@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SKY_RADIANCE_GLSL } from '../atmosphere';
 import { pickSkyLightingSource, type SkyLightingSource } from './sky-source';
 
 export interface SkyLightingState {
@@ -10,6 +11,8 @@ export interface SkyLightingState {
   lightning: number;
   isNight: boolean;
   weatherPreset?: 'calm' | 'breeze' | 'storm';
+  golden?: number;
+  twilight?: number;
 }
 
 export interface SkyLightingDiagnostics {
@@ -37,6 +40,7 @@ export function skyLightingSignature(state: SkyLightingState): string {
     state.isNight ? 1 : 0,
     state.weatherPreset === 'storm' ? 2 : state.weatherPreset === 'calm' ? 0 : 1,
     quantize(state.lightning, 4),
+    quantize(state.golden ?? 0, 8),
   ].join(':');
 }
 
@@ -80,6 +84,8 @@ export class SkyLighting {
         uSunColor: { value: new THREE.Color(0xfff0cf) },
         uCloudCoverage: { value: 0.5 },
         uLightning: { value: 0 },
+        uGolden: { value: 0 },
+        uTwilight: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDirection;
@@ -95,7 +101,10 @@ export class SkyLighting {
         uniform vec3 uSunColor;
         uniform float uCloudCoverage;
         uniform float uLightning;
+        uniform float uGolden;
+        uniform float uTwilight;
         varying vec3 vDirection;
+        ${SKY_RADIANCE_GLSL}
         float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float noise(vec2 p) {
           vec2 i = floor(p), f = fract(p);
@@ -105,13 +114,17 @@ export class SkyLighting {
         }
         void main() {
           vec3 dir = normalize(vDirection);
-          float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
-          vec3 color = mix(uHorizon, uTop, pow(h, 0.75));
-          float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
-          color += uSunColor * (pow(sunDot, 512.0) * 10.0 + pow(sunDot, 12.0) * 0.35);
+          vec3 sd = normalize(uSunDir);
+          vec3 color = skyRadiance(dir, sd, uTop, uHorizon, uSunColor, uGolden, uTwilight);
+          float sunDot = max(dot(dir, sd), 0.0);
+          // Soft sun lobe (not the disc) so IBL speculars carry a warm highlight.
+          color += uSunColor * (pow(sunDot, 512.0) * 8.0 + pow(sunDot, 12.0) * 0.3);
           float clouds = smoothstep(0.72 - uCloudCoverage * 0.48, 0.88, noise(dir.xz * 7.0 / max(0.3, dir.y + 0.55)));
           clouds *= smoothstep(-0.08, 0.18, dir.y);
           color = mix(color, uSunColor * (0.45 + sunDot * 0.35), clouds * (0.25 + uCloudCoverage * 0.45));
+          // Sea below: the lower hemisphere lights hull bottoms with a dim water tone.
+          vec3 sea = mix(vec3(0.02, 0.1, 0.14), uHorizon * 0.18, 0.4);
+          color = mix(color, sea, smoothstep(0.0, -0.2, dir.y));
           color += vec3(uLightning * 0.7);
           gl_FragColor = vec4(max(color, vec3(0.001)), 1.0);
         }
@@ -183,6 +196,8 @@ export class SkyLighting {
     this.material.uniforms.uSunDir.value.copy(state.sunDir);
     this.material.uniforms.uSunColor.value.copy(state.sunColor);
     this.material.uniforms.uCloudCoverage.value = THREE.MathUtils.clamp(state.cloudCoverage, 0, 1);
+    this.material.uniforms.uGolden.value = state.golden ?? 0;
+    this.material.uniforms.uTwilight.value = state.isNight ? 1 : (state.twilight ?? 0);
     // Lightning is presentation-only (hemi/ambient flash); never bake into lasting IBL.
     this.material.uniforms.uLightning.value = 0;
 

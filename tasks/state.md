@@ -28,6 +28,8 @@ Still open: Phase 5 world init and seed-7 exfil, Phase 6 human playtests, Phase 
 
 ## Current
 
+**Plan 027 (2026-10-02):** cinematic sunset pass on branch `plan-027-cinematic-sunset` — continuous sun-driven sky, ocean SSS/sun road/whitecaps, persistent wake-foam field, lit spray + bow spray, hull spring dynamics, camera hull coupling, `sunset-passage` preset (`?look=sunset-passage`). Uses the Plan 026 render path. Operator GPU FPS + lighting eye-pass PENDING; see `plans/027-cinematic-sunset-pass.md`.
+
 Active plan is **025**. Do not start 009. Do not flip the world default. Operator GPU, lighting, fleet, audio, soak, and the production tag stay pending.
 
 | Field   | Value                                                         |

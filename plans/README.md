@@ -174,3 +174,7 @@ For the next plan, replace the filename. Use `--continue` only to correct the cu
 ## Production action pass — 2026-09-26
 
 [Plan 022: production action pass](022-production-action-pass.md) machine work is landed (see `tasks/state.md`). Operator gates stay PENDING.
+
+## Cinematic sunset pass — 2026-10-02
+
+[Plan 027: cinematic sunset pass](027-cinematic-sunset-pass.md) machine work landed on `plan-027-cinematic-sunset` (sunset preset, sky/ocean/wake/spray/hull-motion upgrades on the Plan 026 pipeline). Operator GPU FPS and lighting eye-pass PENDING.

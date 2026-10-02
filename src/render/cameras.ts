@@ -93,6 +93,8 @@ export class CameraRig {
   private readonly waterPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private readonly waterHit = new THREE.Vector3();
   private immersion: ImmersionState = { underwater: false, waterHeight: 0, eyeRelative: 0 };
+  private lastHeading: number | null = null;
+  private yawRate = 0;
 
   constructor(aspect: number) {
     this.perspective = new THREE.PerspectiveCamera(42, aspect, 0.2, 1200);
@@ -182,6 +184,21 @@ export class CameraRig {
 
   update(sim: CameraSimState, dt: number, presentation?: CameraPresentation): void {
     const v = sim.vessel;
+    const motion = presentation?.reducedMotion || sim.paused ? 0 : 1;
+    const step = Math.max(0, Math.min(0.25, dt));
+    if (this.lastHeading !== null && step > 0) {
+      let dh = v.heading - this.lastHeading;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      const rate = THREE.MathUtils.clamp(dh / step, -1.2, 1.2);
+      this.yawRate += (rate - this.yawRate) * (1 - Math.exp(-step * 2.5));
+    }
+    this.lastHeading = v.heading;
+    // Surface motion fades out as the boat goes deep (the sea no longer moves her).
+    const surfaceBlend = THREE.MathUtils.clamp(1 - v.depth / 9, 0, 1) * motion;
+    const heave = Number.isFinite(v.heave) ? v.heave : 0;
+    const roll = Number.isFinite(v.roll) ? v.roll : 0;
+    const pitch = Number.isFinite(v.pitch) ? v.pitch : 0;
     const visualY = visualKeelY(v.depth, DEFAULT_SUB_HULL_HEIGHT_M);
     const hullY =
       this.activeMode === 'periscope' || this.activeMode === 'sonar' ? -v.depth : visualY;
@@ -197,11 +214,13 @@ export class CameraRig {
         Math.cos(orbit.phi) * orbit.radius,
         Math.cos(theta) * flat,
       );
+      // The chase boat rides the same swell as the hull it follows.
+      if (this.activeMode === 'chase') this.desiredOffset.y += heave * 0.45 * surfaceBlend;
       this.desiredLook.copy(this.target);
     } else if (this.activeMode === 'bridge') {
       this.desiredPos.set(
         v.x + Math.cos(v.heading) * 4.4,
-        hullY + 2.4,
+        hullY + 2.4 + heave * surfaceBlend,
         v.z + Math.sin(v.heading) * 4.4,
       );
       const bridgeHeading = v.heading + this.bridgeYaw;
@@ -306,6 +325,15 @@ export class CameraRig {
     if (this.activeMode === 'periscope') {
       this.camera.lookAt(this.lookAt);
       this.camera.rotateZ(v.roll * 0.35);
+    } else if (this.activeMode === 'bridge') {
+      // The bridge is bolted to the hull: it pitches and rolls with her.
+      this.camera.lookAt(this.lookAt);
+      this.camera.rotateX(pitch * 0.8 * surfaceBlend);
+      this.camera.rotateZ(-roll * 0.85 * surfaceBlend);
+    } else if (this.activeMode === 'chase') {
+      // A chase boat banks gently with the hull it follows.
+      this.camera.lookAt(this.lookAt);
+      this.camera.rotateZ(-roll * 0.3 * surfaceBlend - this.yawRate * 0.05 * motion);
     } else {
       this.camera.lookAt(this.lookAt);
     }

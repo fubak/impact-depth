@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import type { AtmosphereState } from '../atmosphere';
 import { SkyLighting, type SkyLightingDiagnostics, type SkyLightingState } from './sky-lighting';
 import { pickSkyLightingSource } from './sky-source';
@@ -28,6 +28,8 @@ export function buildSkyLightingState(
     lightning: 0,
     isNight: input.atmosphere.isNight,
     weatherPreset: input.weatherPreset,
+    golden: input.atmosphere.golden,
+    twilight: input.atmosphere.twilight,
   };
 }
 
@@ -57,6 +59,9 @@ export class OutdoorLighting {
           skyHorizon: new THREE.Color(0.84, 0.94, 1),
           ambient: 0.78,
           isNight: false,
+          sunElevation: 64,
+          golden: 0,
+          twilight: 0,
         },
         cloudCoverage: 0.5,
         lightning: 0,
@@ -69,7 +74,7 @@ export class OutdoorLighting {
 
   private beginHdrLoad(): void {
     const generation = ++this.loadGeneration;
-    const loader = new RGBELoader();
+    const loader = new HDRLoader();
     loader.load(
       HDR_PUBLIC_PATH,
       (texture) => {

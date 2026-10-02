@@ -1,5 +1,11 @@
 import * as THREE from 'three';
-import { loadPlayPreferences, loadSettings, saveSettings } from './core/settings';
+import {
+  applyPreset,
+  isPresetId,
+  loadPlayPreferences,
+  loadSettings,
+  saveSettings,
+} from './core/settings';
 import { advanceAccumulator, FIXED_DT } from './core/sim';
 import type { LookDevSettings, SimState, ViewMode } from './core/types';
 import { deriveCombatEvents, type CombatEvent } from './game/adapt/combat-events';
@@ -156,6 +162,9 @@ export class App {
     });
     this.activeQuality = this.runtime.quality;
     this.settings = loadSettings();
+    // `?look=sunset-passage` boots straight into a preset (shareable look links, captures).
+    const look = new URLSearchParams(window.location.search).get('look');
+    if (look && isPresetId(look)) this.settings = applyPreset(look);
     this.game = {
       ...createGame(19, this.runtime.world),
       settings: this.settings,
