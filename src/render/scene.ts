@@ -579,6 +579,7 @@ export class GameScene {
   bindEnvironment(renderer: THREE.WebGLRenderer): void {
     this.glRenderer = renderer;
     this.outdoorLighting.bind(renderer, this.scene);
+    this.ocean.setAnisotropy(renderer.capabilities.getMaxAnisotropy());
   }
 
   invalidateForContextLoss(): void {

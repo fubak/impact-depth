@@ -263,6 +263,9 @@ export class Atmosphere {
         uGolden: { value: 0 },
         uTwilight: { value: 0 },
         uSunDiscGain: { value: 1 },
+        uStars: { value: 0 },
+        uFlash: { value: 0 },
+        uTime: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -279,7 +282,11 @@ export class Atmosphere {
         uniform float uGolden;
         uniform float uTwilight;
         uniform float uSunDiscGain;
+        uniform float uStars;
+        uniform float uFlash;
+        uniform float uTime;
         varying vec3 vDir;
+        float starHash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
         ${SKY_RADIANCE_GLSL}
         void main() {
           vec3 dir = normalize(vDir);
@@ -293,6 +300,20 @@ export class Atmosphere {
           // Horizon extinction squashes and reddens the disc as it sets.
           float extinction = smoothstep(-0.012, 0.03, dir.y);
           col += uSunColor * vec3(1.0, 0.86, 0.7) * disc * limb * 16.0 * uSunDiscGain * extinction;
+          // Night: a sparse, twinkling star field that fades out toward the hazy horizon.
+          if (uStars > 0.001 && dir.y > 0.0) {
+            vec2 cell = vec2(atan(dir.z, dir.x) * 260.0, asin(clamp(dir.y, 0.0, 1.0)) * 260.0);
+            vec2 id = floor(cell);
+            float h = starHash(id);
+            float star = step(0.9975, h);
+            vec2 f = fract(cell) - 0.5;
+            float core = exp(-dot(f, f) * 40.0);
+            float twinkle = 0.65 + 0.35 * sin(uTime * (1.5 + h * 4.0) + h * 40.0);
+            vec3 tint = mix(vec3(0.75, 0.85, 1.0), vec3(1.0, 0.9, 0.75), fract(h * 91.0));
+            col += tint * star * core * twinkle * uStars * smoothstep(0.02, 0.25, dir.y) * 2.2;
+          }
+          // Storm lightning briefly floods the whole dome cold-white.
+          col += vec3(0.55, 0.6, 0.75) * uFlash * (0.35 + 0.65 * smoothstep(-0.05, 0.6, dir.y));
           // Faint dither so the long gradients never band on 8-bit swapchains.
           float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
           col += (n - 0.5) / 255.0;
@@ -322,6 +343,7 @@ export class Atmosphere {
         uOpacity: { value: 0.78 },
         uGolden: { value: 0 },
         uTwilight: { value: 0 },
+        uFlash: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -340,6 +362,7 @@ export class Atmosphere {
         uniform float uOpacity;
         uniform float uGolden;
         uniform float uTwilight;
+        uniform float uFlash;
         varying vec3 vDir;
 
         float hash(vec2 p) {
@@ -416,6 +439,8 @@ export class Atmosphere {
           col += uSunColor * uGolden * (1.0 - shade) * 0.25 * smoothstep(0.25, 0.0, elev) * sunSide;
           col = mix(col, uSunColor * 1.2 + vec3(0.25, 0.08, 0.12), cirrus * uGolden * 0.5);
           col *= mix(1.0, 0.25, uTwilight);
+          // Lightning lights the cloud deck from inside: thick cores glow, edges stay dark.
+          col += vec3(0.8, 0.85, 1.0) * uFlash * (0.4 + 0.9 * hard) * (0.6 + 0.4 * n);
           float alpha = max(clouds, cirrus * 0.55) * uOpacity * (0.5 + 0.5 * clamp(elev + 0.15, 0.0, 1.0));
           if (alpha < 0.012) discard;
           gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.92));
@@ -527,6 +552,10 @@ export class Atmosphere {
     this.skyMat.uniforms.uGolden.value = state.golden;
     this.skyMat.uniforms.uTwilight.value = state.isNight ? 1 : state.twilight;
     this.skyMat.uniforms.uSunDiscGain.value = state.isNight ? 0 : 1;
+    this.skyMat.uniforms.uStars.value = state.isNight ? 1 : state.twilight * 0.6;
+    this.skyMat.uniforms.uFlash.value = flash;
+    this.skyMat.uniforms.uTime.value = this.cloudTime;
+    this.cloudMat.uniforms.uFlash.value = flash;
 
     const cloudCoverage = presentation?.cloudCoverage ?? (state.isNight ? 0.48 : 0.74);
     this.cloudMat.uniforms.uTime.value = this.cloudTime;
@@ -540,7 +569,8 @@ export class Atmosphere {
       .lerp(new THREE.Color(0x8a96a8), 0.55)
       .multiplyScalar(state.isNight ? 0.35 : 1);
     this.cloudMat.uniforms.uCoverage.value = cloudCoverage;
-    this.cloudMat.uniforms.uOpacity.value = state.isNight ? 0.4 : 0.66 + state.golden * 0.16;
+    // High sun: broken trade-wind cumulus rather than an overcast sheet.
+    this.cloudMat.uniforms.uOpacity.value = state.isNight ? 0.4 : 0.56 + state.golden * 0.26;
     this.cloudMat.uniforms.uGolden.value = state.golden;
     this.cloudMat.uniforms.uTwilight.value = state.isNight ? 1 : state.twilight;
 

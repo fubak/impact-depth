@@ -220,7 +220,8 @@ export class CameraRig {
     } else if (this.activeMode === 'bridge') {
       this.desiredPos.set(
         v.x + Math.cos(v.heading) * 4.4,
-        hullY + 2.4 + heave * surfaceBlend,
+        // Ride the swell, but never duck the eye under a storm crest.
+        hullY + 2.4 + THREE.MathUtils.clamp(heave, -0.2, 0.8) * surfaceBlend,
         v.z + Math.sin(v.heading) * 4.4,
       );
       const bridgeHeading = v.heading + this.bridgeYaw;

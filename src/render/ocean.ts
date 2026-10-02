@@ -629,7 +629,7 @@ void main() {
 
   // Persistent wake field: foam, aeration and a bumpy normal from its gradient.
   vec4 wake = sampleWake(vFlat);
-  if (uWakeEnabled > 0.5) {
+  if (uWakeEnabled > 0.5 && wake.r + wake.g > 0.004) {
     float e = 0.9;
     float wx = sampleWake(vFlat + vec2(e, 0.0)).g - sampleWake(vFlat - vec2(e, 0.0)).g;
     float wz = sampleWake(vFlat + vec2(0.0, e)).g - sampleWake(vFlat - vec2(0.0, e)).g;
@@ -679,7 +679,8 @@ void main() {
   vec3 skyAmbient = mix(uSkyColor, uHorizonColor, 0.35);
   vec3 bodyLight = skyAmbient * 0.75 + uSunColor * (0.12 + 0.3 * sunUp) * max(L.y, 0.0) * 2.0;
   bodyLight = max(bodyLight, vec3(0.02));
-  vec3 body = water * mix(vec3(1.0), bodyLight * 1.6, 0.55);
+  // Keep the authored colour by day; at night the body is lit only by what light there is.
+  vec3 body = water * mix(bodyLight * 1.6, vec3(1.0), 0.45 * (1.0 - uTwilight));
 
   // ---- Subsurface scattering through thin crests (backlit waves glow) ----
   vec3 Lh = normalize(vec3(L.x, max(L.y, 0.05), L.z));
@@ -1097,6 +1098,16 @@ export class Ocean {
     u.uGolden!.value = opts.golden;
     u.uTwilight!.value = opts.twilight;
     u.uSunIntensity!.value = opts.sunIntensity;
+  }
+
+  /** Sharper grazing-angle water normals; call once the renderer is known. */
+  setAnisotropy(level: number): void {
+    const map = this.material.uniforms.uNormalMap!.value as THREE.Texture;
+    const next = Math.max(1, Math.min(8, Math.floor(level)));
+    if (map.anisotropy === next) return;
+    map.anisotropy = next;
+    // Before the PNG arrives there is nothing to re-upload; the loader applies it on load.
+    if (map.image) map.needsUpdate = true;
   }
 
   /** Bind (or clear) the persistent world-space wake foam field. */

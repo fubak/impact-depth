@@ -280,3 +280,25 @@ describe('cinematic rendering', () => {
     });
   });
 });
+
+describe('optics capture cadence', () => {
+  it('treats small follow motion as continuous and a jump or turn as a cut', async () => {
+    const THREE = await import('three');
+    const { cameraCut } = await import('../../src/render/ocean/optics');
+    const cam = new THREE.PerspectiveCamera();
+    cam.position.set(0, 10, 0);
+    cam.lookAt(0, 0, -50);
+    cam.updateMatrixWorld();
+    const last = cam.matrixWorld.clone();
+    cam.position.x += 0.4;
+    cam.updateMatrixWorld();
+    expect(cameraCut(cam.matrixWorld, last)).toBe(false);
+    cam.position.x += 3;
+    cam.updateMatrixWorld();
+    expect(cameraCut(cam.matrixWorld, last)).toBe(true);
+    cam.position.set(0, 10, 0);
+    cam.lookAt(20, 0, -50);
+    cam.updateMatrixWorld();
+    expect(cameraCut(cam.matrixWorld, last)).toBe(true);
+  });
+});

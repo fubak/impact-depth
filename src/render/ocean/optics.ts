@@ -51,6 +51,21 @@ export function reflectedCamera(
   return camera;
 }
 
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _da = new THREE.Vector3();
+const _db = new THREE.Vector3();
+
+/** True when the eye jumped (> 1.5 m) or turned (> ~2.5°) since the last capture. */
+export function cameraCut(current: THREE.Matrix4, last: THREE.Matrix4): boolean {
+  _a.setFromMatrixPosition(current);
+  _b.setFromMatrixPosition(last);
+  if (_a.distanceToSquared(_b) > 1.5 * 1.5) return true;
+  _da.set(-current.elements[8]!, -current.elements[9]!, -current.elements[10]!).normalize();
+  _db.set(-last.elements[8]!, -last.elements[9]!, -last.elements[10]!).normalize();
+  return _da.dot(_db) < 0.999;
+}
+
 const bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
 
 export class WaterOptics {
@@ -122,8 +137,12 @@ export class WaterOptics {
     const eyeY = source.getWorldPosition(new THREE.Vector3()).y;
     // Hysteresis stops single-pixel waterline oscillation from flickering captures.
     const nextUnder = this.under ? eyeY < surfaceHeight + 0.12 : eyeY < surfaceHeight - 0.12;
+    // Small per-frame camera motion (follow, drift, shake) re-uses the last capture
+    // for up to `opticsCadence` frames: the capture's own matrices are bound with it,
+    // so reflections stay registered. Only a cut, zoom or waterline crossing forces
+    // an immediate recapture. (Previously any motion re-rendered the scene twice.)
     const changed =
-      !source.matrixWorld.equals(this.lastCamera) ||
+      cameraCut(source.matrixWorld, this.lastCamera) ||
       !source.projectionMatrix.equals(this.lastProjection) ||
       nextUnder !== this.under;
     this.under = nextUnder;
