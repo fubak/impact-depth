@@ -62,8 +62,13 @@ async function runJourney(name, fn) {
     console.error(`FAIL ${name}: ${detail}`);
     // In GitHub Actions this becomes a check-run annotation, readable without log access.
     if (process.env.GITHUB_ACTIONS) {
-      const flat = detail.replace(/%/g, '%25').replace(//g, '%0D').replace(/
-/g, '%0A');
+      const flat = detail
+        .split('%')
+        .join('%25')
+        .split(String.fromCharCode(13))
+        .join('%0D')
+        .split(String.fromCharCode(10))
+        .join('%0A');
       console.log(`::error title=Patrol E2E journey ${name} failed::${flat.slice(0, 900)}`);
     }
     throw err;
