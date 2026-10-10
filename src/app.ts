@@ -16,8 +16,7 @@ import {
   blowTanks,
   cancelAutopilot,
   clearEngagement,
-  createConvoyStrike,
-  createGame,
+  createScenario,
   deployCountermeasure,
   fireWeapon,
   orderMove,
@@ -166,7 +165,7 @@ export class App {
     const look = new URLSearchParams(window.location.search).get('look');
     if (look && isPresetId(look)) this.settings = applyPreset(look);
     this.game = {
-      ...createGame(19, this.runtime.world),
+      ...createScenario({ scenario: 'patrol', seed: 19, worldVersion: this.runtime.world }),
       settings: this.settings,
     };
     this.sim = adaptToLookDevSim(this.game);
@@ -184,9 +183,7 @@ export class App {
     this.errorToast = new ErrorToast(this.appRoot);
     this.renderer = new RendererHost(canvas);
     this.renderer.setQuality(QUALITY_PROFILES[this.runtime.quality]);
-    this.renderer.setBloomEnabled(
-      bloomEnabledFor(this.activeQuality, window.location.search),
-    );
+    this.renderer.setBloomEnabled(bloomEnabledFor(this.activeQuality, window.location.search));
     this.renderer.setExposure(this.settings.atmosphere.exposure);
     this.scene = new GameScene();
     this.scene.setPresentationWorld(this.runtime.world, this.game.terrainSeed);
@@ -407,26 +404,31 @@ export class App {
     if (action === 'new-seed') {
       const seed = 1 + (Date.now() % 9000);
       this.game = {
-        ...createGame(seed),
+        ...createScenario({ scenario: 'patrol', seed, worldVersion: this.runtime.world }),
         settings: this.settings,
-        worldVersion: this.runtime.world,
       };
       this.beginPatrol();
       return;
     }
     if (action === 'strike') {
       this.game = {
-        ...createConvoyStrike(19),
+        ...createScenario({
+          scenario: 'convoy-strike',
+          seed: 19,
+          worldVersion: this.runtime.world,
+        }),
         settings: this.settings,
-        worldVersion: this.runtime.world,
       };
       this.beginPatrol();
       return;
     }
     this.game = {
-      ...createGame(this.game.seed),
+      ...createScenario({
+        scenario: 'patrol',
+        seed: this.game.seed,
+        worldVersion: this.runtime.world,
+      }),
       settings: this.settings,
-      worldVersion: this.runtime.world,
     };
     this.beginPatrol();
   }
@@ -451,9 +453,12 @@ export class App {
     this.cinema = idleTrack();
     this.scene.resetEnvironment(this.missionGeneration);
     this.game = {
-      ...createGame(this.game.seed),
+      ...createScenario({
+        scenario: 'patrol',
+        seed: this.game.seed,
+        worldVersion: this.runtime.world,
+      }),
       settings: this.settings,
-      worldVersion: this.runtime.world,
     };
     this.sim = adaptToLookDevSim(this.game);
     this.patrol.render(this.game);
@@ -934,9 +939,7 @@ export class App {
     if (profile !== this.activeQuality && this.renderer.canSubmit) {
       this.activeQuality = profile;
       this.renderer.setQuality(QUALITY_PROFILES[profile]);
-      this.renderer.setBloomEnabled(
-        bloomEnabledFor(profile, window.location.search),
-        );
+      this.renderer.setBloomEnabled(bloomEnabledFor(profile, window.location.search));
       this.scene.setQuality(QUALITY_PROFILES[profile]);
     }
     if (this.panel.isVisible()) {

@@ -1,4 +1,8 @@
+import type { WorldVersion } from '../../world/definition';
+import { playerNavProfile, snapWorld, surfaceShipNavProfile } from '../../world/littoral';
+import { getWorld } from '../../world/queries';
 import { createGame } from '../create';
+import { shipClearRadius } from '../pathfinding';
 import { SINK_DURATION } from '../ship-damage';
 import type { GameState, Ship, ShipKind } from '../types';
 import { getTerrain, snapToNavigable } from '../world';
@@ -15,12 +19,23 @@ const HULL: Record<
   patrol: { hp: 50, speed: 2.6, name: 'PATROL' },
 };
 
-function place(state: GameState, dist: number, lateral: number): { x: number; y: number } {
+type Placement = 'surface-ship' | 'exit';
+
+function place(
+  state: GameState,
+  dist: number,
+  lateral: number,
+  kind: Placement = 'surface-ship',
+): { x: number; y: number } {
   const sub = state.submarine;
   const x = sub.x + Math.cos(sub.heading) * dist - Math.sin(sub.heading) * lateral;
   const y = sub.y + Math.sin(sub.heading) * dist + Math.cos(sub.heading) * lateral;
-  if (state.worldVersion !== 'legacy-v1') return { x, y };
-  return snapToNavigable(getTerrain(state.terrainSeed), x, y, 0.1);
+  if (state.worldVersion === 'legacy-v1') {
+    return snapToNavigable(getTerrain(state.terrainSeed), x, y, 0.1);
+  }
+  const profile =
+    kind === 'exit' ? playerNavProfile(0.28) : surfaceShipNavProfile(shipClearRadius('merchant'));
+  return snapWorld(getWorld(state.worldVersion, state.terrainSeed), x, y, profile);
 }
 
 function hull(kind: ShipKind, id: string, x: number, y: number, heading: number): Ship {
@@ -51,12 +66,12 @@ function hull(kind: ShipKind, id: string, x: number, y: number, heading: number)
 }
 
 /** Seed-19 patrol start, three contacts 18 units down the bow, exit 16 beyond them. */
-export function createConvoyStrike(seed = 19): GameState {
-  const state = createGame(seed);
+export function createConvoyStrike(seed = 19, worldVersion: WorldVersion = 'legacy-v1'): GameState {
+  const state = createGame(seed, worldVersion);
   const merchant = place(state, 18, 0);
   const destroyer = place(state, 18, -4);
   const patrol = place(state, 18, 4);
-  const exit = place(state, 34, 0);
+  const exit = place(state, 34, 0, 'exit');
   const heading = state.submarine.heading;
   return {
     ...state,

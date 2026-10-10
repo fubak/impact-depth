@@ -255,6 +255,20 @@ export interface SonarContact {
   age: number;
   maxAge: number;
 }
+export type RetreatStatus = 'approaching' | 'contested' | 'replanning' | 'blocked';
+
+/** Measured progress of the current Home order. Reset on every new order. */
+export interface RetreatProgress {
+  /** Simulation time the route started being tracked. */
+  startedAt: number;
+  /** Closest distance to the base reached so far (sim units). */
+  bestDistance: number;
+  /** Simulation time of the last measured progress; paused while a warship contests the route. */
+  lastProgressAt: number;
+  replans: number;
+  status: RetreatStatus;
+}
+
 export interface Autopilot {
   enabled: boolean;
   waypoint: Point | null;
@@ -267,6 +281,8 @@ export interface Autopilot {
   repathTimer: number;
   /** Damaged-boat exfil. Once set, low HP must not reset the breakaway clock. */
   emergency: boolean;
+  /** Present while a Home (exfil) route is being tracked. */
+  retreat?: RetreatProgress | null;
 }
 export interface GameStats {
   score: number;

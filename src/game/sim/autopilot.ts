@@ -1,4 +1,5 @@
 import { findPath, lineClear, makeClear, steerAvoid } from './pathfinding';
+import { advanceRetreat, RETREAT_THREAT_RANGE, startRetreat } from './retreat-progress';
 import { turnBoat } from './vessel-dynamics';
 import { getTerrain, hullDepthLimit } from './world';
 import type { Autopilot, GameState, Point, Ship } from './types';
@@ -223,7 +224,14 @@ export function updateAutopilot(state: GameState, dt: number): GameState {
   }
 
   if ((sub.hp < 28 || sub.sysFlood > 0.45) && !ap.emergency) {
-    ap = { ...ap, emergency: true, tactic: 'exfil', phase: 'breakaway', phaseTimer: 0 };
+    ap = {
+      ...ap,
+      emergency: true,
+      tactic: 'exfil',
+      phase: 'breakaway',
+      phaseTimer: 0,
+      retreat: null,
+    };
   }
 
   if (ap.tactic === 'evade' || ap.phase === 'breakaway') {
@@ -289,15 +297,54 @@ export function updateAutopilot(state: GameState, dt: number): GameState {
     if (distance < state.base.radius * 0.9) {
       return setOrders({ ...next, autopilot: { ...ap, phase: 'dock', path: [] } }, 0.2, 0, false);
     }
-    if (
-      distance > state.base.radius &&
-      state.time > 170 &&
-      !next.messages.some((message) => message.text === 'CANNOT REACH BASE')
-    ) {
-      next = withMessage(next, 'CANNOT REACH BASE', 20);
+    const threatRange = threat ? Math.hypot(threat.x - sub.x, threat.y - sub.y) : Infinity;
+    const contested = threatRange < RETREAT_THREAT_RANGE;
+    const step = advanceRetreat(
+      ap.retreat ?? startRetreat(state.time, distance),
+      state.time,
+      distance,
+      contested,
+      dt,
+    );
+    ap = { ...ap, retreat: step.progress };
+    next = { ...next, autopilot: ap };
+    if (step.action === 'blocked') {
+      return withMessage(
+        withMessage(
+          setOrders(
+            {
+              ...next,
+              autopilot: {
+                ...ap,
+                enabled: false,
+                tactic: 'manual',
+                phase: 'idle',
+                waypoint: null,
+                path: [],
+              },
+            },
+            0.45,
+            0.35,
+            true,
+          ),
+          'CANNOT REACH BASE',
+          20,
+        ),
+        'ROUTE BLOCKED · HELM MANUAL · ORDER HOME TO RETRY',
+        6,
+      );
+    }
+    if (step.action === 'replan') {
+      next = withMessage(
+        { ...next, autopilot: { ...ap, path: [], repathTimer: 0 } },
+        'NO PROGRESS · REPLANNING ROUTE',
+        3,
+      );
+    } else if (step.startedContested) {
+      next = withMessage(next, 'RETREAT CONTESTED · WARSHIP CLOSE', 2.8);
     }
     next = setOrders(
-      { ...next, autopilot: ap },
+      next,
       threat && threat.alert > 0.4 ? 0.72 : 0.45,
       sub.maxSpeed * (threat ? 0.5 : 0.85),
       !!threat,

@@ -4,6 +4,7 @@ import { playerNavProfile, snapWorld } from '../world/littoral';
 import { getWorld } from '../world/queries';
 import { createGame as makeGame, seedPowerups, seedWave } from './create';
 import { createConvoyStrike } from './scenarios/convoy-strike';
+import { createScenario, rerunScenario } from './scenarios/factory';
 import { stepGame } from './step';
 import type {
   ApiResult,
@@ -19,7 +20,7 @@ import { snapToNavigable as snap, getTerrain } from './world';
 
 export const createGame = (seed?: number, worldVersion?: WorldVersion): GameState =>
   makeGame(seed, worldVersion);
-export { createConvoyStrike };
+export { createConvoyStrike, createScenario, rerunScenario };
 export const startMission = (state: GameState): GameState => {
   if (state.scenario === 'convoy-strike') {
     return {
@@ -38,8 +39,7 @@ export const startMission = (state: GameState): GameState => {
     submarine: { ...state.submarine, invuln: 8 },
   };
 };
-export const restartGame = (state: GameState): GameState =>
-  makeGame(state.seed, state.worldVersion);
+export const restartGame = (state: GameState): GameState => rerunScenario(state);
 export const setPhase = (state: GameState, phase: GamePhase): GameState => ({ ...state, phase });
 export const setWeapon = (state: GameState, weapon: WeaponMode): GameState => ({
   ...state,

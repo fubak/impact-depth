@@ -21,7 +21,7 @@ import {
   surfaceShipNavProfile,
 } from '../world/littoral';
 import { getWorld } from '../world/queries';
-import { shipClearRadius } from './pathfinding';
+import { shipClearRadius, snapToReachable } from './pathfinding';
 
 const escortKinds: ReadonlySet<ShipKind> = new Set(['destroyer', 'patrol', 'cruiser']);
 const formationRoleCycle: readonly FormationRole[] = ['lead', 'wing', 'trail'];
@@ -345,7 +345,17 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
           convoyStart.y,
           surfaceShipNavProfile(shipClearRadius('merchant')),
         );
-  const base = snapSpawn(seed, worldVersion, baseStart.x, baseStart.y, playerNavProfile(0.5), 0.2);
+  const snappedBase = snapSpawn(
+    seed,
+    worldVersion,
+    baseStart.x,
+    baseStart.y,
+    playerNavProfile(0.5),
+    0.2,
+  );
+  // A FOB in a sealed lagoon is a base the boat can never reach: keep it in the boat's water.
+  const base =
+    worldVersion === 'legacy-v1' ? snapToReachable(terrain!, player, snappedBase) : snappedBase;
   const heading = Math.atan2(freighter.y - player.y, freighter.x - player.x);
   return {
     phase: 'menu',

@@ -267,3 +267,81 @@ export function resolveClearStep(
   }
   return { x: blockedX, y: blockedY, heading };
 }
+
+const componentCache = new WeakMap<Terrain, Map<number, Uint8Array>>();
+
+/**
+ * Water cells connected (4-neighbour, cell centres) to the cell holding `origin`.
+ * Cached per terrain and origin cell; the returned mask must not be mutated.
+ */
+export function waterComponent(terrain: Terrain, origin: Point): Uint8Array {
+  const size = WORLD_SIZE;
+  const ox = clamp(Math.floor(origin.x), 0, size - 1);
+  const oy = clamp(Math.floor(origin.y), 0, size - 1);
+  const originKey = oy * size + ox;
+  let byOrigin = componentCache.get(terrain);
+  if (!byOrigin) {
+    byOrigin = new Map();
+    componentCache.set(terrain, byOrigin);
+  }
+  const cached = byOrigin.get(originKey);
+  if (cached) return cached;
+
+  const mask = new Uint8Array(size * size);
+  if (!isLand(terrain, ox + 0.5, oy + 0.5)) {
+    const stack = [originKey];
+    mask[originKey] = 1;
+    while (stack.length) {
+      const index = stack.pop()!;
+      const cx = index % size;
+      const cy = (index - cx) / size;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+        const next = ny * size + nx;
+        if (mask[next] || isLand(terrain, nx + 0.5, ny + 0.5)) continue;
+        mask[next] = 1;
+        stack.push(next);
+      }
+    }
+  }
+  byOrigin.set(originKey, mask);
+  return mask;
+}
+
+/**
+ * Keep `desired` if its water is connected to `from`; otherwise return the nearest connected
+ * cell the route planner can actually reach. Never moves a point that is already reachable.
+ */
+export function snapToReachable(terrain: Terrain, from: Point, desired: Point): Point {
+  const size = WORLD_SIZE;
+  const mask = waterComponent(terrain, from);
+  const at = (p: Point) =>
+    mask[clamp(Math.floor(p.y), 0, size - 1) * size + clamp(Math.floor(p.x), 0, size - 1)] === 1;
+  if (at(desired)) return desired;
+
+  const margin = makeClear(terrain, 0.5);
+  const route = makeClear(terrain, 0.2);
+  const candidates: { point: Point; distance: number }[] = [];
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      if (!mask[y * size + x]) continue;
+      const point = { x: x + 0.5, y: y + 0.5 };
+      if (!margin(point.x, point.y)) continue;
+      candidates.push({ point, distance: Math.hypot(point.x - desired.x, point.y - desired.y) });
+    }
+  }
+  candidates.sort(
+    (a, b) => a.distance - b.distance || a.point.y - b.point.y || a.point.x - b.point.x,
+  );
+  for (const { point } of candidates.slice(0, 400)) {
+    if (findPath(from, point, route, 1600).length > 0) return point;
+  }
+  return desired;
+}

@@ -323,6 +323,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
                 waypoint: command.waypoint,
                 path: [],
                 repathTimer: 0,
+                retreat: null,
               }
             : {
                 ...next.autopilot,
@@ -343,6 +344,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
                 waypoint: null,
                 path: [],
                 repathTimer: 0,
+                retreat: null,
               },
         };
       else if (command.type === 'cancelAutopilot')
@@ -355,6 +357,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
             phase: 'idle',
             waypoint: null,
             path: [],
+            retreat: null,
           },
         };
       else if (command.type === 'selectTarget')
