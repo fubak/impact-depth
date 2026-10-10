@@ -23,6 +23,9 @@ Status: machine work done, uncommitted. Operator gates untouched. Phase 6 and 7 
 
 Seeds 7/91 are encounter pressure plus a control gap: the Home helm does not react to ordnance in the water. Not changed here (Phase 6 tuning; no invulnerability added). Pinned in `exfil-combat-outcomes.test.ts`.
 
+## Experiment: ordnance dodge on the Home helm (branch `exp/exfil-ordnance-reaction`)
+While enemy depth charges or hedgehogs are within 7 units, Home runs flank speed away from the pattern (abeam if it is on top of the boat), then resumes the route. Seeds 7 and 91 now arrive (59.5 s and 84.5 s); 19 and 42 are unchanged. Seed 1 still dies: an enemy submarine's torpedoes (3 x 42 hp). A torpedo break-abeam was tried and made no difference (enemy fish are faster), so it was removed; the real counter is the bubble countermeasure, a player action. Not merged: this changes autopilot behaviour and wants a Phase 6 human look.
+
 ## Follow-ups checked (round 2)
 - `littoral-v2` Home routing: `exfil-v2.test.ts` arrives on 14 seeds with zero ticks off navigable water, so the suspected legacy-terrain planning problem is not demonstrated. Left as is.
 - Strike and patrol contacts, base and exit share the boat's water on seeds 1-60 (`scenario-reachability.test.ts`).
