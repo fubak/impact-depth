@@ -64,6 +64,22 @@ async function runJourney(name, fn) {
   }
 }
 
+/**
+ * Lethal escorts can end a passive scripted patrol while earlier journeys run slowly on a
+ * software renderer. Restore a live patrol when the current one has ended.
+ * Returns true when it had to restart (the previous patrol was not playing).
+ */
+async function ensureLivePatrol(page) {
+  const phase = await page
+    .evaluate(() => window.__silentDepths?.game?.phase ?? null)
+    .catch(() => null);
+  if (phase === 'playing') return false;
+  await page.reload({ waitUntil: 'load', timeout: E2E_TIMEOUT_MS });
+  await page.waitForSelector('button[data-action="begin"]', { timeout: E2E_TIMEOUT_MS });
+  await beginPatrolAndSkipTutorial(page);
+  return true;
+}
+
 const browser = await chromium.launch({
   headless: true,
   args: CHROMIUM_ARGS,
@@ -157,7 +173,7 @@ try {
     );
   });
 
-  await runJourney('targeting-fire', async () => {
+  const targetingFire = async () => {
     await setMode(page, 'tactical');
     // Ensure tubes can fire: peri depth, wait for HUD ready if needed.
     await page.keyboard.press('KeyX');
@@ -205,19 +221,23 @@ try {
       },
       'magazine/toast change after fire',
     );
+  };
+
+  await runJourney('targeting-fire', async () => {
+    await ensureLivePatrol(page);
+    try {
+      await targetingFire();
+    } catch (err) {
+      // Retry once only if the failure coincided with the patrol ending (not a real regression).
+      if (!(await ensureLivePatrol(page))) throw err;
+      await targetingFire();
+    }
   });
 
   await runJourney('pause-resume', async () => {
     // Lethal escorts can legitimately end a passive scripted patrol during the
     // long targeting-fire stretch — restore a live patrol before testing pause.
-    const phase = await page
-      .evaluate(() => window.__silentDepths?.game?.phase ?? null)
-      .catch(() => null);
-    if (phase !== 'playing') {
-      await page.reload({ waitUntil: 'load', timeout: E2E_TIMEOUT_MS });
-      await page.waitForSelector('button[data-action="begin"]', { timeout: E2E_TIMEOUT_MS });
-      await beginPatrolAndSkipTutorial(page);
-    }
+    await ensureLivePatrol(page);
     await page.keyboard.press('Space');
     await pollUntil(
       page,
