@@ -24,7 +24,7 @@ Still open: Phase 5 world init and seed-7 exfil, Phase 6 human playtests, Phase 
 - 022 machine work is on master. Operator FPS, lighting, fleet, audio, soak, fun/feel, world default, and `solo-production` stay pending. Plan 017 owns the tag.
 - 023 is the review of `ddd4281`. Probes: `docs/release/plan-023-simulation-probes.json`.
 - 024 landed in `cf0ab5a`. The 8.9 s strike in that report teleported. The real seed-19 run is 20.33 s and is in the phase 2–3 note.
-- Evade seeds 7/42/91 and exfil seed 7 were still failing when last probed. Do not treat later doctrine edits as a pass until Phase 5 remeasures them.
+- Evade seeds 7/42/91 pass and exfil seed 7 navigation is fixed (Phase 5, `docs/release/plan-025-phase5.md`). Combat exfil deaths on seeds 1/7/91 remain a Phase 6 tuning item.
 
 ## Current
 
@@ -69,7 +69,7 @@ Analysis: [`docs/release/realism-upgrade-review.md`](../docs/release/realism-upg
 
 ## Agent next
 
-1. Phase 5. Remeasure exfil seed 7 and the Evade seeds. Do not self-approve Phase 6 or 7.
+1. Phase 6 playtest tuning needs human sessions; do not self-approve Phase 6 or 7.
 2. 018/014/015 operator ACCEPT stays pending. Do not flip the world default. Do not execute 009, 013, or 016.
 
 ## Human next

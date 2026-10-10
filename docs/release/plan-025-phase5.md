@@ -23,7 +23,11 @@ Status: machine work done, uncommitted. Operator gates untouched. Phase 6 and 7 
 
 Seeds 7/91 are encounter pressure plus a control gap: the Home helm does not react to ordnance in the water. Not changed here (Phase 6 tuning; no invulnerability added). Pinned in `exfil-combat-outcomes.test.ts`.
 
+## Follow-ups checked (round 2)
+- `littoral-v2` Home routing: `exfil-v2.test.ts` arrives on 14 seeds with zero ticks off navigable water, so the suspected legacy-terrain planning problem is not demonstrated. Left as is.
+- Strike and patrol contacts, base and exit share the boat's water on seeds 1-60 (`scenario-reachability.test.ts`).
+- Evade seeds 7/42/91 pass in `doctrines.test.ts`; the earlier "still failing" note was stale.
+
 ## Not done
-- Autopilot `steer` still plans against legacy terrain under `littoral-v2`.
-- Strike contacts/freighter are not reachability-checked.
-- Evade seeds 7/42/91 not remeasured.
+- Combat deaths on seeds 1/7/91 (Phase 6 tuning).
+- Phases 6-7 and operator gates.
