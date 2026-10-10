@@ -83,6 +83,28 @@ function interceptGoal(sub: Point, target: Ship): Point {
   return lead;
 }
 
+/** Enemy charges this close are an immediate threat the Home helm must dodge, not sail through. */
+export const ORDNANCE_DODGE_RANGE = 7;
+
+/**
+ * Point to run to when enemy depth charges or hedgehogs are in the water close by: away from
+ * the pattern's centre, or abeam when the pattern is on top of the boat.
+ */
+export function ordnanceDodgeGoal(state: GameState): Point | null {
+  const sub = state.submarine;
+  const incoming = state.depthCharges.filter(
+    (charge) =>
+      (charge.kind === 'hedgehog' || charge.kind === 'depthCharge') &&
+      Math.hypot(charge.x - sub.x, charge.y - sub.y) < ORDNANCE_DODGE_RANGE,
+  );
+  if (!incoming.length) return null;
+  const cx = incoming.reduce((sum, charge) => sum + charge.x, 0) / incoming.length;
+  const cy = incoming.reduce((sum, charge) => sum + charge.y, 0) / incoming.length;
+  const range = Math.hypot(sub.x - cx, sub.y - cy);
+  const bearing = range > 0.4 ? Math.atan2(sub.y - cy, sub.x - cx) : sub.heading + Math.PI / 2;
+  return pointAt(sub, bearing, 6);
+}
+
 function steer(state: GameState, autopilot: Autopilot, goal: Point, dt: number): GameState {
   const sub = state.submarine;
   const clear = makeClear(getTerrain(state.terrainSeed), 0.2);
@@ -342,6 +364,16 @@ export function updateAutopilot(state: GameState, dt: number): GameState {
       );
     } else if (step.startedContested) {
       next = withMessage(next, 'RETREAT CONTESTED · WARSHIP CLOSE', 2.8);
+    }
+    const dodge = ordnanceDodgeGoal(next);
+    if (dodge) {
+      next = setOrders(next, 0.72, sub.maxSpeed, false);
+      return steer(
+        { ...next, autopilot: { ...next.autopilot, path: [] } },
+        next.autopilot,
+        dodge,
+        dt,
+      );
     }
     next = setOrders(
       next,

@@ -54,10 +54,10 @@ describe('return to base — combat survival (reported separately from navigatio
     { arrived: boolean; survived: boolean; lastDamage: string | null }
   > = {
     1: { arrived: false, survived: false, lastDamage: 'weapon' },
-    7: { arrived: false, survived: false, lastDamage: 'weapon' },
+    7: { arrived: true, survived: true, lastDamage: null },
     19: { arrived: true, survived: true, lastDamage: null },
     42: { arrived: true, survived: true, lastDamage: 'weapon' },
-    91: { arrived: false, survived: false, lastDamage: 'weapon' },
+    91: { arrived: true, survived: true, lastDamage: null },
   };
 
   for (const seed of [1, 7, 19, 42, 91] as const) {
