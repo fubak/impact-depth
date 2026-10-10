@@ -613,7 +613,8 @@ svg.map .land { pointer-events: none; }
 .tutorial-card {
   position: absolute;
   left: 50%;
-  bottom: 38px;
+  /* Above the bottom control panels (and the Skip button above the speed buttons), not on them. */
+  bottom: 176px;
   width: min(440px, calc(100% - 32px));
   transform: translateX(-50%);
   border: 1px solid var(--brass);
