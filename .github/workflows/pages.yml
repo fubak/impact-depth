@@ -138,7 +138,9 @@ jobs:
 
   deploy:
     needs: build
-    if: needs.build.outputs.fresh == 'true'
+    # always(): dispatch-gates is skipped on automatic runs, and a skipped ancestor would
+    # otherwise skip this job even though build succeeded. Gate on build's result explicitly.
+    if: always() && needs.build.result == 'success' && needs.build.outputs.fresh == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
