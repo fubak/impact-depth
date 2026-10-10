@@ -54,6 +54,50 @@ describe('calloutLabel', () => {
     expect(calloutLabel('SEARCH')).toBe('ESCORTS SEARCHING');
     expect(calloutLabel('LOCKED')).toBe('ESCORTS HAVE YOU');
     expect(calloutLabel('INCOMING')).toBe('INCOMING');
+    expect(calloutLabel('CLOSE')).toBe('WARSHIP CLOSE');
     expect(calloutLabel(null)).toBe('');
+  });
+});
+
+describe('close-contact warning', () => {
+  const base = () => startMission(createGame(19));
+  const hunterAt = (state: ReturnType<typeof base>, distance: number, alert: number) => ({
+    ...state,
+    ships: [
+      {
+        ...(state.ships.find((ship) => ship.kind !== 'merchant') ?? state.ships[0]!),
+        kind: 'cruiser' as const,
+        x: state.submarine.x + distance,
+        y: state.submarine.y,
+        alert,
+        holdContact: 0,
+      },
+    ],
+  });
+
+  it('warns about an unaware warship that has closed inside 14 units', () => {
+    expect(defenseCallout(hunterAt(base(), 10, 0.05))).toBe('CLOSE');
+  });
+
+  it('stays quiet for a distant unaware warship and for merchants', () => {
+    expect(defenseCallout(hunterAt(base(), 30, 0.05))).toBeNull();
+    const state = base();
+    const merchantNear = {
+      ...state,
+      ships: [
+        {
+          ...state.ships[0]!,
+          kind: 'merchant' as const,
+          x: state.submarine.x + 5,
+          y: state.submarine.y,
+          alert: 0,
+        },
+      ],
+    };
+    expect(defenseCallout(merchantNear)).toBeNull();
+  });
+
+  it('is outranked by a search, a lock and incoming ordnance', () => {
+    expect(defenseCallout(hunterAt(base(), 10, 0.3))).toBe('SEARCH');
   });
 });

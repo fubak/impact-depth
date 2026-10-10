@@ -2,9 +2,13 @@ import type { DepthCharge, GameMessage, GameState, Torpedo } from './types';
 
 const HUNTERS = new Set(['destroyer', 'patrol', 'cruiser', 'battleship', 'sub']);
 
-export type DefenseCallout = 'SEARCH' | 'LOCKED' | 'INCOMING' | null;
+export type DefenseCallout = 'CLOSE' | 'SEARCH' | 'LOCKED' | 'INCOMING' | null;
+
+/** An unaware warship this close is worth a warning before it hears the boat. */
+export const CLOSE_CONTACT_RANGE = 14;
 
 const CALLOUT_LABEL: Record<NonNullable<DefenseCallout>, string> = {
+  CLOSE: 'WARSHIP CLOSE',
   SEARCH: 'ESCORTS SEARCHING',
   LOCKED: 'ESCORTS HAVE YOU',
   INCOMING: 'INCOMING',
@@ -68,5 +72,7 @@ export function defenseCallout(state: GameState): DefenseCallout {
   );
   if (hunters.some((ship) => ship.alert > 0.45 && ship.holdContact > 0)) return 'LOCKED';
   if (hunters.some((ship) => ship.alert >= 0.25)) return 'SEARCH';
+  const near2 = (ship: { x: number; y: number }) => near(ship.x, ship.y, CLOSE_CONTACT_RANGE);
+  if (hunters.some(near2)) return 'CLOSE';
   return null;
 }
