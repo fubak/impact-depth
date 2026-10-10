@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defenseCallout } from '../../src/game/sim/defense-callout';
+import { calloutLabel, defenseCallout } from '../../src/game/sim/defense-callout';
 import { createGame, startMission } from '../../src/game/sim/api';
 
 describe('defense callout', () => {
@@ -46,5 +46,14 @@ describe('defense callout', () => {
       fuse: 12,
     };
     expect(defenseCallout({ ...locked, depthCharges: [distant] })).toBe('LOCKED');
+  });
+});
+
+describe('calloutLabel', () => {
+  it('says what each alert means in plain words', () => {
+    expect(calloutLabel('SEARCH')).toBe('ESCORTS SEARCHING');
+    expect(calloutLabel('LOCKED')).toBe('ESCORTS HAVE YOU');
+    expect(calloutLabel('INCOMING')).toBe('INCOMING');
+    expect(calloutLabel(null)).toBe('');
   });
 });

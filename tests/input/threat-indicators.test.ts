@@ -179,4 +179,30 @@ describe('computeThreatMarkers', () => {
     new ThreatIndicatorLayer(root).render(markers);
     expect(root.innerHTML).toContain('DC 4.0 7s');
   });
+
+  it('does not print a long safety fuse as if it were a countdown', () => {
+    const game = patrol({});
+    game.depthCharges = [
+      {
+        id: 'escort-hog',
+        kind: 'hedgehog',
+        sourceId: 'escort',
+        x: 0,
+        y: 4,
+        z: 0.5,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        fuse: 37,
+        damage: 34,
+        radius: 0.18,
+        targetDepth: 0.5,
+      },
+    ];
+    const markers = computeThreatMarkers(game, projectOf(game), VIEW, { underwater: true });
+    const root = fakeRoot();
+    new ThreatIndicatorLayer(root).render(markers);
+    expect(root.innerHTML).toContain('DC 4.0');
+    expect(root.innerHTML).not.toContain('37s');
+  });
 });

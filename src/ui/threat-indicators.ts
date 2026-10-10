@@ -5,6 +5,8 @@ export const THREAT_TORPEDO_RANGE = 25;
 /** Ships at or below this alert are not yet a contact worth an edge chevron. */
 export const THREAT_ALERT_MIN = 0.25;
 export const DEFAULT_THREAT_MARGIN = 28;
+/** Escort charges carry a long safety life, not a countdown; only real countdowns are printed. */
+export const CHARGE_COUNTDOWN_MAX = 12;
 
 export interface ThreatProjection {
   sx: number;
@@ -186,7 +188,11 @@ export function computeThreatMarkers(
       : clampToEdge(projection, viewport);
     if (!clamped) continue;
     const fuseNote =
-      candidate.kind === 'charge' && candidate.fuse !== null ? Math.ceil(candidate.fuse) : null;
+      candidate.kind === 'charge' &&
+      candidate.fuse !== null &&
+      candidate.fuse <= CHARGE_COUNTDOWN_MAX
+        ? Math.ceil(candidate.fuse)
+        : null;
     markers.push({
       id: candidate.id,
       kind: candidate.kind,

@@ -11,7 +11,7 @@ import {
 } from '../game/sim/constants';
 import { bowRelativeBearing, TUBE_ARC_RAD } from '../game/sim/systems';
 import { actionTimeScale } from '../game/sim/action-feel';
-import { defenseCallout } from '../game/sim/defense-callout';
+import { calloutLabel, defenseCallout } from '../game/sim/defense-callout';
 import { extractionCue, strikeStage } from '../game/sim/scenarios/convoy-strike';
 import { worldMetersToSim } from '../game/sim/coords';
 import type {
@@ -523,7 +523,7 @@ export class Hud {
       </section>
       <section class="hud-block hud-score" aria-label="Patrol score">
         <span data-field="objective">${objectiveText(game)}</span>
-        <span data-field="callout">${defenseCallout(game) ?? ''}</span>
+        <span data-field="callout">${calloutLabel(defenseCallout(game))}</span>
         <span data-field="compress">${actionTimeScale(game) === 4 ? '4×' : ''}</span>
         <span>Score <b data-field="score">${game.stats.score}</b></span>
         <span>Wave <b data-field="wave">${game.stats.wave}</b></span>
@@ -839,7 +839,7 @@ export class Hud {
       extras.target ? 'engaged' : '',
     );
     set('objective', objectiveText(game));
-    set('callout', defenseCallout(game) ?? '');
+    set('callout', calloutLabel(defenseCallout(game)));
     set('compress', actionTimeScale(game) === 4 ? '4×' : '');
     set('score', String(game.stats.score));
     set('wave', String(game.stats.wave));

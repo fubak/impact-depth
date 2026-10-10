@@ -4,6 +4,16 @@ const HUNTERS = new Set(['destroyer', 'patrol', 'cruiser', 'battleship', 'sub'])
 
 export type DefenseCallout = 'SEARCH' | 'LOCKED' | 'INCOMING' | null;
 
+const CALLOUT_LABEL: Record<NonNullable<DefenseCallout>, string> = {
+  SEARCH: 'ESCORTS SEARCHING',
+  LOCKED: 'ESCORTS HAVE YOU',
+  INCOMING: 'INCOMING',
+};
+
+/** The HUD string for a callout: says whose state it is, not just one bare word. */
+export const calloutLabel = (callout: DefenseCallout): string =>
+  callout ? CALLOUT_LABEL[callout] : '';
+
 /** A fresh enemy release near the boat earns its own shout, once per window. */
 const RELEASE_CALLOUT_TTL = 4;
 const RELEASE_CALLOUT_RANGE = 12;
