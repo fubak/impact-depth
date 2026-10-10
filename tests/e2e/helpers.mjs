@@ -496,6 +496,24 @@ export async function plotCanvasWater(page, offset = {}) {
   return { x: Number(match[1]), y: Number(match[2]), text };
 }
 
+/**
+ * True when the canvas-local pixel is the canvas itself, not a HUD panel drawn over it.
+ * World clicks under a HUD block are swallowed on purpose, so they can never plot.
+ * @param {import('playwright').Page} page
+ * @param {{ x: number, y: number }} point canvas-local pixels
+ */
+export async function canvasPointIsClear(page, point) {
+  return page.evaluate(({ x, y }) => {
+    const canvas = document.getElementById('scene');
+    if (!canvas) return false;
+    const box = canvas.getBoundingClientRect();
+    const px = box.left + x;
+    const py = box.top + y;
+    if (px < 0 || py < 0 || px >= window.innerWidth || py >= window.innerHeight) return false;
+    return document.elementFromPoint(px, py) === canvas;
+  }, point);
+}
+
 const SIM_WORLD_SIZE = 128;
 const SIM_METERS_PER_UNIT = 5;
 
@@ -544,6 +562,11 @@ export async function plotProjectedWaterAfterOrbit(page) {
       { x: sub.x + 10, y: sub.y + 6 },
       { x: sub.x - 8, y: sub.y + 8 },
       { x: sub.x + 6, y: sub.y - 9 },
+      { x: sub.x + 12, y: sub.y - 4 },
+      { x: sub.x - 10, y: sub.y - 7 },
+      { x: sub.x + 4, y: sub.y + 12 },
+      { x: sub.x - 5, y: sub.y - 12 },
+      { x: sub.x + 14, y: sub.y + 10 },
     ];
   });
   if (!candidate) throw new Error('Missing submarine for projected water plot');
@@ -553,14 +576,15 @@ export async function plotProjectedWaterAfterOrbit(page) {
   let projected = null;
   for (const point of candidate) {
     const hit = await projectSimToCanvas(page, point.x, point.y);
-    if (hit) {
+    // Skip points a HUD panel covers: those clicks are swallowed by design and never plot.
+    if (hit && (await canvasPointIsClear(page, hit))) {
       expected = point;
       projected = hit;
       break;
     }
   }
   if (!expected || !projected) {
-    throw new Error('No on-screen water candidate after tactical orbit');
+    throw new Error('No on-screen, uncovered water candidate after tactical orbit');
   }
   const plot = await plotCanvasWater(page, {
     x: Math.round(projected.x),
