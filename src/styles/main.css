@@ -522,7 +522,8 @@ svg.map .land { pointer-events: none; }
   letter-spacing: 0.06em;
   z-index: 6;
   pointer-events: none;
-  max-width: min(920px, calc(100% - 24px));
+  width: max-content;
+  max-width: calc(100% - 24px);
 }
 
 .help-strip .help-group {
@@ -895,10 +896,11 @@ svg.map .land { pointer-events: none; }
 
 .peri-bearing {
   position: absolute;
-  top: 28px;
+  top: 64px;
   left: 50%;
   transform: translateX(-50%);
-  width: min(520px, 70vw);
+  /* Stay clear of the boat-status panel on the left and the mission panel on the right. */
+  width: clamp(240px, calc(100vw - 720px), 520px);
   height: 42px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -941,7 +943,7 @@ svg.map .land { pointer-events: none; }
 
 .peri-range {
   position: absolute;
-  bottom: 70px;
+  bottom: 168px;
   left: 50%;
   transform: translateX(-50%);
   font-family: var(--font-data);
@@ -1097,10 +1099,17 @@ svg.map .land { pointer-events: none; }
 
   .hud-contacts { top: 188px; max-height: 120px; }
   .hud-magazine, .hud-tactics, .hud-depth, .hud-speed { bottom: 44px; }
+  /* Weapons must end before the Depth panel starts at left: 316px. */
+  .hud-magazine { width: 290px; }
   /* Keep ORDERS readable — do not cover it with TACTICS on short/narrow viewports. */
   .hud-orders { top: 156px; left: 16px; width: 290px; z-index: 2; }
   .hud-tactics { display: block; top: 156px; bottom: auto; left: 316px; width: 248px; }
   .hud-depth { left: 316px; }
   .hud-speed { left: 524px; }
   .hud-minimap { bottom: 44px; }
+}
+
+/* Narrow windows: show the first three key groups on one line (the rest is under Help). */
+@media (max-width: 1100px) {
+  .help-strip .help-group:nth-child(n + 4) { display: none; }
 }
