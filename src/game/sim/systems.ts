@@ -62,6 +62,7 @@ import {
 } from './perks';
 import { expireCombo, registerKills } from './combo';
 import { awardXp, choosePerk, xpForKill } from './progression';
+import { launchBroadside } from './ultimate';
 import { HEALTH_BY_RARITY, SEEKERS_BY_RARITY, dropLoot, rarityOf } from './loot';
 import {
   advanceBank,
@@ -396,6 +397,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         }
       } else if (command.type === 'emergencySurface') next = emergencySurface(next);
       else if (command.type === 'choosePerk') next = choosePerk(next, command.index);
+      else if (command.type === 'ultimate') next = launchBroadside(next);
       else if (command.type === 'toggleSilentRunning')
         next = {
           ...next,

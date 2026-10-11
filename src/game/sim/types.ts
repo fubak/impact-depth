@@ -377,6 +377,8 @@ export interface GameState {
   pendingPerks: PerkId[];
   /** Level-ups waiting behind the open offer. */
   perkQueue: number;
+  /** Broadside charge, 0-100. Fills from damage dealt and kills; the `ultimate` command spends it. */
+  ultimateCharge: number;
 }
 
 export type ApiResult<T = GameState> =

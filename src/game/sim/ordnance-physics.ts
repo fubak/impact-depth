@@ -179,6 +179,8 @@ export function makeTorpedo(
   targetId: string | null,
   offset = 0,
   aimPoint: Point | null = null,
+  /** Skip the 60 degree tube arc (Broadside launches in any direction). */
+  ignoreArc = false,
 ): Torpedo {
   const target = targetId ? state.ships.find((ship) => ship.id === targetId) : undefined;
   const sub = state.submarine;
@@ -194,7 +196,7 @@ export function makeTorpedo(
   } else if (aimPoint) {
     heading = Math.atan2(aimPoint.y - sub.y, aimPoint.x - sub.x) + offset;
   }
-  heading = launchHeading(sub.heading, heading);
+  if (!ignoreArc) heading = launchHeading(sub.heading, heading);
   return {
     id: `${kind}-${state.tick}-${offset}`,
     owner: 'player',
@@ -664,7 +666,7 @@ function stepTorpedo(ctx: OrdnanceCtx, torpedo: Torpedo, dt: number): Torpedo[] 
       ),
       z: chaseDepth(next.z, sub.z, dt),
     };
-  } else if (next.kind === 'mk18' && lockId) {
+  } else if ((next.kind === 'mk18' || next.kind === 'mk14') && lockId) {
     const lock = ctx.ships.find((ship) => ship.id === lockId);
     if (lock) {
       const aim = leadPoint(next.x, next.y, lock.x, lock.y, lock.heading, lock.speed, next.speed);

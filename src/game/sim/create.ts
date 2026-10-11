@@ -451,5 +451,6 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     perks: [],
     pendingPerks: [],
     perkQueue: 0,
+    ultimateCharge: 0,
   };
 }

@@ -106,6 +106,18 @@ export const fireWeapon = (state: GameState, aimPoint?: Point): GameState =>
 /** Take offered perk `index` (0-based). No-op when nothing is pending. */
 export const choosePerk = (state: GameState, index: number): GameState =>
   stepGame(state, [{ type: 'choosePerk', index }], 0);
+/** Fire a Broadside if the meter is full and a hunter is in play; otherwise a no-op. */
+export const fireBroadside = (state: GameState): GameState =>
+  stepGame(state, [{ type: 'ultimate' }], 0);
+export {
+  BROADSIDE_SALVO,
+  KILL_CHARGE,
+  ULTIMATE_MAX,
+  accrueUltimate,
+  broadsideTargets,
+  chargeFor,
+  isBroadsideReady,
+} from './ultimate';
 export { PERKS, PERK_IDS, hasPerk } from './perks';
 export { OFFER_SIZE, XP_PER_KILL, offerPerks, xpToNext } from './progression';
 export const sonarPulse = (state: GameState): GameState =>
