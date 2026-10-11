@@ -696,7 +696,33 @@ export async function findClearCanvasPoint(page, preferred) {
     const index = classes.findIndex((c) => c.clear && c.shipPx >= clearance);
     if (index >= 0) return candidates[index];
   }
-  throw new Error('No clear canvas pixel found (HUD or ships cover every candidate)');
+  // Say WHAT is in the way: a HUD panel, a modal overlay, or ships.
+  const covered = classes.filter((c) => !c.clear).length;
+  const nearShips = classes.filter((c) => c.clear && c.shipPx < 45).length;
+  const detail = await page.evaluate(
+    ({ pts }) => {
+      const app = window.__silentDepths;
+      const canvas = document.getElementById('scene');
+      const rect = canvas ? canvas.getBoundingClientRect() : { left: 0, top: 0 };
+      const at = (p) => {
+        const el = document.elementFromPoint(rect.left + p.x, rect.top + p.y);
+        return el ? `${el.tagName}#${el.id}.${String(el.className).slice(0, 36)}` : null;
+      };
+      return {
+        phase: app?.game?.phase,
+        perkOpen: app?.perkOverlay?.isOpen?.() ?? null,
+        pending: app?.game?.pendingPerks?.length ?? null,
+        ships: app?.game?.ships?.length ?? null,
+        centre: at(pts[0]),
+        overlayHidden: document.getElementById('patrol-overlay')?.hidden ?? null,
+      };
+    },
+    { pts: [candidates[Math.floor(candidates.length / 2)]] },
+  );
+  throw new Error(
+    `No clear canvas pixel found: ${covered}/${classes.length} covered by non-canvas, ` +
+      `${nearShips} near ships; ${JSON.stringify(detail)}`,
+  );
 }
 
 /**
