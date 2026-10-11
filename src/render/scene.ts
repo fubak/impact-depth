@@ -96,7 +96,9 @@ import { EnvironmentController } from './environment/controller';
 import type { WorldVersion } from './environment/types';
 import { WeatherController, presentationOcean } from './environment/weather';
 import { INACTIVE_WEATHER_FX, type WeatherFx } from './environment/weather-model';
+import { oceanKeyLight } from './environment/atmosphere-grade';
 import { RainLayer } from './fx/rain';
+import { RainRipples } from './fx/rain-ripples';
 import { Ocean } from './ocean';
 import { GerstnerBackend } from './ocean/gerstner-backend';
 import { createSpectralBackend, SpectralBackend } from './ocean/spectral-backend';
@@ -175,6 +177,7 @@ export class GameScene {
   private reducedMotion = false;
   private readonly weather = new WeatherController();
   private readonly rain = new RainLayer();
+  private readonly rainRipples = new RainRipples();
   private readonly rainTint = new THREE.Color();
   /** Sim weather levels for this frame; inactive at the default environment. */
   private weatherFx: WeatherFx = INACTIVE_WEATHER_FX;
@@ -273,6 +276,8 @@ export class GameScene {
     this.wakeFoam = new WakeFoamField(this.envQuality);
     this.scene.add(this.surfaceEffects.group);
     this.scene.add(this.rain.object);
+    this.scene.add(this.rainRipples.mesh);
+    excludeFromWaterCapture(this.rainRipples.mesh);
     this.scene.add(this.crestSpray.points);
     excludeFromWaterCapture(this.crestSpray.points);
     this.caustics.attachToObject(this.seabed.mesh, 'seabed');
@@ -632,6 +637,7 @@ export class GameScene {
     this.caustics.setQuality(profile.name);
     this.surfaceEffects.setQuality(profile.name);
     this.rain.setQuality(profile.name);
+    this.rainRipples.setQuality(profile.name);
     this.wakeFoam.setQuality(profile.name);
     this.underwaterFx.setQuality(profile.name);
   }
@@ -924,6 +930,7 @@ export class GameScene {
     this.reducedMotion = value;
     this.surfaceEffects.setReducedMotion(value);
     this.rain.setReducedMotion(value);
+    this.rainRipples.setReducedMotion(value);
   }
 
   /** Apply URL/runtime world before spectral backend activation. */
@@ -957,11 +964,14 @@ export class GameScene {
         cameraX: camera.position.x,
         cameraY: camera.position.y,
         cameraZ: camera.position.z,
+        focusX: this.sub.position.x,
+        focusZ: this.sub.position.z,
         tint: this.rainTint,
         flash: this.weather.lastLightning,
       },
       this.emitRainRipple,
     );
+    this.rainRipples.update(dt, this.presentationPaused, this.lastWaterHeight ?? 0);
   }
 
   /**
@@ -992,7 +1002,7 @@ export class GameScene {
   }
 
   private readonly emitRainRipple = (x: number, z: number, strength: number): void => {
-    this.surfaceEffects.emitRipple(x, z, strength);
+    this.rainRipples.spawn(x, z, strength);
   };
 
   resetEnvironment(missionGeneration: number): void {
@@ -1014,6 +1024,7 @@ export class GameScene {
     this.caustics.reset(missionGeneration);
     this.surfaceEffects.reset(missionGeneration);
     this.rain.reset();
+    this.rainRipples.reset();
     this.wakeFoam.reset();
     this.hullDynamics.reset();
     this.ocean.bindOptics(null);
@@ -1427,6 +1438,7 @@ export class GameScene {
         cloudCoverage: weather.gains.cloudCoverage,
         lightning: this.reducedMotion ? 0 : weather.lightning,
         fogDensity: weather.gains.fogDensity,
+        grade: this.weatherFx.grade,
       },
     );
     this.outdoorLighting.update({
@@ -1435,6 +1447,7 @@ export class GameScene {
       lightning: weather.lightning,
       nowSeconds: sim.time,
       weatherPreset: weather.preset,
+      overcast: this.weatherFx.overcast === true,
     });
     this.presentationTime = sim.time;
     this.presentationPaused = sim.paused;
@@ -1679,6 +1692,7 @@ export class GameScene {
     this.tacticalGrid.position.set(v.x, 0.04, v.z);
 
     // Interactive wake ripples (CheapWater) from own boat + contacts.
+    const key = oceanKeyLight(atmo, this.weatherFx.grade);
     this.environment.prepare({
       time: sim.time,
       dt: historyDt,
@@ -1690,8 +1704,8 @@ export class GameScene {
         : presentationOcean(settings.ocean, weather.preset),
       fogDensity: weather.gains.fogDensity,
       fogColor: { r: atmo.fogColor.r, g: atmo.fogColor.g, b: atmo.fogColor.b },
-      sunDir: { x: atmo.sunDir.x, y: atmo.sunDir.y, z: atmo.sunDir.z },
-      sunColor: { r: atmo.sunColor.r, g: atmo.sunColor.g, b: atmo.sunColor.b },
+      sunDir: key.dir,
+      sunColor: key.color,
       skyColor: { r: atmo.skyTop.r, g: atmo.skyTop.g, b: atmo.skyTop.b },
       sandColorHex: settings.environment.sandColor,
       followX: v.x,
@@ -2104,6 +2118,7 @@ export class GameScene {
     this.caustics.dispose();
     this.surfaceEffects.dispose();
     this.rain.dispose();
+    this.rainRipples.dispose();
     this.wakeFoam.dispose();
     this.ocean.bindWakeFoam(null);
     this.ocean.dispose();

@@ -13,6 +13,7 @@ import { Ocean } from '../ocean';
 import { QUALITY_PROFILES } from '../quality';
 import { quantizeFollowRegion } from './caustics';
 import type { CoastalField } from './coastal';
+import { swellCascadeGain } from './sea-gains';
 import { CoastalFieldCache, type CoastalFieldSpec } from './coastal-cache';
 import { createCoastalTexture, updateCoastalUniforms } from './surface';
 import {
@@ -435,7 +436,7 @@ export class SpectralBackend implements EnvironmentBackend {
 
     const [swell, wind, detail] = this.cascades;
     // Keep gains conservative — high chop folds the mesh into cellular plates.
-    swell?.setGain(0.72 * (0.35 + sea * 0.65));
+    swell?.setGain(swellCascadeGain(sea, frame.ocean.swellGain));
     wind?.setGain(0.52 * (0.35 + chop * 0.55));
     detail?.setGain(0.42);
 

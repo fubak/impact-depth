@@ -103,10 +103,14 @@ export function objectiveText(game?: {
   scenario?: 'patrol' | 'convoy-strike';
   phase?: string;
   ships?: readonly { id: string }[];
-  stats?: { shipsSunk: number };
+  stats?: { shipsSunk: number; wave?: number };
   strikeExit?: { x: number; y: number } | null;
   submarine?: { x: number; y: number };
+  endless?: boolean;
 }): string {
+  if (game?.endless === true && game.scenario !== 'convoy-strike') {
+    return `Endless · wave ${game.stats?.wave ?? 1}`;
+  }
   if (!game || game.scenario !== 'convoy-strike' || !game.submarine || !game.stats || !game.ships) {
     return 'Clear two waves';
   }

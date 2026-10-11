@@ -8,6 +8,7 @@ import {
   createPackedBedDataTexture,
 } from './environment/bed-data-texture';
 import { SHORE_WET_BAND_METRES, type PackedHeightField } from './environment/terrain-texture';
+import { foamUniform } from './ocean/sea-gains';
 import { SPECTRUM_SAMPLE_GLSL } from './ocean/spectrum';
 import { SURFACE_FUNCTIONS_GLSL } from './ocean/surface';
 import { SAMPLE_WORLD_FOAM_GLSL } from './ocean/world-foam';
@@ -1060,7 +1061,12 @@ export class Ocean {
     u.uShallowColor.value.copy(hexToVec3(ocean.shallowColor));
     u.uSandColor.value.copy(hexToVec3(sandColorHex));
     const spectral = (u.uSpectral?.value as number) > 0.5;
-    u.uFoamAmount.value = ocean.foamAmount * this.foamScale * (spectral ? 0.22 : 1);
+    u.uFoamAmount.value = foamUniform(
+      ocean.foamAmount,
+      ocean.whitecapGain,
+      this.foamScale,
+      spectral,
+    );
     // Map look-dev foam slider into shore foam without losing the shoreline stack.
     u.uShoreFoam.value = (0.45 + ocean.foamAmount * 2.8) * this.foamScale * (spectral ? 0.12 : 1);
     this.setReadability(ocean.clarity, ocean.absorption);

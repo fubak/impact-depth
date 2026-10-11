@@ -11,6 +11,8 @@ export interface SkyLightingState {
   lightning: number;
   isNight: boolean;
   weatherPreset?: 'calm' | 'breeze' | 'storm';
+  /** Plan 030: overcast or fog sky; keeps the noon HDR out of scene.environment. */
+  overcast?: boolean;
   golden?: number;
   twilight?: number;
 }
@@ -59,6 +61,7 @@ export class SkyLighting {
   private hdrFailed = false;
   private isNight = false;
   private weatherPreset: 'calm' | 'breeze' | 'storm' = 'breeze';
+  private overcast = false;
   private sunY = 1;
   private signature: string | null = null;
   private lastRefreshSeconds: number | null = null;
@@ -159,6 +162,7 @@ export class SkyLighting {
       isNight: this.isNight,
       weatherPreset: this.weatherPreset,
       sunY: this.sunY,
+      overcast: this.overcast,
     });
   }
 
@@ -175,6 +179,7 @@ export class SkyLighting {
     if (this.disposed) return false;
     this.isNight = state.isNight;
     this.weatherPreset = state.weatherPreset ?? 'breeze';
+    this.overcast = state.overcast === true;
     this.sunY = state.sunDir.y;
     const source = this.currentSource();
     if (source === 'hdr-pmrem') {

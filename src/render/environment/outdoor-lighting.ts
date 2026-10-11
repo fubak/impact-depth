@@ -30,6 +30,7 @@ export function buildSkyLightingState(
     lightning: 0,
     isNight: input.atmosphere.isNight,
     weatherPreset: input.weatherPreset,
+    overcast: input.overcast,
     golden: input.atmosphere.golden,
     twilight: input.atmosphere.twilight,
   };

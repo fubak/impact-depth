@@ -1,3 +1,4 @@
+import { canContinueEndless } from '../game/sim/endless';
 import type { GameState } from '../game/sim/types';
 import {
   environmentPatchFromButton,
@@ -12,6 +13,28 @@ export interface MenuEnvironment {
   change(patch: Partial<EnvironmentSelection>): void;
 }
 
+/** Victory or gameover result card. Plan 030: "Keep hunting" only after a finished, non-endless patrol. */
+export function renderResultCard(game: GameState): string {
+  const strike = game.scenario === 'convoy-strike';
+  const goal = strike
+    ? game.phase === 'victory'
+      ? 'Merchant sunk'
+      : 'Merchant escaped'
+    : game.endless === true
+      ? `Endless hunt · reached wave ${game.stats.wave}`
+      : 'Clear two waves';
+  const cause =
+    game.submarine.lastDamage === 'ground'
+      ? 'Grounded'
+      : game.submarine.lastDamage === 'weapon'
+        ? 'Weapon hit'
+        : '';
+  const keepHunting = canContinueEndless(game)
+    ? '<button class="btn" data-action="endless">Keep hunting</button>'
+    : '';
+  return `<section class="patrol-card"><div class="hud-sub">PATROL RESULT</div><h1>${game.phase === 'victory' ? 'SECTOR CLEARED' : 'PATROL ENDED'}</h1><p>${goal}</p><p>Score ${game.stats.score} · Ships sunk ${game.stats.shipsSunk}${cause ? ` · ${cause}` : ''}</p><button class="btn primary" data-action="restart">Restart</button>${keepHunting}</section>`;
+}
+
 export class PatrolOverlay {
   private lastSignature = '';
   constructor(
@@ -20,6 +43,7 @@ export class PatrolOverlay {
     private readonly onRestart: () => void,
     private readonly onMenu?: (action: 'begin' | 'strike' | 'new-seed' | 'retry') => void,
     private readonly environment?: MenuEnvironment,
+    private readonly onEndless?: () => void,
   ) {
     this.root.addEventListener('click', (event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
@@ -38,6 +62,10 @@ export class PatrolOverlay {
       ) {
         if (this.onMenu) this.onMenu(action);
         else if (action === 'begin') this.onBegin();
+        return;
+      }
+      if (action === 'endless') {
+        this.onEndless?.();
         return;
       }
       if (action === 'restart') this.onRestart();
@@ -60,19 +88,7 @@ export class PatrolOverlay {
     }
     if (game.phase === 'victory' || game.phase === 'gameover') {
       this.root.hidden = false;
-      const strike = game.scenario === 'convoy-strike';
-      const goal = strike
-        ? game.phase === 'victory'
-          ? 'Merchant sunk'
-          : 'Merchant escaped'
-        : 'Clear two waves';
-      const cause =
-        game.submarine.lastDamage === 'ground'
-          ? 'Grounded'
-          : game.submarine.lastDamage === 'weapon'
-            ? 'Weapon hit'
-            : '';
-      this.root.innerHTML = `<section class="patrol-card"><div class="hud-sub">PATROL RESULT</div><h1>${game.phase === 'victory' ? 'SECTOR CLEARED' : 'PATROL ENDED'}</h1><p>${goal}</p><p>Score ${game.stats.score} · Ships sunk ${game.stats.shipsSunk}${cause ? ` · ${cause}` : ''}</p><button class="btn primary" data-action="restart">Restart</button></section>`;
+      this.root.innerHTML = renderResultCard(game);
       return;
     }
     this.root.hidden = true;

@@ -1,0 +1,32 @@
+.fx-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+.fx-num {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  will-change: transform, opacity;
+  font-family: var(--font-data);
+  font-weight: 800;
+  font-size: 18px;
+  color: #f4f7f8;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+.fx-num.is-crit {
+  font-size: 28px;
+  color: #ffd34d;
+  letter-spacing: 0.04em;
+}
+.fx-num.is-kill {
+  font-size: 20px;
+  color: #7fe3ff;
+}
+.fx-num.is-elite {
+  color: #ffc83d;
+}
