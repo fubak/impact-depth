@@ -463,7 +463,7 @@ export async function clickCanvas(page, point) {
   });
 }
 
-export async function plotCanvasWater(page, offset = {}) {
+export async function plotCanvasWater(page, offset = {}, { timeoutMs = 5000 } = {}) {
   const canvas = page.locator('#scene');
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Expected #scene for water plot');
@@ -472,22 +472,49 @@ export async function plotCanvasWater(page, offset = {}) {
   await clickCanvas(page, { x, y });
   await pollUntil(
     page,
-    5000,
+    timeoutMs,
     async () =>
       /PLOT\s+\d+\s*,\s*\d+/i.test(await page.locator('[data-field="course"]').innerText()),
     'PLOT course after water click',
   ).catch(async (error) => {
-    const detail = await page.evaluate(() => {
-      const game = window.__silentDepths?.game;
-      const canvas = document.getElementById('scene');
-      return {
-        phase: game?.phase,
-        view: window.__silentDepths?.sim?.viewMode,
-        waypoint: game?.autopilot?.waypoint ?? null,
-        canvas: canvas ? { w: canvas.clientWidth, h: canvas.clientHeight } : null,
-        viewport: { w: window.innerWidth, h: window.innerHeight },
-      };
-    });
+    const detail = await page.evaluate(
+      ({ cx, cy }) => {
+        const app = window.__silentDepths;
+        const game = app?.game;
+        const canvas = document.getElementById('scene');
+        let ray;
+        try {
+          const rect = canvas.getBoundingClientRect();
+          const caster = app.cameras.setPickRay(rect.left + cx, rect.top + cy, rect);
+          ray = {
+            rayHit: app.scene.pickShipId(caster),
+            near: app.scene.pickShipIdNearScreen(
+              rect.left + cx,
+              rect.top + cy,
+              rect,
+              app.cameras.camera,
+            ),
+            element: (() => {
+              const el = document.elementFromPoint(rect.left + cx, rect.top + cy);
+              return el ? `${el.tagName}.${String(el.className).slice(0, 40)}` : null;
+            })(),
+          };
+        } catch (err) {
+          ray = { error: String(err).slice(0, 80) };
+        }
+        return {
+          ray,
+          selected: game?.selectedTargetId ?? null,
+          perkOpen: app?.perkOverlay?.isOpen?.() ?? null,
+          phase: game?.phase,
+          view: window.__silentDepths?.sim?.viewMode,
+          waypoint: game?.autopilot?.waypoint ?? null,
+          canvas: canvas ? { w: canvas.clientWidth, h: canvas.clientHeight } : null,
+          viewport: { w: window.innerWidth, h: window.innerHeight },
+        };
+      },
+      { cx: x, cy: y },
+    );
     throw new Error(`${error.message} click=${x},${y} ${JSON.stringify(detail)}`);
   });
   const text = await page.locator('[data-field="course"]').innerText();
@@ -631,10 +658,6 @@ export async function plotProjectedWaterAfterOrbit(page) {
     return points;
   });
   if (!candidate) throw new Error('Missing submarine for projected water plot');
-  /** @type {{ x: number, y: number } | null} */
-  let expected = null;
-  /** @type {{ x: number, y: number, ndcX: number, ndcY: number } | null} */
-  let projected = null;
   // Collect every clear candidate, then take the one closest to the middle of the view: clicks
   // near the screen edge are the least reliable, and the middle is where plots always worked.
   const clear = [];
@@ -652,24 +675,30 @@ export async function plotProjectedWaterAfterOrbit(page) {
     }
   }
   clear.sort((a, b) => a.centre - b.centre);
-  if (clear[0]) {
-    expected = clear[0].point;
-    projected = clear[0].hit;
-  }
-  if (!expected || !projected) {
+  if (!clear.length) {
     throw new Error('No on-screen, uncovered water candidate after tactical orbit');
   }
-  const plot = await plotCanvasWater(page, {
-    x: Math.round(projected.x),
-    y: Math.round(projected.y),
-  });
-  const dist = Math.hypot(plot.x - expected.x, plot.y - expected.y);
-  if (dist > 12) {
-    throw new Error(
-      `Projected water plot drifted ${dist.toFixed(1)}u from ${expected.x.toFixed(1)},${expected.y.toFixed(1)} (got ${plot.text})`,
-    );
+  // A click can still resolve as a ship pick (large pick volumes); try the next-best candidate.
+  let lastError = null;
+  for (const choice of clear.slice(0, 4)) {
+    try {
+      const plot = await plotCanvasWater(
+        page,
+        { x: Math.round(choice.hit.x), y: Math.round(choice.hit.y) },
+        { timeoutMs: 2500 },
+      );
+      const dist = Math.hypot(plot.x - choice.point.x, plot.y - choice.point.y);
+      if (dist > 12) {
+        throw new Error(
+          `Projected water plot drifted ${dist.toFixed(1)}u from ${choice.point.x.toFixed(1)},${choice.point.y.toFixed(1)} (got ${plot.text})`,
+        );
+      }
+      return { expected: choice.point, plot };
+    } catch (error) {
+      lastError = error;
+    }
   }
-  return { expected, plot };
+  throw lastError;
 }
 
 /**
