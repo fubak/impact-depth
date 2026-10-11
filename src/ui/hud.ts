@@ -23,6 +23,7 @@ import type {
 } from '../game/sim/types';
 import { getTerrain, isLand } from '../game/sim/world';
 import { findPixelProximateContact, MAP_PROXIMATE_PX } from '../input/world-click';
+import { buildCaptainView, patchCaptainPanel, renderCaptainPanel } from './captain-panel';
 import { listFirmContacts, type FirmContact } from './sonar';
 
 const MODE_LABEL: Record<SimState['viewMode'], string> = {
@@ -345,7 +346,7 @@ export class Hud {
       <span class="help-group"><kbd>WASD</kbd> steer</span>
       <span class="help-group"><kbd>Q</kbd>/<kbd>E</kbd> trim · <kbd>Z</kbd><kbd>X</kbd><kbd>B</kbd><kbd>V</kbd> depth · <kbd>G</kbd> blow tanks</span>
       <span class="help-group"><kbd>0</kbd><kbd>I</kbd><kbd>O</kbd><kbd>P</kbd> speed</span>
-      <span class="help-group"><kbd>F</kbd>/<kbd>RMB</kbd> fire · <kbd>T</kbd> target</span>
+      <span class="help-group"><kbd>F</kbd>/<kbd>RMB</kbd> fire · <kbd>T</kbd> target · <kbd>U</kbd> Broadside</span>
       <span class="help-group"><kbd>R</kbd> quiet · <kbd>C</kbd> bubbles</span>
       <span class="help-group"><kbd>1–7</kbd> view · <kbd>Space</kbd> pause · <kbd>H</kbd> look-dev</span>
     `;
@@ -470,6 +471,7 @@ export class Hud {
     }
     this.chromeKey = chromeKey;
 
+    const captain = buildCaptainView(game);
     const layerSide = sub.z < 0.5 ? 'ABOVE LAYER' : 'BELOW LAYER';
     const reload14 = Math.ceil(sub.reloadMk14);
     const reload18 = Math.ceil(sub.reloadMk18);
@@ -525,11 +527,12 @@ export class Hud {
         <span data-field="objective">${objectiveText(game)}</span>
         <span data-field="callout">${calloutLabel(defenseCallout(game))}</span>
         <span data-field="compress">${actionTimeScale(game) === 4 ? '4×' : ''}</span>
-        <span>Score <b data-field="score">${game.stats.score}</b></span>
+        <span>Score <span class="score-val"><b data-field="score">${game.stats.score}</b><i class="score-bonus" data-field="score-bonus"${tipAttr('Streak bonus points')}>${captain.bonusLabel}</i></span></span>
         <span>Wave <b data-field="wave">${game.stats.wave}</b></span>
         <span>Sunk <b data-field="sunk">${game.stats.shipsSunk}</b></span>
         <span>Time <b data-field="time">${Math.floor(game.stats.timeSurvived / 60)}:${String(Math.floor(game.stats.timeSurvived % 60)).padStart(2, '0')}</b></span>
         <div class="score-pop" data-field="score-pop" aria-hidden="true">${popResult.label ?? ''}</div>
+        ${renderCaptainPanel(captain)}
       </section>
       <section class="hud-block hud-contacts" data-tutorial="contacts" aria-label="Hydrophone contacts">
         <div class="panel-label" ${tipAttr('Same contacts as the sonar plot — select to aim')}>
@@ -842,6 +845,9 @@ export class Hud {
     set('callout', calloutLabel(defenseCallout(game)));
     set('compress', actionTimeScale(game) === 4 ? '4×' : '');
     set('score', String(game.stats.score));
+    const captain = buildCaptainView(game);
+    set('score-bonus', captain.bonusLabel);
+    patchCaptainPanel(this.root, captain);
     set('wave', String(game.stats.wave));
     set('sunk', String(game.stats.shipsSunk));
     set(

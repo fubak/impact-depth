@@ -50,6 +50,9 @@ jobs:
       - name: Patrol E2E
         run: npm run test:e2e -- http://127.0.0.1:8080/
 
+      - name: HUD layout (no overlaps)
+        run: npm run test:e2e:layout -- "http://127.0.0.1:8080/?quality=low"
+
       - name: Stop preview
         if: always()
         run: |

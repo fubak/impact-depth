@@ -1,6 +1,6 @@
 # Plan 028 — Captain's Glory: the ARPG fun pass
 
-> **Status: PLANNED.** Execute on branch `plan-028-fun-pass`. Machine verification only; fun/feel, GPU FPS and
+> **Status: MACHINE WORK LANDED (2026-10-10).** W1–W6 implemented and unit-tested (1030 tests); browser layout/E2E verified on CI only. Fun/feel is an operator decision. Executed on branch `plan-028-fun-pass`. Machine verification only; fun/feel, GPU FPS and
 > every other operator gate stay **PENDING** and are not self-approved (AGENTS.md).
 
 **Goal:** make Silent Depths feel like an action RPG: kill things, get stronger, make choices, chain big moments,

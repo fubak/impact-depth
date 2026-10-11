@@ -70,6 +70,10 @@ for (const [width, height] of SIZES) {
 }
 await browser.close();
 if (failures.length) {
+  if (process.env.GITHUB_ACTIONS) {
+    // Check-run annotation, readable without log access.
+    console.log(`::error title=HUD layout overlaps::${failures.slice(0, 12).join(' | ')}`);
+  }
   console.error(`FAIL ${failures.length} HUD overlap(s)`);
   process.exit(1);
 }

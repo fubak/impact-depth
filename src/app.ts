@@ -15,10 +15,13 @@ import type { GameCommand } from './game/commands/types';
 import {
   blowTanks,
   cancelAutopilot,
+  choosePerk,
   clearEngagement,
   createScenario,
   deployCountermeasure,
+  fireBroadside,
   fireWeapon,
+  isBroadsideReady,
   orderMove,
   selectTarget,
   setAutopilot,
@@ -71,6 +74,7 @@ import {
 } from './ui/error-toast';
 import { Hud } from './ui/hud';
 import { PatrolOverlay } from './ui/overlays';
+import { PerkOverlay, resolvePerkOverlay } from './ui/perk-overlay';
 import { LookDevPanel } from './ui/panel';
 import { PeriscopeOverlay } from './ui/periscope';
 import { SonarScope } from './ui/sonar';
@@ -115,6 +119,9 @@ export class App {
   private readonly threats: ThreatIndicatorLayer;
   private readonly threatForward = new THREE.Vector3();
   private tutorialHeldPause = false;
+  private readonly perkOverlay: PerkOverlay;
+  /** Level at which the level-up card was deferred with Esc; null when nothing is deferred. */
+  private perkDeferredLevel: number | null = null;
   private readonly audio = new GameAudio();
   private readonly pauseBanner: HTMLElement;
   private readonly appRoot: HTMLElement;
@@ -233,6 +240,17 @@ export class App {
       if (!open) this.clearTutorialHazards();
       this.holdForTutorial(open);
     });
+    const perkRoot = document.createElement('div');
+    perkRoot.id = 'perk-overlay';
+    perkRoot.className = 'perk-overlay';
+    this.appRoot.append(perkRoot);
+    this.perkOverlay = new PerkOverlay(perkRoot, {
+      choose: (index) => this.choosePerkCard(index),
+      defer: () => {
+        this.perkDeferredLevel = this.game.stats.level;
+        this.syncPerkOverlay();
+      },
+    });
     this.tutorial.onBeat = (index) => this.onTutorialBeat(index);
     this.tutorial.mayAdvance = (step) => this.tutorialMayAdvance(step);
     this.threatRoot = document.createElement('div');
@@ -257,7 +275,10 @@ export class App {
     this.syncBootProgress();
 
     this.input = new InputController(canvas, {
-      setViewMode: (mode) => this.changeView(mode),
+      // 1-7 are camera views, except while the level-up card owns 1/2/3.
+      setViewMode: (mode) => {
+        if (!this.perkOverlay.isOpen()) this.changeView(mode);
+      },
       togglePause: () => this.inputPause(),
       togglePanel: () => this.panel.toggle(),
       orbit: (dx, dy) => this.cameras.orbit(dx, dy),
@@ -466,6 +487,15 @@ export class App {
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) return;
+    if (this.perkOverlay.isOpen()) return;
+    if (e.code === 'KeyL' && this.game.pendingPerks.length > 0) {
+      this.perkDeferredLevel = null;
+      this.syncPerkOverlay();
+      return;
+    }
+    if (e.code === 'KeyU' && this.game.phase === 'playing' && isBroadsideReady(this.game)) {
+      this.applyFire((g) => fireBroadside(g));
+    }
     if (e.code === 'KeyF' && this.game.phase === 'playing') {
       this.applyFire((g) => fireWeapon(g));
     }
@@ -684,6 +714,34 @@ export class App {
     return { sx, sy, onScreen, behind };
   }
 
+  /**
+   * Show or hide the level-up card. The card does not change `game.phase`: the app
+   * simply stops feeding the fixed-step clock while it is open (see `frame`), so the
+   * sim resumes from the exact same state once a perk is chosen.
+   */
+  private syncPerkOverlay(): void {
+    const state = resolvePerkOverlay({
+      phase: this.game.phase,
+      pendingCount: this.game.pendingPerks.length,
+      level: this.game.stats.level,
+      deferredLevel: this.perkDeferredLevel,
+      tutorialOpen: this.tutorial.isOpen(),
+    });
+    this.perkDeferredLevel = state.deferredLevel;
+    if (state.open) this.perkOverlay.show(this.game.pendingPerks, this.game.stats.level);
+    else this.perkOverlay.hide();
+  }
+
+  private choosePerkCard(index: number): void {
+    if (this.game.phase !== 'playing') return;
+    this.game = choosePerk(this.game, index);
+    this.perkDeferredLevel = null;
+    this.sim = adaptToLookDevSim(this.game);
+    this.audio.unlock();
+    this.audio.sfxClick();
+    this.syncPerkOverlay();
+  }
+
   private inputPause(): void {
     if (this.tutorial.isOpen() && !this.tutorial.exerciseLive()) return;
     if (this.game.phase !== 'playing' && this.game.phase !== 'paused') return;
@@ -875,7 +933,10 @@ export class App {
 
     this.hitFreeze = Math.max(0, this.hitFreeze - elapsed);
     this.cameraShake *= Math.max(0, 1 - elapsed * 3.2);
-    const scaled = this.hitFreeze > 0 ? 0 : elapsed * actionTimeScale(this.game);
+    this.syncPerkOverlay();
+    // An open level-up card freezes the clock like a pause; nothing accumulates meanwhile.
+    const frozen = this.hitFreeze > 0 || this.perkOverlay.isOpen();
+    const scaled = frozen ? 0 : elapsed * actionTimeScale(this.game);
     const tick = advanceAccumulator(this.accum, scaled);
     this.accum = tick.accum;
     const renderDt = tick.elapsedUsed;
@@ -895,6 +956,7 @@ export class App {
       }
       this.sim = adaptToLookDevSim(this.game);
     }
+    this.syncPerkOverlay();
 
     // Wrecks adopt the live hull before syncGame drops ships that just sank.
     this.presentCombat(combat, this.game.time);
@@ -1060,6 +1122,7 @@ export class App {
     window.removeEventListener('keydown', this.onKeyDown);
     this.input.dispose();
     this.tutorial.dispose();
+    this.perkOverlay.dispose();
     this.threatRoot.remove();
     this.audio.dispose();
     this.errorToast?.dispose();

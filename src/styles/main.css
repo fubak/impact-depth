@@ -298,7 +298,8 @@ select:focus-visible {
 }
 
 .hud-contacts {
-  top: 188px;
+  /* Sits below the score block, which now also carries the captain panel. */
+  top: 236px;
   right: 16px;
   width: 220px;
   max-height: min(220px, calc(100vh - 460px));
@@ -1101,7 +1102,7 @@ svg.map .land { pointer-events: none; }
     bottom: 44px;
   }
 
-  .hud-contacts { top: 188px; max-height: 120px; }
+  .hud-contacts { top: 236px; max-height: 120px; }
   .hud-magazine, .hud-tactics, .hud-depth, .hud-speed { bottom: 44px; }
   /* Weapons must end before the Depth panel starts at left: 316px. */
   .hud-magazine { width: 290px; }
@@ -1113,7 +1114,225 @@ svg.map .land { pointer-events: none; }
   .hud-minimap { bottom: 44px; }
 }
 
+/* 1101-1400px: tighten the strip so the Broadside key still fits on one line. */
+@media (min-width: 1101px) and (max-width: 1400px) {
+  .help-strip {
+    gap: 8px 10px;
+    letter-spacing: 0.02em;
+  }
+
+  .help-strip kbd { padding: 0 3px; }
+}
+
 /* Narrow windows: show the first three key groups on one line (the rest is under Help). */
 @media (max-width: 1100px) {
   .help-strip .help-group:nth-child(n + 4) { display: none; }
+}
+
+/* Score bonus beside the score value. */
+.hud-score .score-val {
+  display: inline-flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.score-bonus {
+  font-style: normal;
+  color: var(--brass-ink);
+}
+
+.score-bonus:empty { display: none; }
+
+/* Captain panel: level, XP, streak, Broadside, perk chips (inside .hud-score). */
+.captain-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  margin-top: 2px;
+  font: 10px var(--font-data);
+  letter-spacing: 0.04em;
+}
+
+.cap-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cap-level {
+  min-width: 34px;
+  color: var(--brass-ink);
+  font-size: 11px;
+}
+
+.cap-meter {
+  position: relative;
+  flex: 1 1 auto;
+  height: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.38);
+  color: var(--muted);
+}
+
+.cap-meter .cap-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background: rgba(92, 174, 157, 0.5);
+}
+
+.cap-meter em {
+  position: relative;
+  display: block;
+  padding: 0 5px;
+  overflow: hidden;
+  font-style: normal;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cap-xp { color: var(--text); }
+.cap-xp .cap-fill { background: rgba(189, 139, 78, 0.6); }
+.cap-combo.is-active { border-color: var(--warning); color: var(--text); }
+.cap-combo .cap-fill { background: rgba(212, 101, 59, 0.6); }
+.cap-ult.is-ready { border-color: var(--brass-ink); color: var(--text); }
+.cap-ult.is-ready .cap-fill { background: rgba(189, 139, 78, 0.6); }
+
+.cap-chips {
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.cap-chips:empty { display: none; }
+
+.cap-chip,
+.cap-hint {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  font-size: 9px;
+  font-style: normal;
+  line-height: 13px;
+  color: var(--muted);
+}
+
+.cap-hint {
+  border-color: var(--brass);
+  color: var(--brass-ink);
+}
+
+/* Level-up card. Sits above the HUD, below the patrol and tutorial overlays. */
+.perk-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(3, 7, 8, 0.72);
+}
+
+.perk-overlay[hidden] { display: none; }
+
+.perk-dialog {
+  width: min(760px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--brass);
+  background: rgba(11, 17, 18, 0.97);
+  box-shadow: 0 14px 48px rgba(0, 0, 0, 0.5);
+}
+
+.perk-dialog:focus { outline: none; }
+
+.perk-eyebrow {
+  color: var(--brass-ink);
+  font: 11px var(--font-data);
+  letter-spacing: 0.2em;
+}
+
+.perk-title {
+  margin: 4px 0 14px;
+  letter-spacing: 0.08em;
+}
+
+.perk-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.perk-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 132px;
+  padding: 14px 12px 12px;
+  border: 1px solid var(--border);
+  background: rgba(21, 27, 28, 0.96);
+  color: var(--text);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.perk-card:hover,
+.perk-card:focus-visible {
+  border-color: var(--brass-ink);
+  background: rgba(40, 33, 24, 0.97);
+}
+
+.perk-key {
+  align-self: flex-start;
+  padding: 0 6px;
+  border: 1px solid var(--brass);
+  color: var(--brass-ink);
+  font: 12px var(--font-data);
+}
+
+.perk-name {
+  font-size: 17px;
+  letter-spacing: 0.04em;
+}
+
+.perk-desc {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.perk-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--muted);
+  font: 11px var(--font-data);
+}
+
+.perk-later {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: 11px var(--font-data);
+  cursor: pointer;
+}
+
+.perk-later:hover,
+.perk-later:focus-visible { border-color: var(--brass-ink); }
+
+@media (max-width: 700px) {
+  .perk-cards { grid-template-columns: 1fr; }
+  .perk-card { min-height: 0; }
+  .perk-foot { flex-direction: column; align-items: flex-start; }
 }
