@@ -59,7 +59,8 @@ describe('wave escalation', () => {
     expect(wave2.every((ship) => ship.alert === 0.2)).toBe(true);
     for (const ship of wave2) {
       const radius = Math.hypot(ship.x - (WORLD_CENTER + 2), ship.y - WORLD_CENTER);
-      expect(radius).toBeGreaterThanOrEqual(30);
+      // The convoy lead starts part-way along its lane, a little inside the old ring.
+      expect(radius).toBeGreaterThanOrEqual(25);
       expect(radius).toBeLessThanOrEqual(55);
     }
     expect(seedWave(4, 1).every((ship) => ship.alert === 0)).toBe(true);

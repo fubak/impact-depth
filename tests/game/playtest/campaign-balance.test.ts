@@ -112,8 +112,10 @@ describe('campaign balance (Plan 026)', () => {
         state = setSpeedOrder(state, 'twoThirds');
         state = playHunter(state);
         // Wave 2's 4-escort screen + battleship + enemy subs mean the wave is
-        // meant to hurt — a competent hunter still lands kills on every seed.
-        expect(state.stats.shipsSunk).toBeGreaterThanOrEqual(2);
+        // meant to hurt. The convoy now steams a straight lane away from the boat instead of
+        // circling, so a hunter must run it down: one kill is the floor on every seed (two while
+        // merchants circled in place).
+        expect(state.stats.shipsSunk).toBeGreaterThanOrEqual(1);
       },
       120_000,
     );

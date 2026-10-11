@@ -70,24 +70,25 @@ describe('wave 1 is untouched', () => {
   });
 
   it('seeds byte-for-byte what it did before elites existed', () => {
-    // Fingerprints of JSON.stringify(seedWave(seed, 1, ...)) captured before this change.
+    // Fingerprints of JSON.stringify(seedWave(seed, 1, ...)); re-captured when the convoy lead and
+    // column moved onto a straight lane (elites still add nothing to wave 1).
     const expected: Record<string, string> = {
-      '1-legacy-v1-bare': '7b8b895b',
-      '1-legacy-v1-player': '7075b1d4',
-      '1-littoral-v2-bare': 'f4156731',
-      '1-littoral-v2-player': '82f03766',
-      '7-legacy-v1-bare': 'a9b1dd82',
-      '7-legacy-v1-player': 'aae7d826',
-      '7-littoral-v2-bare': '2d20c0bf',
-      '7-littoral-v2-player': '4520b047',
-      '42-legacy-v1-bare': '87a98ea3',
-      '42-legacy-v1-player': '1b9c4bad',
-      '42-littoral-v2-bare': '87a98ea3',
-      '42-littoral-v2-player': '1b9c4bad',
-      '1234-legacy-v1-bare': 'a1e5dab9',
-      '1234-legacy-v1-player': 'cd760def',
-      '1234-littoral-v2-bare': 'a1e5dab9',
-      '1234-littoral-v2-player': 'cd760def',
+      '1-legacy-v1-bare': '2dd770b3',
+      '1-legacy-v1-player': 'fb7ede52',
+      '1-littoral-v2-bare': '2dd770b3',
+      '1-littoral-v2-player': 'fb7ede52',
+      '7-legacy-v1-bare': 'a9f697ed',
+      '7-legacy-v1-player': 'eaf714e7',
+      '7-littoral-v2-bare': '625c8146',
+      '7-littoral-v2-player': 'd9ee5320',
+      '42-legacy-v1-bare': '77e691e8',
+      '42-legacy-v1-player': '361d0920',
+      '42-littoral-v2-bare': '77e691e8',
+      '42-littoral-v2-player': '361d0920',
+      '1234-legacy-v1-bare': '881fb94f',
+      '1234-legacy-v1-player': '9ce90ae5',
+      '1234-littoral-v2-bare': 'd748cec5',
+      '1234-littoral-v2-player': '5554b937',
     };
     const actual: Record<string, string> = {};
     for (const seed of [1, 7, 42, 1234]) {

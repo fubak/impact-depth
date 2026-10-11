@@ -24,6 +24,7 @@ import {
 } from '../world/littoral';
 import { getWorld } from '../world/queries';
 import { shipClearRadius, snapToReachable } from './pathfinding';
+import { COLUMN_LEAD, laneEntry, transitLane } from './transit-route';
 
 const escortKinds: ReadonlySet<ShipKind> = new Set(['destroyer', 'patrol', 'cruiser']);
 const formationRoleCycle: readonly FormationRole[] = ['lead', 'wing', 'trail'];
@@ -175,7 +176,15 @@ export function seedWave(
     ...(wave >= 2 ? ['battleship' as const] : []),
     ...Array<ShipKind>(wave >= 3 ? 2 : 1).fill('sub'),
   ];
+  const snapFor = (kind: ShipKind, x: number, y: number): Point =>
+    worldVersion === 'legacy-v1'
+      ? snapToNavigable(terrain!, x, y, 0.2)
+      : snapWorld(getWorld(worldVersion, seed), x, y, shipProfile(kind));
+  // The convoy lead and the battleship steam straight lanes across the sector.
+  const convoyLane = transitLane(seed, wave, 0);
+  const capitalLane = transitLane(seed, wave, 1);
   const ships = kinds.map((kind, index) => {
+    const lane = index === 0 ? convoyLane : kind === 'battleship' ? capitalLane : null;
     const angle = ((seed * 17 + wave * 29 + index * 137) % 360) * (Math.PI / 180);
     // Later waves spread across three staggered rings so a big wave fills the
     // circle instead of marching a single hull ever farther out. The wave-1
@@ -190,26 +199,27 @@ export function seedWave(
         : WAVE_SPAWN_INNER + (index % 3) * WAVE_SPAWN_STEP;
     const spawnX = WORLD_CENTER + 2 + Math.cos(angle) * radius;
     const spawnY = WORLD_CENTER + Math.sin(angle) * radius;
-    const point =
-      worldVersion === 'legacy-v1'
-        ? snapToNavigable(terrain!, spawnX, spawnY, 0.2)
-        : snapWorld(getWorld(worldVersion, seed), spawnX, spawnY, shipProfile(kind));
+    const entry = lane ? laneEntry(lane, index === 0 ? COLUMN_LEAD : 0) : null;
+    const point = entry ? snapFor(kind, entry.x, entry.y) : snapFor(kind, spawnX, spawnY);
+    const heading = lane ? lane.heading : angle + Math.PI / 2;
     const stats = shipStats[kind];
     // Wave-1 weapon grace: escorts/subs cannot fire in the first seconds.
     const weaponCooldown = wave === 1 ? 5 + (index % 4) * 0.8 : 0;
     const patrolRadius =
       wave === 1 && kind !== 'merchant' ? 8 : kind === 'merchant' ? 14 : kind === 'sub' ? 11 : 16;
-    let path = seedPatrolPath(
-      terrain,
-      point.x,
-      point.y,
-      patrolRadius,
-      kind === 'merchant' ? 4 : 5,
-      seed,
-      index,
-      worldVersion,
-      kind,
-    );
+    let path = lane
+      ? [snapFor(kind, lane.b.x, lane.b.y), snapFor(kind, lane.a.x, lane.a.y)]
+      : seedPatrolPath(
+          terrain,
+          point.x,
+          point.y,
+          patrolRadius,
+          kind === 'merchant' ? 4 : 5,
+          seed,
+          index,
+          worldVersion,
+          kind,
+        );
     // Wave 1: the escort's roving patrol opens with a tight sweep loop around
     // the player's start waters — roughly one sweep period of loiter inside
     // pulse reach — so a quiet boat is found by the next sweep pulse once the
@@ -233,7 +243,7 @@ export function seedWave(
         ...firstFreighter,
         x: point.x,
         y: point.y,
-        heading: angle + Math.PI / 2,
+        heading,
         speed: stats.speed,
         weaponCooldown,
         patrolIndex: index % 4,
@@ -248,7 +258,7 @@ export function seedWave(
       name: stats.name,
       x: point.x,
       y: point.y,
-      heading: angle + Math.PI / 2,
+      heading,
       speed: stats.speed,
       hp: stats.hp,
       maxHp: stats.hp,
@@ -269,6 +279,19 @@ export function seedWave(
   // merchant (kinds[0]), using pure index arithmetic so results stay
   // deterministic across identical seed/wave inputs.
   const anchorId = ships[0]?.id ?? null;
+  const lead = ships[0];
+  // Followers start in their column/screen slot behind the lead, on its course.
+  const inSlot = (ship: Ship, along: number, lateral: number): Ship => {
+    if (!lead) return ship;
+    const cos = Math.cos(lead.heading);
+    const sin = Math.sin(lead.heading);
+    const at = snapFor(
+      ship.kind,
+      lead.x + cos * along - sin * lateral,
+      lead.y + sin * along + cos * lateral,
+    );
+    return { ...ship, x: at.x, y: at.y, heading: lead.heading };
+  };
   let escortCycleIndex = 0;
   let wingSideIndex = 0;
   const slotted = ships.map((ship, index) => {
@@ -290,12 +313,14 @@ export function seedWave(
       };
     }
     if (ship.kind === 'merchant') {
+      const along = -index * 8;
+      const lateral = (index % 2 ? 1 : -1) * 6;
       return {
-        ...ship,
+        ...inSlot(ship, along, lateral),
         formationAnchorId: anchorId,
         formationRole: null,
-        formationAlong: -index * 8,
-        formationLateral: (index % 2 ? 1 : -1) * 6,
+        formationAlong: along,
+        formationLateral: lateral,
         path: [],
       };
     }

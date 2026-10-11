@@ -7,13 +7,14 @@ import { getTerrain, isLand } from '../../src/game/sim/world';
 import { setDepthOrder, setSpeedOrder, fireWeapon } from '../../src/game/sim/api';
 
 describe('patrol AI and map scale', () => {
-  it('seeds lead/independent ships with closed patrol loops', () => {
+  it('seeds lead/independent ships with patrol routes (a straight lane for the lead)', () => {
     const state = startMission(createGame(19));
     const lead = state.ships[0]!;
-    expect(lead.path.length).toBeGreaterThanOrEqual(4);
+    // The convoy lead steams a two-end lane instead of circling.
+    expect(lead.path.length).toBeGreaterThanOrEqual(2);
     const loners = state.ships.filter((ship) => !ship.formationAnchorId);
     for (const ship of loners) {
-      expect(ship.path.length).toBeGreaterThanOrEqual(4);
+      expect(ship.path.length).toBeGreaterThanOrEqual(2);
     }
   });
 
