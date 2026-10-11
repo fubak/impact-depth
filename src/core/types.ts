@@ -112,6 +112,8 @@ export interface SurfaceShipState {
   listSide: number;
   fire: number;
   flooding: number;
+  /** Plan 030: elite hunt target (gold label/beacon). Absent on normal hulls. */
+  elite?: boolean;
 }
 
 export interface SimState {

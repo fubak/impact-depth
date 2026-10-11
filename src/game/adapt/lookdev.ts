@@ -115,6 +115,7 @@ export function adaptToLookDevSim(game: GameState): LookDevSim {
         listSide: ship.listSide,
         fire: ship.fire,
         flooding: ship.flooding,
+        ...(ship.elite === true ? { elite: true } : {}),
       };
     }),
   };

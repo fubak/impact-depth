@@ -22,7 +22,7 @@ export class JuiceLayer {
   private readonly bannerRoot: HTMLDivElement;
   private readonly floats: FloatingTextLayer;
   private readonly banners: BannerLayer;
-  private readonly reducedMotion: boolean;
+  private reducedMotion: boolean;
   private numbers: readonly HitNumber[] = [];
   private toasts: readonly PickupToast[] = [];
   private hitStop = 0;
@@ -41,6 +41,13 @@ export class JuiceLayer {
     this.bannerRoot.id = 'fx-banners';
     parent.appendChild(this.bannerRoot);
     this.banners = new BannerLayer(this.bannerRoot, reducedMotion);
+  }
+
+  /** Runtime toggle: floats, banner CSS hook and hit stop (which then gives 0) all follow. */
+  setReducedMotion(value: boolean): void {
+    this.reducedMotion = value;
+    this.floats.setReducedMotion(value);
+    this.banners.setReducedMotion(value);
   }
 
   /** Per fixed step. Reduced motion gives no hit stop (freeze scale 0), text still shows. */

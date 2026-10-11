@@ -15,6 +15,7 @@ import { worldMetersToSim } from '../game/sim/coords';
 import { getWorld, worldHeight } from '../game/world/queries';
 import { sampleLittoralBedMetres } from '../game/world/littoral';
 import { worldCacheKey } from '../game/world/definition';
+import { ELITE_STYLE } from '../game/adapt/loot-style';
 import { normalizedBedToMetres, packWorldHeightTexture } from './environment/terrain-texture';
 import {
   DEFAULT_SUB_HULL_HEIGHT_M,
@@ -132,11 +133,12 @@ import {
 } from './presentation/combat-event-fx';
 import type { QualityProfile } from './quality';
 
-type LabelKind = 'own' | 'contact';
+type LabelKind = 'own' | 'contact' | 'elite';
 
 /** Canvas sizes for label textures. The own-boat plate is larger so it reads first. */
 const OWN_LABEL_CANVAS = { width: 320, height: 64 } as const;
 const CONTACT_LABEL_CANVAS = { width: 220, height: 32 } as const;
+const ELITE_LABEL_CANVAS = { width: 260, height: 36 } as const;
 
 type ShipVisual = { mesh: THREE.Group; wake: THREE.Mesh; beacon: THREE.Mesh; hit: THREE.Mesh };
 
@@ -1384,8 +1386,10 @@ export class GameScene {
     let sprite = this.labelSprites.get(id);
     if (!sprite) {
       const own = kind === 'own';
-      const width = own ? OWN_LABEL_CANVAS.width : CONTACT_LABEL_CANVAS.width;
-      const height = own ? OWN_LABEL_CANVAS.height : CONTACT_LABEL_CANVAS.height;
+      const elite = kind === 'elite';
+      const plate = own ? OWN_LABEL_CANVAS : elite ? ELITE_LABEL_CANVAS : CONTACT_LABEL_CANVAS;
+      const width = plate.width;
+      const height = plate.height;
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
@@ -1403,6 +1407,14 @@ export class GameScene {
         ctx.strokeRect(4, 6, width - 8, height - 12);
         ctx.fillStyle = '#ffe3a8';
         ctx.fillText(text, width / 2, height / 2 + 1);
+      } else if (elite) {
+        // Gold star plate: a dark shadow pass, then the elite gold on top.
+        const label = `${ELITE_STYLE.star} ${text}`;
+        ctx.font = '800 16px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.fillStyle = 'rgba(7,11,12,0.75)';
+        ctx.fillText(label, width / 2 + 1, height / 2 + 1);
+        ctx.fillStyle = ELITE_STYLE.css;
+        ctx.fillText(label, width / 2, height / 2);
       } else {
         ctx.font = '600 14px ui-monospace, SFMono-Regular, Menlo, monospace';
         ctx.fillStyle = 'rgba(7,11,12,0.65)';
@@ -1420,7 +1432,9 @@ export class GameScene {
       });
       sprite = new THREE.Sprite(mat);
       if (own) sprite.scale.set(OWN_LABEL_FALLBACK_H * OWN_LABEL_ASPECT, OWN_LABEL_FALLBACK_H, 1);
+      else if (elite) sprite.scale.set(7.3, 1.0, 1);
       else sprite.scale.set(6.2, 0.9, 1);
+      sprite.userData.labelKind = kind;
       sprite.renderOrder = 6;
       this.labelSprites.set(id, sprite);
       this.labelsRoot.add(sprite);
@@ -1644,7 +1658,11 @@ export class GameScene {
         ship.z,
       );
       entity.beacon.visible = true;
-      entity.beacon.scale.setScalar(beaconScale * (selected ? 1.25 : submerged > 0 ? 1.15 : 1));
+      entity.beacon.scale.setScalar(
+        beaconScale *
+          (selected ? 1.25 : submerged > 0 ? 1.15 : 1) *
+          (ship.elite === true ? ELITE_STYLE.beaconScale : 1),
+      );
       (entity.beacon.material as THREE.MeshBasicMaterial).color.setHex(
         selected ? 0xbd8b4e : submerged > 0 ? 0x5ec4c8 : 0x8f9a94,
       );
@@ -1653,6 +1671,10 @@ export class GameScene {
         : submerged > 0
           ? 0.72
           : 0.5 + Math.min(0.4, deep * 0.035);
+      if (ship.elite === true && !selected) {
+        (entity.beacon.material as THREE.MeshBasicMaterial).color.setHex(ELITE_STYLE.color);
+        (entity.beacon.material as THREE.MeshBasicMaterial).opacity = 0.95;
+      }
       bodies.push({
         mesh: entity.mesh,
         heading: ship.heading,
@@ -1823,7 +1845,9 @@ export class GameScene {
     const contactLabelsOn = !peri && settings.presentation.labelDensity > 0.08;
     // Your own boat is always named in tactical view, even when contact labels are turned down.
     const ownLabelOn = !peri && (contactLabelsOn || sim.viewMode === 'tactical');
-    this.labelsRoot.visible = ownLabelOn;
+    // An elite hunt target stays named outside periscope even when contact labels are turned down.
+    const eliteLabelOn = !peri && sim.ships.some((ship) => ship.elite === true);
+    this.labelsRoot.visible = ownLabelOn || eliteLabelOn;
 
     if (this.labelsRoot.visible) {
       const dens = Math.max(0.35, settings.presentation.labelDensity);
@@ -1843,26 +1867,33 @@ export class GameScene {
           x: v.x,
           y: ownLabelAnchorY(subY, hullHeight, OWN_LABEL_FALLBACK_H),
           z: v.z,
-          show: true,
+          show: ownLabelOn,
         },
       ];
       for (const s of sim.ships) {
         entries.push({
           id: s.id,
           text: s.name,
-          kind: 'contact',
+          kind: s.elite === true ? 'elite' : 'contact',
           x: s.x,
           y: Math.max(9.5, 6 + deep * 0.15),
           z: s.z,
-          show: contactLabelsOn,
+          show: contactLabelsOn || s.elite === true,
         });
       }
       for (const e of entries) {
         const spr = this.ensureLabel(e.id, e.text, e.kind);
         spr.visible = e.show;
         spr.position.set(e.x, e.y, e.z);
-        (spr.material as THREE.SpriteMaterial).opacity = e.kind === 'own' ? 1 : 0.55 + dens * 0.35;
+        (spr.material as THREE.SpriteMaterial).opacity =
+          e.kind === 'contact' ? 0.55 + dens * 0.35 : 1;
         (spr.material as THREE.SpriteMaterial).depthTest = false;
+      }
+      // Elite sprites for ships that have left the sim must not float on at their last position.
+      for (const [id, spr] of this.labelSprites) {
+        if (spr.userData.labelKind === 'elite' && !entries.some((e) => e.id === id)) {
+          spr.visible = false;
+        }
       }
     }
   }

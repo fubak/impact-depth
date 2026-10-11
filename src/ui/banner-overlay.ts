@@ -60,7 +60,8 @@ function keepNewest(items: readonly BannerSpec[]): readonly BannerSpec[] {
 
 /**
  * Appends fresh specs to the pending list (keeping the newest BANNER_QUEUE_MAX), expires the
- * current banner once its ttl has passed and promotes the next pending one. Pure.
+ * current banner once its ttl has passed and promotes the next pending one. A clock that ran
+ * backward (nowS before shownAt, e.g. after a restart) counts as expired. Pure.
  */
 export function advanceBannerQueue(
   queue: BannerQueue,
@@ -68,7 +69,9 @@ export function advanceBannerQueue(
   fresh: readonly BannerSpec[],
 ): BannerQueue {
   const live =
-    queue.current !== null && nowS - queue.current.shownAt < queue.current.ttl
+    queue.current !== null &&
+    nowS >= queue.current.shownAt &&
+    nowS - queue.current.shownAt < queue.current.ttl
       ? queue.current
       : null;
   const waiting: readonly BannerSpec[] = [...queue.pending, ...fresh];
@@ -108,7 +111,10 @@ function restartAnimation(el: HTMLElement): void {
   el.classList.add('is-in');
 }
 
-/** Shows `spec` in `el`; returns the id now on screen (null when hidden). */
+/**
+ * Shows `spec` in `el`; returns the id now on screen (null when hidden). The id fully determines
+ * text, tier and rarity, so those are written only when the id changes, along with the restart.
+ */
 function show(
   el: HTMLDivElement,
   spec: BannerQueue['current'],
@@ -119,16 +125,19 @@ function show(
     return null;
   }
   el.hidden = false;
-  el.textContent = spec.text;
-  el.dataset.tier = spec.tier;
-  if (spec.rarity === undefined) delete el.dataset.rarity;
-  else el.dataset.rarity = spec.rarity;
-  if (spec.id !== previous) restartAnimation(el);
+  if (spec.id !== previous) {
+    el.textContent = spec.text;
+    el.dataset.tier = spec.tier;
+    if (spec.rarity === undefined) delete el.dataset.rarity;
+    else el.dataset.rarity = spec.rarity;
+    restartAnimation(el);
+  }
   return spec.id;
 }
 
 /** DOM for the centre-screen banner and the loot toast. Every node is pointer-events: none. */
 export class BannerLayer {
+  private readonly root: HTMLElement;
   private readonly bannerEl: HTMLDivElement;
   private readonly lootEl: HTMLDivElement;
   private bannerId: string | null = null;
@@ -136,6 +145,7 @@ export class BannerLayer {
 
   constructor(root: HTMLElement, reducedMotion: boolean) {
     const doc = root.ownerDocument;
+    this.root = root;
     root.className = 'fx-banner-layer';
     root.setAttribute('aria-hidden', 'true');
     if (reducedMotion) root.dataset.reduced = '1';
@@ -146,6 +156,12 @@ export class BannerLayer {
     this.lootEl.className = 'fx-loot';
     this.lootEl.hidden = true;
     root.append(this.bannerEl, this.lootEl);
+  }
+
+  /** Sets or clears data-reduced on the layer root so the CSS reduced-motion rules apply. */
+  setReducedMotion(value: boolean): void {
+    if (value) this.root.dataset.reduced = '1';
+    else delete this.root.dataset.reduced;
   }
 
   render(banners: BannerQueue, loot: BannerQueue): void {
