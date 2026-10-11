@@ -635,14 +635,26 @@ export async function plotProjectedWaterAfterOrbit(page) {
   let expected = null;
   /** @type {{ x: number, y: number, ndcX: number, ndcY: number } | null} */
   let projected = null;
+  // Collect every clear candidate, then take the one closest to the middle of the view: clicks
+  // near the screen edge are the least reliable, and the middle is where plots always worked.
+  const clear = [];
   for (const point of candidate) {
     const hit = await projectSimToCanvas(page, point.x, point.y);
-    // Skip points a HUD panel covers: those clicks are swallowed by design and never plot.
-    if (hit && (await canvasPointIsClear(page, hit)) && !(await canvasPointNearShip(page, hit))) {
-      expected = point;
-      projected = hit;
-      break;
+    // Skip points a HUD panel covers (swallowed by design) or that sit next to a ship (a click
+    // there selects the ship instead of plotting).
+    if (
+      hit &&
+      Math.hypot(hit.ndcX, hit.ndcY) < 0.9 &&
+      (await canvasPointIsClear(page, hit)) &&
+      !(await canvasPointNearShip(page, hit))
+    ) {
+      clear.push({ point, hit, centre: Math.hypot(hit.ndcX, hit.ndcY) });
     }
+  }
+  clear.sort((a, b) => a.centre - b.centre);
+  if (clear[0]) {
+    expected = clear[0].point;
+    projected = clear[0].hit;
   }
   if (!expected || !projected) {
     throw new Error('No on-screen, uncovered water candidate after tactical orbit');
