@@ -5,6 +5,7 @@ import {
   FOXER_SEDUCE_ODDS,
   FOXER_SEDUCE_RANGE,
 } from './constants';
+import { patternScatter } from './environment';
 import { nextRandom } from './rng';
 import { CRIT_MULTIPLIER, rollCrit } from './combo';
 import { applyShellHit, applyTorpedoHit, hullHalfLength } from './ship-damage';
@@ -329,10 +330,12 @@ export function depthChargePattern(
   for (const astern of [-0.3, -0.9, -1.5]) {
     push(ship.x + Math.cos(ship.heading) * astern, ship.y + Math.sin(ship.heading) * astern, 0, 0);
   }
+  // A pitching deck throws the K-guns wider in rough seas.
+  const throwSpeed = KGUN_THROW_SPEED * patternScatter(state.environment);
   for (const side of [-1, 1]) {
     const lx = -Math.sin(ship.heading) * side;
     const ly = Math.cos(ship.heading) * side;
-    push(ship.x + lx * 0.3, ship.y + ly * 0.3, lx * KGUN_THROW_SPEED, ly * KGUN_THROW_SPEED);
+    push(ship.x + lx * 0.3, ship.y + ly * 0.3, lx * throwSpeed, ly * throwSpeed);
   }
   return { charges, rngState };
 }
@@ -348,14 +351,15 @@ export function hedgehogEllipse(
   const cy = aimY ?? ship.y + Math.sin(ship.heading) * HEDGEHOG_LEAD;
   const cos = Math.cos(ship.heading);
   const sin = Math.sin(ship.heading);
+  const scatter = patternScatter(state.environment);
   return Array.from({ length: 8 }, (_, index) => {
     const a = (index / 8) * Math.PI * 2;
     return {
       id: `hog-${ship.id}-${state.tick}-${index}`,
       kind: 'hedgehog' as const,
       sourceId: ship.id,
-      x: cx + Math.cos(a) * 0.7 * cos - Math.sin(a) * 0.45 * sin,
-      y: cy + Math.cos(a) * 0.7 * sin + Math.sin(a) * 0.45 * cos,
+      x: cx + Math.cos(a) * 0.7 * scatter * cos - Math.sin(a) * 0.45 * scatter * sin,
+      y: cy + Math.cos(a) * 0.7 * scatter * sin + Math.sin(a) * 0.45 * scatter * cos,
       z: 0.05,
       vx: 0,
       vy: 0,

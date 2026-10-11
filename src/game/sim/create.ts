@@ -8,6 +8,7 @@ import {
 } from './constants';
 import { WAVE1_SPAWN_RADIUS } from './action-feel';
 import { applyElites } from './elites';
+import { DEFAULT_ENVIRONMENT } from './environment';
 import { SINK_DURATION } from './ship-damage';
 import type { FormationRole, GameState, Point, Powerup, Ship, ShipKind, Submarine } from './types';
 import { createTerrain, snapToNavigable, type Terrain } from './world';
@@ -438,6 +439,7 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     missionFlavor: 'SHADOW CONVOY · REMAIN UNDETECTED',
     messages: [],
     settings: null,
+    environment: DEFAULT_ENVIRONMENT,
     debugFacing: false,
     dockHold: 0,
     pickupRespawn: 19,

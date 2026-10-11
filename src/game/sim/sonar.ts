@@ -1,4 +1,5 @@
 import { ACTIVE_PING_DURATION, ACTIVE_PING_RANGE, THERMOCLINE } from './constants';
+import { sonarRangeFactor } from './environment';
 import type { GameState, Ship, ShipKind, SonarContact } from './types';
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -66,7 +67,10 @@ export function updateSonar(state: GameState, dt: number): GameState {
     if (ship.sinking !== undefined) continue;
     const distance = Math.hypot(ship.x - sub.x, ship.y - sub.y);
     const targetDepth = ship.kind === 'sub' ? 0.35 : 0.02;
-    const range = passiveRange('player', shipMachineryNoise(ship), sub.z, targetDepth, maskAt(state, ship.x, ship.y));
+    // Wind and rain noise cut the player's hydrophone reach like the escorts'.
+    const range =
+      passiveRange('player', shipMachineryNoise(ship), sub.z, targetDepth, maskAt(state, ship.x, ship.y)) *
+      sonarRangeFactor(state.environment);
     if (distance <= range) {
       const strength = clamp((1 - distance / range) * (0.55 + shipMachineryNoise(ship) * 0.55), 0.12, 1);
       const jitter = (1 - strength) * 0.55;

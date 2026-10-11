@@ -45,6 +45,7 @@ import { updateAutopilot } from './autopilot';
 import { makeClear, resolveClearStep, steerAvoid, shipClearRadius } from './pathfinding';
 import { updateSonar, shipMaxSpeed } from './sonar';
 import { canHearPing, hasContact } from './contact';
+import { environmentFor, shipSpeedFactor, sonarRangeFactor } from './environment';
 import { DOCTRINE_KINDS, escortIntent, merchantIntent } from './escort-doctrine';
 import { releaseCallouts } from './defense-callout';
 import { separateShips } from './ship-separation';
@@ -402,6 +403,14 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         next = {
           ...next,
           submarine: { ...next.submarine, silentRunning: !next.submarine.silentRunning },
+        };
+      else if (command.type === 'setEnvironment')
+        next = {
+          ...next,
+          environment: environmentFor(
+            command.weather ?? next.environment.weather,
+            command.timeOfDay ?? next.environment.timeOfDay,
+          ),
         };
       else if (
         command.type === 'deployBubble' &&
@@ -829,13 +838,10 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       if (ship.sinking !== undefined) return ship;
       const distance = Math.hypot(ship.x - sub.x, ship.y - sub.y);
       const suspicionIn = ship.suspicion ?? 0;
-      const sweepRadius = escortSweepRadius(
-        sub,
-        state.time,
-        sweepJitter,
-        state.sonarPing > 0,
-        suspicionIn,
-      );
+      // Wind and rain noise shrink the active sweep like every other sonar range.
+      const sweepRadius =
+        escortSweepRadius(sub, state.time, sweepJitter, state.sonarPing > 0, suspicionIn) *
+        sonarRangeFactor(state.environment);
       const hunting =
         ESCORT_SWEEP_KINDS.has(ship.kind) && sweepRadius > 0 && distance <= sweepRadius;
       const suspicion = ESCORT_SWEEP_KINDS.has(ship.kind)
@@ -958,7 +964,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       // Cruise on patrol; full class speed only when alerted / pursuing.
       // Doctrine may order an explicit fraction of class max. Flooding and a
       // wrecked stern shave real speed off the order.
-      const mobility = ship.speedFactor * (1 - 0.6 * ship.flooding);
+      const mobility =
+        ship.speedFactor * (1 - 0.6 * ship.flooding) * shipSpeedFactor(state.environment);
       const moveSpeed =
         (intentSpeedFrac !== null
           ? shipMaxSpeed[ship.kind] * intentSpeedFrac

@@ -1,4 +1,5 @@
 import type { LookDevSettings, ViewMode } from '../../core/types';
+import type { Environment } from './environment';
 
 export type GamePhase = 'menu' | 'playing' | 'paused' | 'gameover' | 'victory';
 export type ScenarioId = 'patrol' | 'convoy-strike';
@@ -358,6 +359,8 @@ export interface GameState {
   aimPoint: Point | null;
   messages: GameMessage[];
   settings: LookDevSettings | null;
+  /** Weather and light. The default (clear day) scales every sim factor by exactly 1. */
+  environment: Environment;
   debugFacing: boolean;
   dockHold: number;
   pickupRespawn: number;

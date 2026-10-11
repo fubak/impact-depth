@@ -3,6 +3,7 @@ import type { WorldVersion } from '../world/definition';
 import { playerNavProfile, snapWorld } from '../world/littoral';
 import { getWorld } from '../world/queries';
 import { createGame as makeGame, seedPowerups, seedWave } from './create';
+import type { TimeOfDayId, WeatherKind } from './environment';
 import { createConvoyStrike } from './scenarios/convoy-strike';
 import { createScenario, rerunScenario } from './scenarios/factory';
 import { stepGame } from './step';
@@ -55,6 +56,11 @@ export const setSpeedOrder = (state: GameState, order: SpeedOrder): GameState =>
   stepGame(state, [{ type: 'setSpeedOrder', order }], 0);
 export const toggleSilentRunning = (state: GameState): GameState =>
   stepGame(state, [{ type: 'toggleSilentRunning' }], 0);
+/** Choose weather and/or time of day; an omitted field keeps its current value. */
+export const setEnvironment = (
+  state: GameState,
+  patch: { weather?: WeatherKind; timeOfDay?: TimeOfDayId },
+): GameState => stepGame(state, [{ type: 'setEnvironment', ...patch }], 0);
 export const toggleScope = (state: GameState): GameState => ({
   ...state,
   submarine: { ...state.submarine, scopeUp: !state.submarine.scopeUp },
@@ -153,6 +159,7 @@ export function applyHostSeed(state: GameState, seed: number): GameState {
     ...populated,
     phase: state.phase,
     settings: state.settings,
+    environment: state.environment,
     viewMode: state.viewMode,
   };
 }

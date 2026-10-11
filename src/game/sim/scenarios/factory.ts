@@ -29,9 +29,9 @@ export function createScenario({
  * Settings, view mode and other session-level fields are the caller's to carry over.
  */
 export function rerunScenario(state: GameState, seed: number = state.seed): GameState {
-  return createScenario({
-    scenario: state.scenario,
-    seed,
-    worldVersion: state.worldVersion,
-  });
+  // Weather is the captain's choice, not the seed's: a retry keeps it.
+  return {
+    ...createScenario({ scenario: state.scenario, seed, worldVersion: state.worldVersion }),
+    environment: state.environment,
+  };
 }

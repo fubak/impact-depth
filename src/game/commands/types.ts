@@ -1,3 +1,4 @@
+import type { TimeOfDayId, WeatherKind } from '../sim/environment';
 import type {
   AutopilotTactic,
   DepthOrder,
@@ -26,6 +27,8 @@ export type GameCommand =
   | { type: 'deployBubble' }
   | { type: 'spawnThreat'; threat: ThreatKind; sourceId: string; targetId?: string }
   | { type: 'toggleSilentRunning' }
+  /** Change weather and/or time of day; an omitted field keeps its current value. */
+  | { type: 'setEnvironment'; weather?: WeatherKind; timeOfDay?: TimeOfDayId }
   | { type: 'emergencySurface' }
   /** Pick one of the open level-up offers by 0-based index. Ignored when nothing is pending. */
   | { type: 'choosePerk'; index: number }

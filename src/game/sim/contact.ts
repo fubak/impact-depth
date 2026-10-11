@@ -1,3 +1,4 @@
+import { sonarRangeFactor, visualRangeFactor } from './environment';
 import { passiveRange, shipMaxSpeed } from './sonar';
 import type { GameState, Ship } from './types';
 
@@ -32,7 +33,8 @@ export function canSeeSubmarine(ship: Ship, state: GameState): boolean {
   const sub = state.submarine;
   const distance = Math.hypot(ship.x - sub.x, ship.y - sub.y);
   if (!isVisuallyExposed(sub)) return false;
-  return distance <= VISUAL_RANGE[ship.kind];
+  // Night, fog and rain cut how far a scope, snorkel or surfaced hull is sighted.
+  return distance <= VISUAL_RANGE[ship.kind] * visualRangeFactor(state.environment);
 }
 
 export function canHearSubmarine(ship: Ship, state: GameState): boolean {
@@ -44,7 +46,10 @@ export function canHearSubmarine(ship: Ship, state: GameState): boolean {
   )
     ? 0.5
     : 1;
-  let range = passiveRange(ship.kind, sub.noise, listenerDepth, sub.z, masking);
+  // Wind and rain raise ambient noise: every escort hydrophone hears less far.
+  let range =
+    passiveRange(ship.kind, sub.noise, listenerDepth, sub.z, masking) *
+    sonarRangeFactor(state.environment);
   if (ship.kind !== 'sub') {
     // Blind zone: the hull masks a boat directly underneath the layer.
     if (sub.z > 0.2 && distance <= BLIND_ZONE) return false;
@@ -80,7 +85,8 @@ export function canHearPing(ship: Ship, state: GameState): boolean {
   const noise = Math.max(PING_NOISE_FLOOR, sub.noise);
   const range =
     passiveRange(ship.kind, noise, listenerDepth, listenerDepth, masking) *
-    PING_INTERCEPT_RANGE_SCALE;
+    PING_INTERCEPT_RANGE_SCALE *
+    sonarRangeFactor(state.environment);
   return distance <= range;
 }
 
