@@ -10,7 +10,7 @@ jobs:
     name: Verify
     runs-on: ubuntu-latest
     # Patrol E2E runs on a software renderer; runner speed varies enough that 20 min was marginal.
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - name: Checkout
         uses: actions/checkout@v4

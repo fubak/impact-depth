@@ -584,6 +584,84 @@ export async function canvasPointNearShip(page, point, radiusPx = SHIP_PICK_CLEA
 }
 
 /**
+ * Classify many canvas-local pixels in ONE page round trip: is the pixel the canvas itself (not a
+ * HUD panel), and how many pixels away is the nearest live ship. Many separate evaluates are very
+ * slow on a software renderer, where each one waits for a frame.
+ * @param {import('playwright').Page} page
+ * @param {{ x: number, y: number }[]} points canvas-local pixels
+ * @returns {Promise<{ clear: boolean, shipPx: number }[]>}
+ */
+export async function classifyCanvasPoints(page, points) {
+  return page.evaluate(
+    ({ pts, worldSize, meters }) => {
+      const app = window.__silentDepths;
+      const canvas = document.getElementById('scene');
+      if (!(canvas instanceof HTMLCanvasElement))
+        return pts.map(() => ({ clear: false, shipPx: 0 }));
+      const rect = canvas.getBoundingClientRect();
+      const ships = [];
+      if (app?.cameras && app.game) {
+        for (const ship of app.game.ships) {
+          const ndc = app.cameras.projectNdc(
+            (ship.x - worldSize / 2) * meters,
+            0,
+            (ship.y - worldSize / 2) * meters,
+          );
+          if (ndc.clipW < 0) continue;
+          ships.push({
+            x: ((ndc.ndcX + 1) / 2) * rect.width,
+            y: ((1 - ndc.ndcY) / 2) * rect.height,
+          });
+        }
+      }
+      return pts.map((point) => {
+        const px = rect.left + point.x;
+        const py = rect.top + point.y;
+        const inside = px >= 0 && py >= 0 && px < window.innerWidth && py < window.innerHeight;
+        const clear = inside && document.elementFromPoint(px, py) === canvas;
+        let shipPx = Infinity;
+        for (const ship of ships)
+          shipPx = Math.min(shipPx, Math.hypot(ship.x - point.x, ship.y - point.y));
+        return { clear, shipPx };
+      });
+    },
+    { pts: points, worldSize: SIM_WORLD_SIZE, meters: SIM_METERS_PER_UNIT },
+  );
+}
+
+/**
+ * Project many sim-plane points to canvas-local pixels in ONE round trip (null when off-screen).
+ * @param {import('playwright').Page} page
+ * @param {{ x: number, y: number }[]} simPoints
+ */
+export async function projectManySimToCanvas(page, simPoints) {
+  return page.evaluate(
+    ({ pts, worldSize, meters }) => {
+      const app = window.__silentDepths;
+      const canvas = document.getElementById('scene');
+      if (!app?.cameras || !(canvas instanceof HTMLCanvasElement)) return pts.map(() => null);
+      const rect = canvas.getBoundingClientRect();
+      return pts.map((point) => {
+        const ndc = app.cameras.projectNdc(
+          (point.x - worldSize / 2) * meters,
+          0,
+          (point.y - worldSize / 2) * meters,
+        );
+        if (ndc.clipW < 0) return null;
+        if (Math.abs(ndc.ndcX) > 0.98 || Math.abs(ndc.ndcY) > 0.98) return null;
+        return {
+          x: ((ndc.ndcX + 1) / 2) * rect.width,
+          y: ((1 - ndc.ndcY) / 2) * rect.height,
+          ndcX: ndc.ndcX,
+          ndcY: ndc.ndcY,
+        };
+      });
+    },
+    { pts: simPoints, worldSize: SIM_WORLD_SIZE, meters: SIM_METERS_PER_UNIT },
+  );
+}
+
+/**
  * First canvas pixel that is canvas (not HUD) and clear of ships: the preferred point, else a
  * coarse grid across the middle of the view.
  * @param {import('playwright').Page} page
@@ -592,22 +670,17 @@ export async function canvasPointNearShip(page, point, radiusPx = SHIP_PICK_CLEA
 export async function findClearCanvasPoint(page, preferred) {
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('Expected #scene for a clear plot point');
-  const grid = [];
+  const candidates = [preferred];
   for (const fy of [0.45, 0.55, 0.35, 0.65, 0.5, 0.4, 0.6, 0.3, 0.7]) {
     for (const fx of [0.55, 0.65, 0.45, 0.75, 0.5, 0.6, 0.7, 0.35, 0.8, 0.25]) {
-      grid.push({ x: Math.round(box.width * fx), y: Math.round(box.height * fy) });
+      candidates.push({ x: Math.round(box.width * fx), y: Math.round(box.height * fy) });
     }
   }
+  const classes = await classifyCanvasPoints(page, candidates);
   // Prefer generous ship clearance; relax it step by step so a crowded scene still finds a pixel.
   for (const clearance of [SHIP_PICK_CLEARANCE_PX, 70, 45]) {
-    for (const point of [preferred, ...grid]) {
-      if (
-        (await canvasPointIsClear(page, point)) &&
-        !(await canvasPointNearShip(page, point, clearance))
-      ) {
-        return point;
-      }
-    }
+    const index = classes.findIndex((c) => c.clear && c.shipPx >= clearance);
+    if (index >= 0) return candidates[index];
   }
   throw new Error('No clear canvas pixel found (HUD or ships cover every candidate)');
 }
@@ -666,20 +739,26 @@ export async function plotProjectedWaterAfterOrbit(page) {
   if (!candidate) throw new Error('Missing submarine for projected water plot');
   // Collect every clear candidate, then take the one closest to the middle of the view: clicks
   // near the screen edge are the least reliable, and the middle is where plots always worked.
+  // Two page round trips in total (project all, classify all), not one per candidate.
+  const hits = await projectManySimToCanvas(page, candidate);
+  const onScreen = [];
+  hits.forEach((hit, index) => {
+    if (hit && Math.hypot(hit.ndcX, hit.ndcY) < 0.9)
+      onScreen.push({ point: candidate[index], hit });
+  });
+  const classes = await classifyCanvasPoints(
+    page,
+    onScreen.map((entry) => ({ x: entry.hit.x, y: entry.hit.y })),
+  );
+  // Skip points a HUD panel covers (swallowed by design) or that sit next to a ship (a click
+  // there selects the ship instead of plotting).
   const clear = [];
-  for (const point of candidate) {
-    const hit = await projectSimToCanvas(page, point.x, point.y);
-    // Skip points a HUD panel covers (swallowed by design) or that sit next to a ship (a click
-    // there selects the ship instead of plotting).
-    if (
-      hit &&
-      Math.hypot(hit.ndcX, hit.ndcY) < 0.9 &&
-      (await canvasPointIsClear(page, hit)) &&
-      !(await canvasPointNearShip(page, hit))
-    ) {
-      clear.push({ point, hit, centre: Math.hypot(hit.ndcX, hit.ndcY) });
+  onScreen.forEach((entry, index) => {
+    const c = classes[index];
+    if (c.clear && c.shipPx >= SHIP_PICK_CLEARANCE_PX) {
+      clear.push({ ...entry, centre: Math.hypot(entry.hit.ndcX, entry.hit.ndcY) });
     }
-  }
+  });
   clear.sort((a, b) => a.centre - b.centre);
   if (!clear.length) {
     throw new Error('No on-screen, uncovered water candidate after tactical orbit');
