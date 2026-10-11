@@ -81,11 +81,11 @@ async function runJourney(name, fn) {
  * software renderer. Restore a live patrol when the current one has ended.
  * Returns true when it had to restart (the previous patrol was not playing).
  */
-async function ensureLivePatrol(page) {
+async function ensureLivePatrol(page, { fresh = false } = {}) {
   const phase = await page
     .evaluate(() => window.__silentDepths?.game?.phase ?? null)
     .catch(() => null);
-  if (phase === 'playing') return false;
+  if (phase === 'playing' && !fresh) return false;
   await page.reload({ waitUntil: 'load', timeout: E2E_TIMEOUT_MS });
   await page.waitForSelector('button[data-action="begin"]', { timeout: E2E_TIMEOUT_MS });
   await beginPatrolAndSkipTutorial(page);
@@ -252,7 +252,9 @@ try {
   await runJourney('pause-resume', async () => {
     // Lethal escorts can legitimately end a passive scripted patrol during the
     // long targeting-fire stretch — restore a live patrol before testing pause.
-    await ensureLivePatrol(page);
+    // A fresh patrol: the 8 s spawn invulnerability and quiet opening outlast this short journey
+    // even on a slow runner, where a patrol left over from earlier journeys can die mid-test.
+    await ensureLivePatrol(page, { fresh: true });
     await page.keyboard.press('Space');
     await pollUntil(
       page,
