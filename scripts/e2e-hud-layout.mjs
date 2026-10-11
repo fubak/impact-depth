@@ -39,41 +39,57 @@ const overlaps = (page) =>
     return out;
   }, HUD);
 
-const browser = await chromium.launch({ headless: true, args: CHROMIUM_ARGS });
-const failures = [];
-for (const [width, height] of SIZES) {
-  const page = await browser.newPage({ viewport: { width, height } });
-  await page.goto(url, { waitUntil: 'load' });
-  await page.waitForSelector('button[data-action="begin"]');
-  await page.locator('button[data-action="begin"]').first().click();
-  await page.waitForTimeout(1200);
-  const skip = page.locator('button[data-tutorial-action="skip"]');
-  if (await skip.isVisible().catch(() => false)) {
-    const tutorialHits = await overlaps(page);
-    for (const hit of tutorialHits) failures.push(`${width}x${height} tutorial: ${hit}`);
-    console.log(
-      `${width}x${height} tutorial: ${tutorialHits.length ? tutorialHits.join('; ') : 'ok'}`,
-    );
-    await skip.click();
-  }
-  for (const [key, mode] of [
-    ['1', 'tactical'],
-    ['4', 'periscope'],
-  ]) {
-    await page.keyboard.press(key);
-    await page.waitForTimeout(1200);
-    const hits = await overlaps(page);
-    for (const hit of hits) failures.push(`${width}x${height} ${mode}: ${hit}`);
-    console.log(`${width}x${height} ${mode}: ${hits.length ? hits.join('; ') : 'ok'}`);
-  }
-  await page.close();
-}
-await browser.close();
-if (failures.length) {
+/** Check-run annotation in GitHub Actions: readable without log access. */
+const annotate = (level, title, message) => {
   if (process.env.GITHUB_ACTIONS) {
-    // Check-run annotation, readable without log access.
-    console.log(`::error title=HUD layout overlaps::${failures.slice(0, 12).join(' | ')}`);
+    const flat = String(message).split('%').join('%25').split(String.fromCharCode(10)).join('%0A');
+    console.log(`::${level} title=${title}::${flat.slice(0, 900)}`);
   }
+};
+
+const failures = [];
+let browser;
+try {
+  browser = await chromium.launch({ headless: true, args: CHROMIUM_ARGS });
+  for (const [width, height] of SIZES) {
+    const page = await browser.newPage({ viewport: { width, height } });
+    page.setDefaultTimeout(90_000);
+    await page.goto(url, { waitUntil: 'load', timeout: 90_000 });
+    await page.waitForSelector('button[data-action="begin"]');
+    await page.locator('button[data-action="begin"]').first().click();
+    await page.waitForTimeout(1200);
+    const skip = page.locator('button[data-tutorial-action="skip"]');
+    if (await skip.isVisible().catch(() => false)) {
+      const tutorialHits = await overlaps(page);
+      for (const hit of tutorialHits) failures.push(`${width}x${height} tutorial: ${hit}`);
+      console.log(
+        `${width}x${height} tutorial: ${tutorialHits.length ? tutorialHits.join('; ') : 'ok'}`,
+      );
+      await skip.click();
+    }
+    for (const [key, mode] of [
+      ['1', 'tactical'],
+      ['4', 'periscope'],
+    ]) {
+      await page.keyboard.press(key);
+      await page.waitForTimeout(1200);
+      const hits = await overlaps(page);
+      for (const hit of hits) failures.push(`${width}x${height} ${mode}: ${hit}`);
+      console.log(`${width}x${height} ${mode}: ${hits.length ? hits.join('; ') : 'ok'}`);
+      annotate('notice', `layout ${width}x${height} ${mode}`, hits.length ? hits.join('; ') : 'ok');
+    }
+    await page.close();
+  }
+} catch (error) {
+  annotate('error', 'HUD layout script crashed', error?.message || error);
+  console.error(error);
+  process.exitCode = 1;
+} finally {
+  await browser?.close();
+}
+if (process.exitCode) process.exit(process.exitCode);
+if (failures.length) {
+  annotate('error', 'HUD layout overlaps', failures.slice(0, 12).join(' | '));
   console.error(`FAIL ${failures.length} HUD overlap(s)`);
   process.exit(1);
 }
