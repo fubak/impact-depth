@@ -24,6 +24,7 @@ import type {
 import { getTerrain, isLand } from '../game/sim/world';
 import { findPixelProximateContact, MAP_PROXIMATE_PX } from '../input/world-click';
 import { buildCaptainView, patchCaptainPanel, renderCaptainPanel } from './captain-panel';
+import { ENVIRONMENT_PANEL_KEY_LABEL } from './environment-panel';
 import { listFirmContacts, type FirmContact } from './sonar';
 
 const MODE_LABEL: Record<SimState['viewMode'], string> = {
@@ -347,7 +348,7 @@ export class Hud {
       <span class="help-group"><kbd>Q</kbd>/<kbd>E</kbd> trim · <kbd>Z</kbd><kbd>X</kbd><kbd>B</kbd><kbd>V</kbd> depth · <kbd>G</kbd> blow tanks</span>
       <span class="help-group"><kbd>0</kbd><kbd>I</kbd><kbd>O</kbd><kbd>P</kbd> speed</span>
       <span class="help-group"><kbd>F</kbd>/<kbd>RMB</kbd> fire · <kbd>T</kbd> target · <kbd>U</kbd> Broadside</span>
-      <span class="help-group"><kbd>R</kbd> quiet · <kbd>C</kbd> bubbles</span>
+      <span class="help-group"><kbd>R</kbd> quiet · <kbd>C</kbd> bubbles · <kbd>${ENVIRONMENT_PANEL_KEY_LABEL}</kbd> weather</span>
       <span class="help-group"><kbd>1–7</kbd> view · <kbd>Space</kbd> pause · <kbd>H</kbd> look-dev</span>
     `;
     // pointerdown survives the ~8 Hz innerHTML rebuild better than click.
@@ -762,6 +763,7 @@ export class Hud {
         ${button('pause', game.phase === 'paused' ? 'Resume' : 'Pause', false, undefined, false, false, 'Pause simulation')}
         ${button('mute', this.cb.isMuted() ? 'Unmute' : 'Mute', false, undefined, false, false, 'Toggle audio')}
         ${button('help', 'Help', false, undefined, false, false, 'Tutorial and onboarding guide')}
+        ${button('weather', 'Weather', false, undefined, false, false, `Weather and time of day (${ENVIRONMENT_PANEL_KEY_LABEL})`)}
       </section>
       <div class="hud-toasts" aria-live="polite" data-field="toasts">${message ? `<div class="toast">${message.text.replace(/(\d+\.\d+)s/g, (_, n: string) => `${Math.ceil(Number(n))}s`)}</div>` : ''}</div>
     `;

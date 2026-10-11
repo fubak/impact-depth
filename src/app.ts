@@ -26,6 +26,7 @@ import {
   selectTarget,
   setAutopilot,
   setDepthOrder,
+  setEnvironment,
   setPhase,
   setSpeedOrder,
   setWeapon,
@@ -43,6 +44,7 @@ import { actionTimeScale } from './game/sim/action-feel';
 import { hasContact } from './game/sim/contact';
 import { depthToMeters, simToWorldMeters, worldMetersToSim } from './game/sim/coords';
 import { GameAudio } from './game/audio/audio';
+import { DEFAULT_ENVIRONMENT } from './game/sim/environment';
 import type { GameState, Point } from './game/sim/types';
 import { InputController } from './input/controls';
 import { canPlotFromView, resolveWorldClick } from './input/world-click';
@@ -74,6 +76,12 @@ import {
   type ErrorRecord,
 } from './ui/error-toast';
 import { Hud } from './ui/hud';
+import {
+  ENVIRONMENT_PANEL_KEY,
+  EnvironmentPanel,
+  resolveEnvironmentSelection,
+  type EnvironmentSelection,
+} from './ui/environment-panel';
 import { PatrolOverlay } from './ui/overlays';
 import { PerkOverlay, resolvePerkOverlay } from './ui/perk-overlay';
 import { LookDevPanel } from './ui/panel';
@@ -121,6 +129,9 @@ export class App {
   private readonly threatForward = new THREE.Vector3();
   private tutorialHeldPause = false;
   private readonly perkOverlay: PerkOverlay;
+  private readonly environmentPanel: EnvironmentPanel;
+  /** Weather and time chosen by the player (URL, menu or quick panel); applied to every new game. */
+  private environmentChoice: EnvironmentSelection;
   /** Level at which the level-up card was deferred with Esc; null when nothing is deferred. */
   private perkDeferredLevel: number | null = null;
   private readonly audio = new GameAudio();
@@ -173,10 +184,8 @@ export class App {
     // `?look=sunset-passage` boots straight into a preset (shareable look links, captures).
     const look = new URLSearchParams(window.location.search).get('look');
     if (look && isPresetId(look)) this.settings = applyPreset(look);
-    this.game = {
-      ...createScenario({ scenario: 'patrol', seed: 19, worldVersion: this.runtime.world }),
-      settings: this.settings,
-    };
+    this.environmentChoice = resolveEnvironmentSelection(window.location.search);
+    this.game = this.freshGame('patrol', 19);
     this.sim = adaptToLookDevSim(this.game);
     const systemReduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     this.reducedMotion = resolveReducedMotion(play.reducedMotion, systemReduce);
@@ -237,6 +246,10 @@ export class App {
       () => this.beginPatrol(),
       () => this.restartPatrol(),
       (action) => this.menuAction(action),
+      {
+        get: () => this.environmentChoice,
+        change: (patch) => this.chooseEnvironment(patch),
+      },
     );
     this.tutorial = new TutorialOverlay($('tutorial-overlay'), (open) => {
       if (!open) this.clearTutorialHazards();
@@ -252,6 +265,15 @@ export class App {
         this.perkDeferredLevel = this.game.stats.level;
         this.syncPerkOverlay();
       },
+    });
+    const environmentRoot = document.createElement('div');
+    environmentRoot.id = 'environment-panel';
+    environmentRoot.className = 'environment-panel';
+    environmentRoot.setAttribute('role', 'dialog');
+    environmentRoot.setAttribute('aria-label', 'Weather and time of day');
+    this.appRoot.append(environmentRoot);
+    this.environmentPanel = new EnvironmentPanel(environmentRoot, {
+      change: (patch) => this.chooseEnvironment(patch),
     });
     this.tutorial.onBeat = (index) => this.onTutorialBeat(index);
     this.tutorial.mayAdvance = (step) => this.tutorialMayAdvance(step);
@@ -419,44 +441,65 @@ export class App {
     };
   }
 
+  /**
+   * A new game with the player's weather and time applied through `setEnvironment`.
+   * Every game the App creates (first load, Begin, Convoy strike, New seed, Retry,
+   * Restart) comes from here, so the choice survives restarts. Clear day is the
+   * identity and skips the command, leaving default play exactly as it was.
+   */
+  private freshGame(scenario: 'patrol' | 'convoy-strike', seed: number): GameState {
+    const created = {
+      ...createScenario({ scenario, seed, worldVersion: this.runtime.world }),
+      settings: this.settings,
+    };
+    const choice = this.environmentChoice;
+    const isDefault =
+      choice.weather === DEFAULT_ENVIRONMENT.weather &&
+      choice.timeOfDay === DEFAULT_ENVIRONMENT.timeOfDay;
+    return isDefault ? created : setEnvironment(created, choice);
+  }
+
+  /** Menu chooser or quick panel: hold the choice, and change the live game now. */
+  private chooseEnvironment(patch: Partial<EnvironmentSelection>): void {
+    this.environmentChoice = { ...this.environmentChoice, ...patch };
+    this.game = setEnvironment(this.game, this.environmentChoice);
+    this.sim = adaptToLookDevSim(this.game);
+    this.environmentPanel.sync(this.environmentChoice);
+    this.patrol.syncEnvironment();
+  }
+
+  /** The quick panel is for a patrol in progress; the menu card has its own choosers. */
+  private toggleEnvironmentPanel(): void {
+    if (this.environmentPanel.isOpen()) {
+      this.environmentPanel.close();
+      return;
+    }
+    if (this.perkOverlay.isOpen()) return;
+    if (this.game.phase !== 'playing' && this.game.phase !== 'paused') return;
+    this.environmentPanel.open(this.environmentChoice);
+  }
+
   private menuAction(action: 'begin' | 'strike' | 'new-seed' | 'retry'): void {
     if (action === 'retry') {
       this.restartPatrol();
       return;
     }
     if (action === 'new-seed') {
-      const seed = 1 + (Date.now() % 9000);
-      this.game = {
-        ...createScenario({ scenario: 'patrol', seed, worldVersion: this.runtime.world }),
-        settings: this.settings,
-      };
+      this.game = this.freshGame('patrol', 1 + (Date.now() % 9000));
       this.beginPatrol();
       return;
     }
     if (action === 'strike') {
-      this.game = {
-        ...createScenario({
-          scenario: 'convoy-strike',
-          seed: 19,
-          worldVersion: this.runtime.world,
-        }),
-        settings: this.settings,
-      };
+      this.game = this.freshGame('convoy-strike', 19);
       this.beginPatrol();
       return;
     }
-    this.game = {
-      ...createScenario({
-        scenario: 'patrol',
-        seed: this.game.seed,
-        worldVersion: this.runtime.world,
-      }),
-      settings: this.settings,
-    };
+    this.game = this.freshGame('patrol', this.game.seed);
     this.beginPatrol();
   }
 
   private beginPatrol(): void {
+    this.environmentPanel.close();
     this.missionGeneration += 1;
     this.cinema = idleTrack();
     this.clearTutorialHazards();
@@ -475,14 +518,8 @@ export class App {
     this.missionGeneration += 1;
     this.cinema = idleTrack();
     this.scene.resetEnvironment(this.missionGeneration);
-    this.game = {
-      ...createScenario({
-        scenario: 'patrol',
-        seed: this.game.seed,
-        worldVersion: this.runtime.world,
-      }),
-      settings: this.settings,
-    };
+    this.environmentPanel.close();
+    this.game = this.freshGame('patrol', this.game.seed);
     this.sim = adaptToLookDevSim(this.game);
     this.patrol.render(this.game);
   }
@@ -490,6 +527,10 @@ export class App {
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     if (this.perkOverlay.isOpen()) return;
+    if (e.code === ENVIRONMENT_PANEL_KEY && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      this.toggleEnvironmentPanel();
+      return;
+    }
     if (e.code === 'KeyL' && this.game.pendingPerks.length > 0) {
       this.perkDeferredLevel = null;
       this.syncPerkOverlay();
@@ -551,6 +592,10 @@ export class App {
     }
     if (action === 'pause') {
       this.inputPause();
+      return;
+    }
+    if (action === 'weather') {
+      this.toggleEnvironmentPanel();
       return;
     }
     if (this.game.phase !== 'playing') return;
@@ -730,8 +775,10 @@ export class App {
       tutorialOpen: this.tutorial.isOpen(),
     });
     this.perkDeferredLevel = state.deferredLevel;
-    if (state.open) this.perkOverlay.show(this.game.pendingPerks, this.game.stats.level);
-    else this.perkOverlay.hide();
+    if (state.open) {
+      this.environmentPanel.close();
+      this.perkOverlay.show(this.game.pendingPerks, this.game.stats.level);
+    } else this.perkOverlay.hide();
   }
 
   private choosePerkCard(index: number): void {
@@ -1134,6 +1181,7 @@ export class App {
     this.input.dispose();
     this.tutorial.dispose();
     this.perkOverlay.dispose();
+    this.environmentPanel.dispose();
     this.threatRoot.remove();
     this.audio.dispose();
     this.errorToast?.dispose();

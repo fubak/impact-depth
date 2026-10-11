@@ -1117,11 +1117,12 @@ svg.map .land { pointer-events: none; }
 /* 1101-1400px: tighten the strip so the Broadside key still fits on one line. */
 @media (min-width: 1101px) and (max-width: 1400px) {
   .help-strip {
-    gap: 8px 10px;
-    letter-spacing: 0.02em;
+    gap: 8px 8px;
+    font-size: 10.5px;
+    letter-spacing: 0.01em;
   }
 
-  .help-strip kbd { padding: 0 3px; }
+  .help-strip kbd { padding: 0 2px; }
 }
 
 /* Narrow windows: show the first three key groups on one line (the rest is under Help). */
@@ -1335,4 +1336,137 @@ svg.map .land { pointer-events: none; }
   .perk-cards { grid-template-columns: 1fr; }
   .perk-card { min-height: 0; }
   .perk-foot { flex-direction: column; align-items: flex-start; }
+}
+
+/* Weather and time of day: quick popover (key Y / chrome button) and the menu-card choosers. */
+.environment-panel {
+  position: absolute;
+  /* Just under the top chrome row; clear of the centre of the view. */
+  top: 64px;
+  left: 316px;
+  z-index: 7;
+  width: 262px;
+  padding: var(--hud-pad-y) 8px 8px;
+  border: 1px solid var(--border);
+  background: rgba(var(--hud-panel-rgb), 0.9);
+  font-family: var(--font-data);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.environment-panel[hidden] { display: none; }
+
+.env-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.env-title {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+}
+
+.env-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--brass-ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.env-close {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  background: rgba(21, 27, 28, 0.92);
+  color: var(--text);
+  font: 14px/1 var(--font-data);
+  cursor: pointer;
+}
+
+.env-close:hover { border-color: var(--brass); }
+
+.env-row { margin-top: 6px; }
+
+.env-row-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.env-btns {
+  display: grid;
+  gap: 3px;
+}
+
+.env-btns-weather { grid-template-columns: repeat(3, 1fr); }
+.env-btns-time { grid-template-columns: repeat(4, 1fr); }
+
+.env-btn {
+  min-height: var(--hud-btn-min);
+  padding: 3px 2px;
+  border: 1px solid var(--border);
+  background: rgba(21, 27, 28, 0.92);
+  color: var(--text);
+  font: 10px var(--font-data);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.env-btn:hover { border-color: var(--brass); }
+
+.env-btn[aria-pressed='true'] {
+  border-color: var(--brass);
+  background: rgba(189, 139, 78, 0.18);
+  color: var(--brass-ink);
+}
+
+.env-btn:focus-visible,
+.env-close:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.env-detail {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.env-foot {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.env-foot kbd {
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0 3px;
+  font-family: inherit;
+}
+
+.env-choosers {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+
+.env-choosers .env-row:first-child { margin-top: 0; }
+
+/* Short or narrow windows move TACTICS up to top:156 beside the chrome row; sit to its right. */
+@media (max-height: 760px), (max-width: 1100px) {
+  .environment-panel { left: 574px; width: 208px; }
 }

@@ -4,6 +4,8 @@
 
 ## Now
 
+**Plan 029 (2026-10-11):** naval realism: physical sea model (Pierson-Moskowitz Hs/Tp, Monahan whitecaps, Beaufort), weather (clear/partly cloudy/overcast/rain/storm/fog) and time of day (dawn/day/dusk/night) chosen from the menu or key `Y`, driving the sea, sky, rain, fog, lightning AND sim effects (sonar, visual range, ship speed, pattern scatter); escort creeping attack, listening interval, torpedo evasion; convoy zigzag/emergency turns. See `plans/029-naval-realism-weather-pass.md`. Hyper-realism eye-pass, GPU FPS and other gates PENDING.
+
 **Plan 028 (2026-10-10):** ARPG fun pass landed: XP/levels + 8 perks (level-up card), crits, kill streaks, rarity loot, ELITE hunts, Broadside ultimate (key U), captain HUD, plainer copy. See `plans/028-captains-glory-fun-pass.md`. Fun/feel, perk balance and GPU gates PENDING.
 
 **Plan 026 machine work landed.** Phases 1–4 (ordnance physics, vessel dynamics, escort doctrine, instanced-particle combat VFX) are in `df4f424`. This session added Phase 5 — bloom post pipeline (`?bloom=0` off, on by default at `quality=high`), depth-graded underwater fog/exposure, sun shafts, marine snow — and Phase 6: HUD target-card damage states (FLOODING / ON FIRE / DEAD IN WATER / SINKING), staggered wave rings that keep large waves inside the 30–55 u envelope, wave-1 roving-escort sweep that finds a quiet boat in ~16–25 s, and flow noise keyed on realized speed. Campaign balance is pinned by `tests/game/playtest/campaign-balance.test.ts` (wave-1 sweep + wave-2 kills across 5 seeds).

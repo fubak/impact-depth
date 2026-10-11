@@ -1,4 +1,16 @@
 import type { GameState } from '../game/sim/types';
+import {
+  environmentPatchFromButton,
+  renderEnvironmentChoosers,
+  syncEnvironmentChoosers,
+  type EnvironmentSelection,
+} from './environment-panel';
+
+/** Weather and time-of-day choice held by the App and applied to every new game. */
+export interface MenuEnvironment {
+  get(): EnvironmentSelection;
+  change(patch: Partial<EnvironmentSelection>): void;
+}
 
 export class PatrolOverlay {
   private lastSignature = '';
@@ -7,10 +19,17 @@ export class PatrolOverlay {
     private readonly onBegin: () => void,
     private readonly onRestart: () => void,
     private readonly onMenu?: (action: 'begin' | 'strike' | 'new-seed' | 'retry') => void,
+    private readonly environment?: MenuEnvironment,
   ) {
     this.root.addEventListener('click', (event) => {
-      const action = (event.target as HTMLElement).closest<HTMLButtonElement>('button')?.dataset
-        .action;
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+      const patch = environmentPatchFromButton(button);
+      if (patch && this.environment) {
+        this.environment.change(patch);
+        this.syncEnvironment();
+        return;
+      }
+      const action = button?.dataset.action;
       if (
         action === 'begin' ||
         action === 'strike' ||
@@ -25,13 +44,18 @@ export class PatrolOverlay {
     });
   }
 
+  /** Reflect the held choice in the menu card's weather and time buttons. */
+  syncEnvironment(): void {
+    if (this.environment) syncEnvironmentChoosers(this.root, this.environment.get());
+  }
+
   render(game: GameState): void {
     const signature = `${game.phase}:${game.stats.score}:${game.stats.shipsSunk}`;
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;
     if (game.phase === 'menu') {
       this.root.hidden = false;
-      this.root.innerHTML = `<section class="patrol-card"><div class="hud-sub">SILENT DEPTHS</div><h1>BEGIN PATROL</h1><p>Clear two waves, or strike one merchant and leave.</p><button class="btn primary" data-action="begin">Begin Patrol</button><button class="btn" data-action="strike">Convoy strike</button><button class="btn" data-action="new-seed">New patrol seed</button><button class="btn" data-action="retry">Retry same seed</button></section>`;
+      this.root.innerHTML = `<section class="patrol-card"><div class="hud-sub">SILENT DEPTHS</div><h1>BEGIN PATROL</h1><p>Clear two waves, or strike one merchant and leave.</p><button class="btn primary" data-action="begin">Begin Patrol</button><button class="btn" data-action="strike">Convoy strike</button><button class="btn" data-action="new-seed">New patrol seed</button><button class="btn" data-action="retry">Retry same seed</button>${this.environment ? `<div class="env-choosers" aria-label="Weather and time of day">${renderEnvironmentChoosers(this.environment.get())}</div>` : ''}</section>`;
       return;
     }
     if (game.phase === 'victory' || game.phase === 'gameover') {

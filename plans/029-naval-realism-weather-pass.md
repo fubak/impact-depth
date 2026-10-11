@@ -1,6 +1,6 @@
 # Plan 029 — Naval realism: ship AI doctrine, sea state, weather and day/night
 
-> **Status: PLANNED.** Branch `plan-029-realism`. Machine verification only. "Looks hyper-realistic" is a visual judgement that needs a
+> **Status: MACHINE WORK LANDED (2026-10-11).** E1-E4 implemented and unit-tested (1172 tests); A1-A15 met in code/tests; browser layout and smoke verified on CI only. Visual realism, key `Y` for the weather panel (E is dive trim) and all operator gates PENDING. Branch `plan-029-realism`. Machine verification only. "Looks hyper-realistic" is a visual judgement that needs a
 > GPU and a human eye: it is an **operator gate** and is not self-approved (AGENTS.md). What this plan *can* prove is physical
 > correctness of the models, doctrine conformance of the AI, and that nothing regresses. Loop criteria are the measurable ones below.
 

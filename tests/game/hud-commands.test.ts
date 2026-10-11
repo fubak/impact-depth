@@ -398,6 +398,7 @@ describe('HUD declutter (D1)', () => {
       'sonar',
       'mute',
       'help',
+      'weather',
       'clear',
       'toggle-gear',
       'toggle-doctrine',
