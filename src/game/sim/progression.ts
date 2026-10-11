@@ -1,3 +1,4 @@
+import { ELITE_XP_MULT } from './elites';
 import { applyChosenPerk, PERKS, PERK_IDS } from './perks';
 import type { GameState, PerkId, Ship, ShipKind } from './types';
 
@@ -17,7 +18,8 @@ export const OFFER_SIZE = 3;
 /** XP needed to leave level `level`: 80 + 60 * (level - 1). */
 export const xpToNext = (level: number): number => 80 + 60 * (level - 1);
 
-export const xpForKill = (ship: Pick<Ship, 'kind'>): number => XP_PER_KILL[ship.kind];
+export const xpForKill = (ship: Pick<Ship, 'kind' | 'elite'>): number =>
+  XP_PER_KILL[ship.kind] * (ship.elite === true ? ELITE_XP_MULT : 1);
 
 /** Integer hash (murmur-style finalizer) so offers depend on inputs, not on call order. */
 function mix(...values: number[]): number {

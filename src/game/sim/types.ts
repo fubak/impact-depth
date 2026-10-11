@@ -9,6 +9,8 @@ export type ShipKind = 'destroyer' | 'merchant' | 'battleship' | 'sub' | 'patrol
 export type AutopilotTactic = 'manual' | 'ambush' | 'stalk' | 'intercept' | 'evade' | 'exfil';
 export type AutopilotPhase = 'idle' | 'approach' | 'setup' | 'attack' | 'breakaway' | 'dock';
 export type PowerupKind = 'health' | 'ammo' | 'hull' | 'weapon' | 'speed' | 'counter';
+/** Crate quality. Scales health and seeker magnitudes (loot.ts); absent means common. */
+export type PowerupRarity = 'common' | 'rare' | 'epic';
 export type ThreatKind = 'torpedo' | 'depthCharge' | 'hedgehog' | 'shell' | 'bomb';
 /** Level-up perks. Definitions and tuning live in perks.ts. */
 export type PerkId =
@@ -115,6 +117,8 @@ export interface Ship {
   patrolIndex: number;
   path: Point[];
   repathTimer: number;
+  /** Named hunt target (elites.ts): more hull, triple XP, guaranteed rare+ loot. Absent on normal hulls. */
+  elite?: boolean;
   /** Seconds of flotation remaining once lethal damage is taken. */
   sinking?: number;
   formationAnchorId?: string | null;
@@ -248,6 +252,8 @@ export interface Powerup {
   x: number;
   y: number;
   life: number;
+  /** Absent on seeded map crates, which behave as common. */
+  rarity?: PowerupRarity;
 }
 export interface Base {
   x: number;

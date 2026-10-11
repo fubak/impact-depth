@@ -7,6 +7,7 @@ import {
   WORLD_SIZE,
 } from './constants';
 import { WAVE1_SPAWN_RADIUS } from './action-feel';
+import { applyElites } from './elites';
 import { SINK_DURATION } from './ship-damage';
 import type { FormationRole, GameState, Point, Powerup, Ship, ShipKind, Submarine } from './types';
 import { createTerrain, snapToNavigable, type Terrain } from './world';
@@ -269,7 +270,7 @@ export function seedWave(
   const anchorId = ships[0]?.id ?? null;
   let escortCycleIndex = 0;
   let wingSideIndex = 0;
-  return ships.map((ship, index) => {
+  const slotted = ships.map((ship, index) => {
     if (index === 0) return ship;
     // Wave-1 escorts run a roving patrol (biased path above) rather than
     // screening the convoy — the opening is a stalk, not a formed escort.
@@ -299,6 +300,8 @@ export function seedWave(
     }
     return ship;
   });
+  // Wave 2+: at most one escort is promoted to an elite hunt target (wave 1 is returned as-is).
+  return applyElites(seed, wave, slotted);
 }
 
 export function seedPowerups(

@@ -62,6 +62,7 @@ import {
 } from './perks';
 import { expireCombo, registerKills } from './combo';
 import { awardXp, choosePerk, xpForKill } from './progression';
+import { HEALTH_BY_RARITY, SEEKERS_BY_RARITY, dropLoot, rarityOf } from './loot';
 import {
   advanceBank,
   advanceDepth,
@@ -227,12 +228,12 @@ const HUNTER_KINDS: ReadonlySet<Ship['kind']> = new Set([
 function applyPickup(sub: GameState['submarine'], pickup: Powerup): GameState['submarine'] {
   switch (pickup.kind) {
     case 'health':
-      return { ...sub, hp: clamp(sub.hp + 35, 0, sub.maxHp) };
+      return { ...sub, hp: clamp(sub.hp + HEALTH_BY_RARITY[rarityOf(pickup)], 0, sub.maxHp) };
     case 'ammo':
       return {
         ...sub,
         torpedoes: sub.maxTorpedoes,
-        seekers: Math.min(sub.maxSeekers, sub.seekers + 2),
+        seekers: Math.min(sub.maxSeekers, sub.seekers + SEEKERS_BY_RARITY[rarityOf(pickup)]),
       };
     case 'hull': {
       if (sub.hullTier >= MAX_TIER) return sub;
@@ -1224,7 +1225,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       ],
       ...(victory ? { phase: 'victory' as const } : {}),
     };
-    return awardXp(registerKills(afterSinking, sunkScores), sunkXp);
+    // Wrecks leave a seeded crate (loot.ts) before XP/combo; neither reads or advances rngState.
+    return awardXp(registerKills(dropLoot(afterSinking, wrecks), sunkScores), sunkXp);
   },
   pickupsWaves(state, _commands, dt) {
     const nearBase = inFob(state);
