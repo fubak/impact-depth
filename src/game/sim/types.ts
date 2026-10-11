@@ -151,6 +151,20 @@ export interface Ship {
   lastHitX?: number;
   lastHitY?: number;
   lastHitTime?: number;
+  /** Creeping attack (creeping-attack.ts): holder keeps contact, creeper runs in silent. */
+  role?: 'holder' | 'creeper';
+  /** The other ship of the creeping pair. */
+  creepPartnerId?: string;
+  /** True while this escort is sending active sonar pings (the holder). */
+  pinging?: boolean;
+  /** Seconds of post-attack listening left (escort-realism.ts). */
+  listenTimer?: number;
+  /** Escort torpedo evasion: seconds left, and the torpedo bearing being combed. */
+  threatTimer?: number;
+  threatBearing?: number;
+  /** Merchant emergency turn (convoy-behavior.ts): seconds left and the ordered course. */
+  emergencyTimer?: number;
+  emergencyHeading?: number;
 }
 export interface Torpedo {
   id: string;

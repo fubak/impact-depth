@@ -24,6 +24,10 @@ export const ATTACK_RUN_CAP = 2;
 export const PATTERN_DROP_RANGE = 1.0;
 /** Run at this fraction of class speed over the top of the boat. */
 export const ATTACK_RUN_SPEED_FRAC = 0.8;
+/** An escort holding the contact (no free attack lane) idles at most this fast. */
+export const HOLD_SPEED_FRAC = 0.45;
+/** Expanding-square search speed — must stay at or under 0.6 of class speed. */
+export const SEARCH_SPEED_FRAC = 0.55;
 /** Hold the run this far past the datum before turning back. */
 export const REATTACK_OVERSHOOT = 5;
 /** Hedgehogs fire when the predicted datum sits inside this forward envelope. */
@@ -162,7 +166,13 @@ export function escortIntent(
       return {
         ship: next,
         heading: Math.atan2(predicted.y - next.y, predicted.x - next.x),
-        speedFrac: doctrine === 'attackRun' ? ATTACK_RUN_SPEED_FRAC : 1,
+        // Inside run range but denied a lane: hold the contact slowly, don't overrun it.
+        speedFrac:
+          doctrine === 'attackRun'
+            ? ATTACK_RUN_SPEED_FRAC
+            : predDist <= ATTACK_RUN_RANGE
+              ? HOLD_SPEED_FRAC
+              : 1,
         action: dropOrHedgehog(),
         aimX: predicted.x,
         aimY: predicted.y,
@@ -240,7 +250,7 @@ export function escortIntent(
       return {
         ship: next,
         heading: Math.atan2(aimY - next.y, aimX - next.x),
-        speedFrac: 0.55,
+        speedFrac: SEARCH_SPEED_FRAC,
         action: null,
       };
     }

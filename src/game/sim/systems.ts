@@ -46,7 +46,15 @@ import { makeClear, resolveClearStep, steerAvoid, shipClearRadius } from './path
 import { updateSonar, shipMaxSpeed } from './sonar';
 import { canHearPing, hasContact } from './contact';
 import { environmentFor, shipSpeedFactor, sonarRangeFactor } from './environment';
-import { DOCTRINE_KINDS, escortIntent, merchantIntent } from './escort-doctrine';
+import {
+  ATTACK_RUN_CAP,
+  DOCTRINE_KINDS,
+  escortIntent,
+  merchantIntent,
+} from './escort-doctrine';
+import { assignCreepRoles, creepSweepPulse, creeperFeed } from './creeping-attack';
+import { LISTEN_INTERVAL, shapeEscortIntent } from './escort-realism';
+import { convoyMerchantIntent } from './convoy-behavior';
 import { releaseCallouts } from './defense-callout';
 import { separateShips } from './ship-separation';
 import { integrateV2Horizontal, resolveV2WorldCollision } from '../world/collision';
@@ -832,6 +840,8 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     // Ships that commit to a run in this same pass also claim a slot, so two
     // escorts cannot pounce simultaneously on a fresh fix.
     let claimedRuns = 0;
+    // Creeping-attack pairs (holder / creeper) from the previous step's state.
+    const creepRoles = assignCreepRoles(state);
     const chargesBefore = depthCharges.length;
     const torpedoesBefore = torpedoes.length;
     const ships = state.ships.map((ship) => {
@@ -851,8 +861,10 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       const bubbleScreen = state.countermeasures.some(
         (cm) => cm.kind === 'bubble' && Math.hypot(cm.x - sub.x, cm.y - sub.y) <= cm.radius,
       );
+      const creep = creepRoles.get(ship.id);
+      // The creeper is silent; the holder also pings on its own short cadence.
       const swept =
-        sweepPulse &&
+        creepSweepPulse(creep?.role, sweepPulse, state.time, dt) &&
         sweepRadius > 0 &&
         ESCORT_SWEEP_KINDS.has(ship.kind) &&
         distance <= sweepRadius;
@@ -916,14 +928,28 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       let aimX: number | undefined;
       let aimY: number | undefined;
       if (DOCTRINE_KINDS.has(ship.kind)) {
-        const fix = detected || swept ? { x: sub.x, y: sub.y } : null;
-        const intent = escortIntent(
+        const partner = creep ? state.ships.find((other) => other.id === creep.partnerId) : undefined;
+        const ownFix = detected || swept ? { x: sub.x, y: sub.y } : null;
+        // The holder's live fix is the creeper's only picture of the boat.
+        const fed = ownFix || creep?.role !== 'creeper' ? null : creeperFeed(partner, state.time);
+        const fix = ownFix ?? fed;
+        const base = escortIntent(
           { ...ship, alert, holdContact },
           fix,
           state,
           dt,
-          attackRunners + claimedRuns,
+          // A creeping pair runs its own attack; nobody pounces on a fix meanwhile.
+          creep ? ATTACK_RUN_CAP : attackRunners + claimedRuns,
         );
+        const shaped = shapeEscortIntent(base, {
+          before: ship,
+          assignment: creep,
+          partner,
+          fedFixTime: fed?.time,
+          state,
+          dt,
+        });
+        const intent = shaped.intent;
         const updated = intent.ship;
         if (updated.doctrine === 'attackRun' && ship.doctrine !== 'attackRun') claimedRuns += 1;
         doctrineFields = {
@@ -934,6 +960,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
           datumVy: updated.datumVy,
           doctrineTimer: updated.doctrineTimer,
           lastFixTime: updated.lastFixTime,
+          ...shaped.fields,
         };
         // Search give-up resets suspicion inside the doctrine step.
         doctrineSuspicion = updated.suspicion;
@@ -943,11 +970,20 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         aimX = intent.aimX;
         aimY = intent.aimY;
       } else if (ship.kind === 'merchant') {
-        const intent = merchantIntent(ship, basePursuit, state, dt);
+        const intent = convoyMerchantIntent(
+          ship,
+          merchantIntent(ship, basePursuit, state, dt),
+          basePursuit,
+          state,
+          dt,
+          { isAnchor: !anchor, clear },
+        );
         doctrineFields = {
           scatterTimer: intent.ship.scatterTimer,
           scatterX: intent.ship.scatterX,
           scatterY: intent.ship.scatterY,
+          emergencyTimer: intent.ship.emergencyTimer,
+          emergencyHeading: intent.ship.emergencyHeading,
         };
         intentHeading = intent.heading;
         intentSpeedFrac = intent.speedFrac;
@@ -1011,13 +1047,13 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       // at release, the run already committed to it.
       if (drop === 'hedgehog') {
         depthCharges.push(...hedgehogEllipse(state, next, aimX, aimY));
-        return { ...next, weaponCooldown: DC_PATTERN_COOLDOWN };
+        return { ...next, weaponCooldown: DC_PATTERN_COOLDOWN, listenTimer: LISTEN_INTERVAL };
       }
       if (drop === 'pattern' && sub.z > 0.12) {
         const pattern = depthChargePattern(state, next, rngState);
         rngState = pattern.rngState;
         depthCharges.push(...pattern.charges);
-        return { ...next, weaponCooldown: DC_PATTERN_COOLDOWN };
+        return { ...next, weaponCooldown: DC_PATTERN_COOLDOWN, listenTimer: LISTEN_INTERVAL };
       }
       if (!detected) return next;
       const shallow = sub.z < 0.18;

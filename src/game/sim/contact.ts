@@ -5,7 +5,7 @@ import type { GameState, Ship } from './types';
 /** Stern arc where own wake blanks the hydrophones (radians each side of dead astern). */
 const BAFFLE_ARC = (40 * Math.PI) / 180;
 /** Inside this horizontal range a surface escort cannot hear a boat below the layer. */
-const BLIND_ZONE = 1.3;
+export const BLIND_ZONE = 1.3;
 /** Running the ship this hard blankets the arrays in flow noise. */
 const FLOW_NOISE_RATIO = 0.7;
 /** An active ping is interceptable far beyond passive range — the loud fix. */

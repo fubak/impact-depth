@@ -23,9 +23,13 @@ export function layerFactor(listenerDepth: number, targetDepth: number): number 
   return 0.78;
 }
 
+/** A creeping-attack creeper runs slow and quiet: the boat hears it later. */
+const CREEPER_NOISE_SCALE = 0.5;
+
 export function shipMachineryNoise(ship: Ship): number {
   const speed = clamp(ship.speed / shipMaxSpeed[ship.kind], 0, 1);
-  return clamp(machineryBase[ship.kind] * 0.45 + speed * speed * 0.55 + (ship.alert > 0.5 ? 0.08 : 0), 0.08, 1);
+  const noise = clamp(machineryBase[ship.kind] * 0.45 + speed * speed * 0.55 + (ship.alert > 0.5 ? 0.08 : 0), 0.08, 1);
+  return ship.role === 'creeper' ? noise * CREEPER_NOISE_SCALE : noise;
 }
 
 export function passiveRange(listener: ShipKind | 'player', noise: number, listenerDepth: number, targetDepth: number, mask = 1): number {
