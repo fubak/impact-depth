@@ -99,6 +99,7 @@ import { INACTIVE_WEATHER_FX, type WeatherFx } from './environment/weather-model
 import { oceanKeyLight } from './environment/atmosphere-grade';
 import { RainLayer } from './fx/rain';
 import { RainRipples } from './fx/rain-ripples';
+import { LootBeacons, styleCrate } from './fx/loot-beacons';
 import { Ocean } from './ocean';
 import { GerstnerBackend } from './ocean/gerstner-backend';
 import { createSpectralBackend, SpectralBackend } from './ocean/spectral-backend';
@@ -178,6 +179,7 @@ export class GameScene {
   private readonly weather = new WeatherController();
   private readonly rain = new RainLayer();
   private readonly rainRipples = new RainRipples();
+  private readonly lootBeacons = new LootBeacons();
   private readonly rainTint = new THREE.Color();
   /** Sim weather levels for this frame; inactive at the default environment. */
   private weatherFx: WeatherFx = INACTIVE_WEATHER_FX;
@@ -278,6 +280,8 @@ export class GameScene {
     this.scene.add(this.rain.object);
     this.scene.add(this.rainRipples.mesh);
     excludeFromWaterCapture(this.rainRipples.mesh);
+    this.scene.add(this.lootBeacons.group);
+    excludeFromWaterCapture(this.lootBeacons.group);
     this.scene.add(this.crestSpray.points);
     excludeFromWaterCapture(this.crestSpray.points);
     this.caustics.attachToObject(this.seabed.mesh, 'seabed');
@@ -1233,7 +1237,17 @@ export class GameScene {
     for (const powerup of game.powerups) {
       const p = simToWorldMeters(powerup.x, powerup.y);
       add(`powerup:${powerup.id}`, 'crate', p.x, SURFACE_SPLASH_Y, p.z);
+      const crate = this.entities.get(`powerup:${powerup.id}`);
+      if (crate) styleCrate(crate, powerup.rarity, game.time, this.reducedMotion);
     }
+    this.lootBeacons.sync(
+      game.powerups.map((powerup) => {
+        const w = simToWorldMeters(powerup.x, powerup.y);
+        return { id: powerup.id, x: w.x, y: SURFACE_SPLASH_Y, z: w.z, rarity: powerup.rarity };
+      }),
+      game.time,
+      this.reducedMotion,
+    );
     for (const ship of game.ships) {
       if (ship.sinking !== undefined) {
         const p = simToWorldMeters(ship.x, ship.y);
@@ -2119,6 +2133,7 @@ export class GameScene {
     this.surfaceEffects.dispose();
     this.rain.dispose();
     this.rainRipples.dispose();
+    this.lootBeacons.dispose();
     this.wakeFoam.dispose();
     this.ocean.bindWakeFoam(null);
     this.ocean.dispose();

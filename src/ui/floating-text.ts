@@ -96,10 +96,22 @@ interface FloatSlot {
   y: number;
 }
 
+/**
+ * A slot is live only while its age is in [0, life). A negative age means the sim clock
+ * restarted after the slot was born, so the slot counts as dead and can be recycled.
+ */
+function isLive(slot: FloatSlot, nowS: number): boolean {
+  if (!slot.live) return false;
+  const age = nowS - slot.born;
+  return age >= 0 && age < FLOAT_LIFE_S[slot.kind];
+}
+
 /** Pool of FLOAT_CAP pre-built DOM nodes. Hits never create elements. */
 export class FloatingTextLayer {
-  private readonly reducedMotion: boolean;
+  private reducedMotion: boolean;
   private readonly slots: FloatSlot[] = [];
+  /** Reused on every spawn so picking a slot does not allocate an array per hit. */
+  private readonly pickView: { live: boolean; born: number }[] = [];
 
   constructor(root: HTMLElement, reducedMotion: boolean) {
     this.reducedMotion = reducedMotion;
@@ -112,16 +124,24 @@ export class FloatingTextLayer {
       el.hidden = true;
       root.appendChild(el);
       this.slots.push({ el, live: false, born: 0, kind: 'damage', x: 0, y: 0 });
+      this.pickView.push({ live: false, born: 0 });
     }
+  }
+
+  /** Runtime toggle; the next update() applies it to every number still on screen. */
+  setReducedMotion(value: boolean): void {
+    this.reducedMotion = value;
   }
 
   spawn(numbers: readonly HitNumber[], nowS: number): void {
     for (const n of numbers) {
-      const view = this.slots.map((slot) => ({
-        live: slot.live && nowS - slot.born < FLOAT_LIFE_S[slot.kind],
-        born: slot.born,
-      }));
-      const slot = this.slots[pickSlot(view)];
+      for (let i = 0; i < this.slots.length; i += 1) {
+        const slot = this.slots[i];
+        const view = this.pickView[i];
+        view.live = isLive(slot, nowS);
+        view.born = slot.born;
+      }
+      const slot = this.slots[pickSlot(this.pickView)];
       slot.live = true;
       slot.born = nowS;
       slot.kind = n.kind;
@@ -136,12 +156,12 @@ export class FloatingTextLayer {
     for (let i = 0; i < this.slots.length; i += 1) {
       const slot = this.slots[i];
       if (!slot.live) continue;
-      const age = nowS - slot.born;
-      if (age >= FLOAT_LIFE_S[slot.kind]) {
+      if (!isLive(slot, nowS)) {
         slot.live = false;
         slot.el.hidden = true;
         continue;
       }
+      const age = nowS - slot.born;
       const frame = floaterFrame(slot.kind, age, this.reducedMotion);
       const p = frame.visible ? project(slot.x, slot.y) : null;
       if (!frame.visible || !p || !p.onScreen) {

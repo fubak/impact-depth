@@ -158,3 +158,57 @@ describe('RainRipples', () => {
     ripples.dispose();
   });
 });
+
+describe('RainRipples upload gating', () => {
+  it('uploads the cleared pool once, then skips idle frames', () => {
+    const ripples = new RainRipples();
+    ripples.update(0.016, false, 0);
+    const matrixVersion = ripples.mesh.instanceMatrix.version;
+    const colorVersion = ripples.mesh.instanceColor!.version;
+    ripples.update(0.016, false, 0);
+    ripples.update(0.016, false, 0);
+    expect(ripples.mesh.instanceMatrix.version).toBe(matrixVersion);
+    expect(ripples.mesh.instanceColor!.version).toBe(colorVersion);
+    expect(ripples.mesh.visible).toBe(false);
+    ripples.dispose();
+  });
+
+  it('writes the cleared matrix on the frame the last ripple expires, then goes idle', () => {
+    const ripples = new RainRipples();
+    ripples.spawn(1, 2, 0.5);
+    ripples.update(0.016, false, 0);
+    expect(ripples.mesh.instanceMatrix.array[0]).toBeGreaterThan(0);
+    ripples.update(RIPPLE_LIFE_S, false, 0);
+    expect(ripples.active).toBe(0);
+    expect(ripples.mesh.instanceMatrix.array[0]).toBe(0);
+    expect(ripples.mesh.visible).toBe(false);
+    const clearedVersion = ripples.mesh.instanceMatrix.version;
+    ripples.update(0.016, false, 0);
+    expect(ripples.mesh.instanceMatrix.version).toBe(clearedVersion);
+    ripples.dispose();
+  });
+
+  it('clears stale matrices on the next update after a reset', () => {
+    const ripples = new RainRipples();
+    ripples.spawn(1, 2, 0.5);
+    ripples.update(0.016, false, 0);
+    ripples.reset();
+    ripples.update(0.016, false, 0);
+    expect(ripples.mesh.instanceMatrix.array[0]).toBe(0);
+    expect(ripples.mesh.visible).toBe(false);
+    ripples.dispose();
+  });
+
+  it('renders a spawn that arrives after an idle period', () => {
+    const ripples = new RainRipples();
+    ripples.update(0.016, false, 0);
+    ripples.update(0.016, false, 0);
+    ripples.spawn(3, 4, 0.5);
+    ripples.update(0.016, false, 0);
+    expect(ripples.active).toBe(1);
+    expect(ripples.mesh.visible).toBe(true);
+    // Column-major matrix: translation x sits at element 12 of the first instance.
+    expect(ripples.mesh.instanceMatrix.array[12]).toBe(3);
+    ripples.dispose();
+  });
+});

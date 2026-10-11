@@ -1,0 +1,15 @@
+.fx-banner-layer { position: absolute; inset: 0; z-index: 21; pointer-events: none; }
+.fx-banner, .fx-loot { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  font-family: var(--font-data); text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85); }
+.fx-banner { top: 22%; font-weight: 900; letter-spacing: 0.08em; font-size: clamp(28px, 4.2vw, 56px); color: #e8f0f4; }
+.fx-banner[data-tier='combo'] { color: #ffd34d; }
+.fx-banner[data-tier='epic'] { color: #ff7a3d; }
+.fx-banner[data-tier='level'] { color: #7fe3ff; }
+.fx-banner[data-tier='wave'] { font-size: clamp(22px, 3vw, 40px); }
+.fx-loot { top: 33%; font-weight: 800; font-size: 20px; color: #e8f0f4; }
+.fx-loot[data-rarity='rare'] { color: #3fa9ff; }
+.fx-loot[data-rarity='epic'] { color: #c45bff; }
+.fx-banner.is-in, .fx-loot.is-in { animation: fx-pop-in 0.22s ease-out; }
+@keyframes fx-pop-in { from { opacity: 0; transform: translateX(-50%) scale(1.35); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+.fx-banner-layer[data-reduced='1'] .is-in { animation: none; }
+@media (prefers-reduced-motion: reduce) { .fx-banner-layer .is-in { animation: none; } }

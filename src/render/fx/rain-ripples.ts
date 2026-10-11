@@ -71,6 +71,12 @@ export class RainRipples {
   private readonly dark = new THREE.Color(0, 0, 0);
   private cap: number = RAIN_RIPPLE_CAPS.high;
   private reducedMotion = false;
+  /**
+   * True while the buffers may hold live or not-yet-cleared slots. Starts true so the first
+   * update uploads the constructor's cleared buffers; spawn, quality trim and reset set it,
+   * and an update that leaves nothing live clears it. Idle frames then skip the rewrite.
+   */
+  private dirty = true;
 
   constructor() {
     this.geometry = new THREE.RingGeometry(0.86, 1, 28).rotateX(-Math.PI / 2);
@@ -99,6 +105,7 @@ export class RainRipples {
   setQuality(quality: QualityName): void {
     this.cap = RAIN_RIPPLE_CAPS[quality];
     for (let i = this.cap; i < POOL_CAPACITY; i++) this.live[i] = 0;
+    this.dirty = true;
   }
 
   setReducedMotion(value: boolean): void {
@@ -127,9 +134,13 @@ export class RainRipples {
     this.xs[slot] = x;
     this.zs[slot] = z;
     this.strengths[slot] = strength;
+    this.dirty = true;
   }
 
   update(dt: number, paused: boolean, waterY: number): void {
+    // Only a live slot or a not-yet-cleared buffer needs work. A clean pool has no live slots
+    // (spawn always sets dirty), so idle frames return before any rewrite or upload.
+    if (!this.dirty) return;
     if (!paused) {
       const step = Number.isFinite(dt) && dt > 0 ? dt : 0;
       for (let i = 0; i < POOL_CAPACITY; i++) {
@@ -147,7 +158,10 @@ export class RainRipples {
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
-    this.mesh.visible = this.active > 0;
+    const live = this.active;
+    this.mesh.visible = live > 0;
+    // Live ripples change age every frame; only a pool written with nothing live goes clean.
+    this.dirty = live > 0;
   }
 
   get active(): number {
@@ -160,6 +174,7 @@ export class RainRipples {
     this.live.fill(0);
     this.ages.fill(0);
     this.mesh.visible = false;
+    this.dirty = true;
   }
 
   dispose(): void {
