@@ -22,6 +22,7 @@ import {
   fireBroadside,
   fireWeapon,
   isBroadsideReady,
+  keepHunting,
   orderMove,
   selectTarget,
   setAutopilot,
@@ -76,6 +77,7 @@ import {
   type ErrorRecord,
 } from './ui/error-toast';
 import { Hud } from './ui/hud';
+import { JuiceLayer } from './ui/juice-layer';
 import {
   ENVIRONMENT_PANEL_KEY,
   EnvironmentPanel,
@@ -126,6 +128,7 @@ export class App {
   private readonly tutorial: TutorialOverlay;
   private readonly threatRoot: HTMLElement;
   private readonly threats: ThreatIndicatorLayer;
+  private readonly juice: JuiceLayer;
   private readonly threatForward = new THREE.Vector3();
   private tutorialHeldPause = false;
   private readonly perkOverlay: PerkOverlay;
@@ -250,6 +253,7 @@ export class App {
         get: () => this.environmentChoice,
         change: (patch) => this.chooseEnvironment(patch),
       },
+      () => this.keepHunting(),
     );
     this.tutorial = new TutorialOverlay($('tutorial-overlay'), (open) => {
       if (!open) this.clearTutorialHazards();
@@ -281,6 +285,7 @@ export class App {
     this.threatRoot.id = 'threat-indicators';
     this.appRoot.append(this.threatRoot);
     this.threats = new ThreatIndicatorLayer(this.threatRoot);
+    this.juice = new JuiceLayer(this.appRoot, $('hud'), this.reducedMotion);
 
     this.panel = new LookDevPanel($('lookdev'), this.settings, {
       onChange: (s) => {
@@ -504,6 +509,7 @@ export class App {
     this.cinema = idleTrack();
     this.clearTutorialHazards();
     this.scene.resetEnvironment(this.missionGeneration);
+    this.juice.reset();
     this.game = { ...startMission(this.game), settings: this.settings, viewMode: 'chase' };
     this.cameras.setMode('chase');
     const freighter = this.game.ships[0];
@@ -518,10 +524,17 @@ export class App {
     this.missionGeneration += 1;
     this.cinema = idleTrack();
     this.scene.resetEnvironment(this.missionGeneration);
+    this.juice.reset();
     this.environmentPanel.close();
     this.game = this.freshGame('patrol', this.game.seed);
     this.sim = adaptToLookDevSim(this.game);
     this.patrol.render(this.game);
+  }
+
+  /** Result card "Keep hunting": continue a won patrol in endless mode. */
+  private keepHunting(): void {
+    this.game = keepHunting(this.game);
+    this.sim = adaptToLookDevSim(this.game);
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
@@ -1010,10 +1023,15 @@ export class App {
         const command: GameCommand = { type: 'helm', ...this.input.intent };
         this.game = updateGame(this.game, [command], FIXED_DT);
         combat.push(...deriveCombatEvents(prev, this.game));
+        this.juice.observe(prev, this.game);
       }
       this.sim = adaptToLookDevSim(this.game);
     }
     this.syncPerkOverlay();
+    this.hitFreeze = Math.max(
+      this.hitFreeze,
+      this.juice.takeHitStop() * reducedMotionGates(this.reducedMotion).freezeScale,
+    );
 
     // Wrecks adopt the live hull before syncGame drops ships that just sank.
     this.presentCombat(combat, this.game.time);
@@ -1030,6 +1048,7 @@ export class App {
       snapToTarget: cinema.snapToTarget,
     });
     this.scene.updateRain(this.cameras.camera, renderDt);
+    this.scene.updateOwnLabel(this.cameras.camera);
     const batteryFrac =
       this.game.submarine.maxBattery > 0
         ? this.game.submarine.battery / this.game.submarine.maxBattery
@@ -1046,6 +1065,9 @@ export class App {
     }
 
     this.syncThreats();
+    this.juice.frame(this.game, now / 1000, (x, y) =>
+      this.projectThreat(x, y, 0, window.innerWidth, window.innerHeight),
+    );
     this.hud.render(this.game, this.sim, this.settings);
     this.audio.observe(this.game);
     this.peri.render(this.sim, this.settings, this.cameras.periYaw);
@@ -1183,6 +1205,7 @@ export class App {
     this.perkOverlay.dispose();
     this.environmentPanel.dispose();
     this.threatRoot.remove();
+    this.juice.dispose();
     this.audio.dispose();
     this.errorToast?.dispose();
     this.recoveryBanner.remove();

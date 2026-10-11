@@ -524,6 +524,19 @@ export async function plotCanvasWater(page, offset = {}, { timeoutMs = 5000 } = 
 }
 
 /**
+ * The level-up perk card freezes the clock and covers the canvas. If a kill opens it during a
+ * scripted journey, pick the first perk so the journey can carry on.
+ * @param {import('playwright').Page} page
+ */
+export async function dismissPerkCardIfOpen(page) {
+  const open = await page
+    .evaluate(() => window.__silentDepths?.perkOverlay?.isOpen?.() === true)
+    .catch(() => false);
+  if (open) await page.keyboard.press('Digit1');
+  return open;
+}
+
+/**
  * True when the canvas-local pixel is the canvas itself, not a HUD panel drawn over it.
  * World clicks under a HUD block are swallowed on purpose, so they can never plot.
  * @param {import('playwright').Page} page
@@ -668,6 +681,7 @@ export async function projectManySimToCanvas(page, simPoints) {
  * @param {{ x: number, y: number }} preferred
  */
 export async function findClearCanvasPoint(page, preferred) {
+  await dismissPerkCardIfOpen(page);
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('Expected #scene for a clear plot point');
   const candidates = [preferred];
@@ -721,6 +735,7 @@ export async function projectSimToCanvas(page, simX, simY) {
  * @returns {Promise<{ expected: { x: number, y: number }, plot: { x: number, y: number, text: string } }>}
  */
 export async function plotProjectedWaterAfterOrbit(page) {
+  await dismissPerkCardIfOpen(page);
   await orbitTacticalCamera(page, 110, 18);
   await page.waitForTimeout(350);
   const candidate = await page.evaluate(() => {

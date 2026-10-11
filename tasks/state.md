@@ -4,6 +4,8 @@
 
 ## Now
 
+**Plan 030 (2026-10-11):** ARPG feel and readability: faster XP curve (65+30(n-1)) and optional endless mode ("Keep hunting" after victory), rarity beacons on crates and gold ELITE marks, floating damage numbers, big banners and hit-stop, night/fog/overcast/rain readability (light grade, denser fog, storm swell/whitecaps, rain quads and ripples), smaller own-boat label. See `plans/030-arpg-feel-and-readability.md`. Eye-pass of night/fog/rain, GPU FPS and fun/feel PENDING.
+
 **Plan 029 (2026-10-11):** naval realism: physical sea model (Pierson-Moskowitz Hs/Tp, Monahan whitecaps, Beaufort), weather (clear/partly cloudy/overcast/rain/storm/fog) and time of day (dawn/day/dusk/night) chosen from the menu or key `Y`, driving the sea, sky, rain, fog, lightning AND sim effects (sonar, visual range, ship speed, pattern scatter); escort creeping attack, listening interval, torpedo evasion; convoy zigzag/emergency turns. See `plans/029-naval-realism-weather-pass.md`. Hyper-realism eye-pass, GPU FPS and other gates PENDING.
 
 **Plan 028 (2026-10-10):** ARPG fun pass landed: XP/levels + 8 perks (level-up card), crits, kill streaks, rarity loot, ELITE hunts, Broadside ultimate (key U), captain HUD, plainer copy. See `plans/028-captains-glory-fun-pass.md`. Fun/feel, perk balance and GPU gates PENDING.

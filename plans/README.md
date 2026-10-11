@@ -98,6 +98,8 @@ Plan 001 established local Git. Drift checks for later plans should use commit `
 | ---- | ------------------------------------------------------- | ---------- | ----------------------------------- |
 | 025  | Complete the action mission and prove release readiness | 024 merged | 1–4 and munitions on master; 5 next |
 | 028  | Captain's Glory: ARPG fun pass (XP/perks, crits/combos, loot/elites, Broadside, captain HUD) | 026/027 | Machine work landed; fun/feel operator gate pending |
+| 029  | Naval realism: physical sea model, weather and time of day, real escort doctrine | 028 | Machine work landed; visual realism operator gate pending |
+| 030  | ARPG feel and readability: XP retune, endless mode, rarity/elite visibility, juice, night/fog/rain readability | 029 | Machine work landed (Haiku-executed, Sonnet-verified); CI browser jobs and eye-pass pending |
 | 026  | Realism and action upgrade                              | 025        | Phases 1–4 landed in df4f424; 5–6 + docs this session; operator gates pending |
 
 Historical estimate before Plan 018 (not an estimate for the revised integration track): roughly 3–6 focused weeks,
