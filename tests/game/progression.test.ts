@@ -29,24 +29,24 @@ function sink(state: GameState, kind: ShipKind): GameState {
   return systems.damage(withWreck, [], 1 / 60);
 }
 
-const leveledOnce = (seed = 7) => sink(sink(base(seed), 'merchant'), 'patrol'); // 100 XP -> level 2
+const leveledOnce = (seed = 7) => sink(sink(base(seed), 'merchant'), 'patrol'); // 60 + 80 = 140 XP -> level 2, 75 left // Plan 030 XP retune
 
 describe('XP curve', () => {
-  it('uses 80 + 60*(n-1) XP to leave level n', () => {
-    expect(xpToNext(1)).toBe(80);
-    expect(xpToNext(2)).toBe(140);
-    expect(xpToNext(5)).toBe(320);
+  it('uses 65 + 30*(n-1) XP to leave level n', () => { // Plan 030 XP retune
+    expect(xpToNext(1)).toBe(65); // Plan 030 XP retune
+    expect(xpToNext(2)).toBe(95); // Plan 030 XP retune
+    expect(xpToNext(5)).toBe(185); // Plan 030 XP retune
   });
 
   it('pays the planned XP by hull class', () => {
-    expect(XP_PER_KILL).toEqual({
-      merchant: 40,
-      patrol: 60,
-      destroyer: 100,
-      cruiser: 160,
-      sub: 140,
-      battleship: 300,
-    });
+    expect(XP_PER_KILL).toEqual({ // Plan 030 XP retune
+      merchant: 60, // Plan 030 XP retune
+      patrol: 80, // Plan 030 XP retune
+      destroyer: 120, // Plan 030 XP retune
+      cruiser: 180, // Plan 030 XP retune
+      sub: 160, // Plan 030 XP retune
+      battleship: 340, // Plan 030 XP retune
+    }); // Plan 030 XP retune
   });
 
   it('starts at level 1 with no XP, perks or pending choices', () => {
@@ -64,7 +64,7 @@ describe('XP from kills', () => {
   it('awards the class XP when a hull goes under, below the level threshold', () => {
     const next = sink(base(), 'merchant');
     expect(next.stats.shipsSunk).toBe(1);
-    expect(next.stats.xp).toBe(40);
+    expect(next.stats.xp).toBe(60); // Plan 030 XP retune
     expect(next.stats.level).toBe(1);
     expect(next.pendingPerks).toEqual([]);
   });
@@ -75,9 +75,9 @@ describe('XP from kills', () => {
   });
 
   it('levels up at the threshold, carries the remainder and offers three distinct perks', () => {
-    const next = leveledOnce(); // 40 + 60 = 100 -> level 2, 20 left
+    const next = leveledOnce(); // 60 + 80 = 140 -> level 2, 75 left // Plan 030 XP retune
     expect(next.stats.level).toBe(2);
-    expect(next.stats.xp).toBe(20);
+    expect(next.stats.xp).toBe(75); // Plan 030 XP retune
     expect(next.pendingPerks).toHaveLength(3);
     expect(new Set(next.pendingPerks).size).toBe(3);
     for (const id of next.pendingPerks) expect(PERK_IDS).toContain(id);
@@ -86,21 +86,21 @@ describe('XP from kills', () => {
   });
 
   it('queues further level-ups behind an unanswered offer', () => {
-    // 300 XP: 80 -> L2 (220 left), 140 -> L3 (80 left).
+    // 340 XP: 65 -> L2 (275), 95 -> L3 (180), 125 -> L4 (55). // Plan 030 XP retune
     const next = sink(base(), 'battleship');
-    expect(next.stats.level).toBe(3);
-    expect(next.stats.xp).toBe(80);
+    expect(next.stats.level).toBe(4); // Plan 030 XP retune
+    expect(next.stats.xp).toBe(55); // Plan 030 XP retune
     expect(next.pendingPerks).toHaveLength(3);
-    expect(next.perkQueue).toBe(1);
+    expect(next.perkQueue).toBe(2); // Plan 030 XP retune
   });
 
   it('keeps the offer when more XP arrives without a choice', () => {
     const first = leveledOnce();
     const offer = first.pendingPerks;
-    const second = awardXp(first, 200); // 20 + 200 = 220: 140 -> L3 (80 left)
-    expect(second.stats.level).toBe(3);
+    const second = awardXp(first, 200); // 75 + 200 = 275: 95 -> L3 (180), 125 -> L4 (55) // Plan 030 XP retune
+    expect(second.stats.level).toBe(4); // Plan 030 XP retune
     expect(second.pendingPerks).toEqual(offer);
-    expect(second.perkQueue).toBe(1);
+    expect(second.perkQueue).toBe(2); // Plan 030 XP retune
   });
 
   it('ignores zero or negative XP', () => {
@@ -173,10 +173,10 @@ describe('choosePerk', () => {
   });
 
   it('draws the next queued offer without repeating an owned perk', () => {
-    const state = sink(base(), 'battleship'); // level 3, one queued
+    const state = sink(base(), 'battleship'); // level 4, two queued // Plan 030 XP retune
     const chosen = state.pendingPerks[0]!;
     const next = choosePerk(state, 0);
-    expect(next.perkQueue).toBe(0);
+    expect(next.perkQueue).toBe(1); // Plan 030 XP retune
     expect(next.pendingPerks).toHaveLength(3);
     if (!PERKS[chosen].stackable) expect(next.pendingPerks).not.toContain(chosen);
   });

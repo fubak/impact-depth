@@ -1,5 +1,5 @@
 /**
- * Rain: one camera-anchored LineSegments draw call of wind-slanted streaks,
+ * Rain: one camera-anchored quad mesh draw call of wind-slanted streaks,
  * plus ring ripples on the water routed to an existing emitter.
  *
  * Presentation only. Streaks fall on a closed-form schedule (phase + time *
@@ -23,28 +23,36 @@ export const RAIN_STREAK_CAPS: Readonly<Record<QualityName, number>> = {
 };
 /** Surface ripples per second at full rain per quality tier. */
 export const RAIN_RIPPLE_RATE: Readonly<Record<QualityName, number>> = {
-  high: 10,
-  medium: 5,
+  high: 70,
+  medium: 35,
   low: 0,
 };
 /** Below this intensity the layer is off entirely. */
 export const RAIN_MIN_INTENSITY = 0.02;
+/** Half the on-screen width of a streak quad (metres). */
+export const RAIN_STREAK_HALF_WIDTH = 0.022;
+/** Lowest tint channel: rain stays a visible grey even at night. */
+export const RAIN_TINT_FLOOR = 0.32;
+/** Streaks whose head is closer than this (metres) collapse to a point. */
+export const RAIN_NEAR_CLIP_M = 4;
 
 /** Width of the camera-anchored volume (metres) and how high streaks start. */
 const VOLUME_SIZE = 60;
 const VOLUME_HEIGHT = 40;
-const RIPPLE_RADIUS = 22;
-const MAX_RIPPLES_PER_FRAME = 3;
+const RIPPLE_RADIUS = 28;
+const MAX_RIPPLES_PER_FRAME = 8;
 const MAX_SLANT_SPEED = 9;
 const SLANT_PER_WIND = 0.5;
 /** Unit wind heading in the XZ plane; the sim has no wind direction yet. */
 const WIND_DIR_X = 0.8;
 const WIND_DIR_Z = 0.6;
-const STREAK_LENGTH = 1.3;
-const BASE_OPACITY = 0.3;
+const STREAK_LENGTH = 2.2;
+const BASE_OPACITY = 0.5;
 const FLASH_OPACITY = 0.4;
 const RAIN_SEED = 0x7a1d5eed;
 const SURFACE_Y = 0.3;
+/** Floats per streak: two triangles, six vertices, xyz each. */
+const QUAD_FLOATS = 18;
 
 const MAX_STREAKS = RAIN_STREAK_CAPS.high;
 
@@ -112,6 +120,67 @@ export function rainStreakSegment(
   out[o + 5] = z - p.slantZ * k;
 }
 
+/** Max(RAIN_TINT_FLOOR, value): rain never darker than a visible grey, even at night. NaN → floor. */
+export function rainTintChannel(value: number): number {
+  return Number.isFinite(value) ? Math.max(RAIN_TINT_FLOOR, value) : RAIN_TINT_FLOOR;
+}
+
+/**
+ * Camera-facing quad (two triangles, 6 vertices, 18 floats at out[o..]) around the segment
+ * seg = [hx,hy,hz,tx,ty,tz]. Side vector: horizontal, perpendicular to (head - camera) in XZ,
+ * length halfWidth; (1,0) when degenerate. Order: h-s, h+s, t+s, h-s, t+s, t-s. A head within
+ * RAIN_NEAR_CLIP_M (3D) of the camera writes all 6 vertices at the head (a zero-area quad) so
+ * lens-close streaks do not smear the screen. Returns false in that case, true otherwise.
+ */
+export function rainStreakQuad(
+  out: Float32Array,
+  o: number,
+  seg: ArrayLike<number>,
+  camX: number,
+  camY: number,
+  camZ: number,
+  halfWidth: number,
+): boolean {
+  const hx = seg[0]!;
+  const hy = seg[1]!;
+  const hz = seg[2]!;
+  const tx = seg[3]!;
+  const ty = seg[4]!;
+  const tz = seg[5]!;
+  const dx = hx - camX;
+  const dy = hy - camY;
+  const dz = hz - camZ;
+  if (Math.hypot(dx, dy, dz) < RAIN_NEAR_CLIP_M) {
+    for (let v = 0; v < 6; v++) {
+      const at = o + v * 3;
+      out[at] = hx;
+      out[at + 1] = hy;
+      out[at + 2] = hz;
+    }
+    return false;
+  }
+  // Perpendicular to (dx, dz) in XZ, scaled to the half-width; a head straight above the
+  // camera has no XZ direction, so fall back to a fixed side.
+  const along = Math.hypot(dx, dz);
+  const sx = along < 1e-9 ? halfWidth : (-dz / along) * halfWidth;
+  const sz = along < 1e-9 ? 0 : (dx / along) * halfWidth;
+  // Vertex order: h-s, h+s, t+s, h-s, t+s, t-s (xyz each).
+  writeVertex(out, o, 0, hx - sx, hy, hz - sz);
+  writeVertex(out, o, 1, hx + sx, hy, hz + sz);
+  writeVertex(out, o, 2, tx + sx, ty, tz + sz);
+  writeVertex(out, o, 3, hx - sx, hy, hz - sz);
+  writeVertex(out, o, 4, tx + sx, ty, tz + sz);
+  writeVertex(out, o, 5, tx - sx, ty, tz - sz);
+  return true;
+}
+
+function writeVertex(out: Float32Array, o: number, index: number, x: number, y: number, z: number) {
+  const at = o + index * 3;
+  out[at] = x;
+  out[at + 1] = y;
+  out[at + 2] = z;
+}
+
 export interface RainFrame {
   readonly dt: number;
   readonly paused: boolean;
@@ -122,6 +191,9 @@ export interface RainFrame {
   readonly cameraX: number;
   readonly cameraY: number;
   readonly cameraZ: number;
+  /** Ripple centre (the boat); defaults to the camera. */
+  readonly focusX?: number;
+  readonly focusZ?: number;
   /** Streak colour; read, never retained. */
   readonly tint: THREE.Color;
   /** Lightning flash 0..1 brightens the streaks. */
@@ -132,14 +204,15 @@ export interface RainFrame {
 export type RippleEmitter = (x: number, z: number, strength: number) => void;
 
 export class RainLayer {
-  readonly object: THREE.LineSegments;
-  private readonly positions = new Float32Array(MAX_STREAKS * 6);
+  readonly object: THREE.Mesh;
+  private readonly positions = new Float32Array(MAX_STREAKS * QUAD_FLOATS);
+  private readonly segment = new Float32Array(6);
   private readonly baseX = new Float32Array(MAX_STREAKS);
   private readonly baseZ = new Float32Array(MAX_STREAKS);
   private readonly phase = new Float32Array(MAX_STREAKS);
   private readonly fallScale = new Float32Array(MAX_STREAKS);
   private readonly params = { height: VOLUME_HEIGHT, fall: 0, slantX: 0, slantZ: 0, length: 0 };
-  private readonly material: THREE.LineBasicMaterial;
+  private readonly material: THREE.MeshBasicMaterial;
   private readonly attribute: THREE.BufferAttribute;
   private readonly rng = createSpectrumRng(RAIN_SEED);
   private quality: QualityName = 'high';
@@ -160,13 +233,14 @@ export class RainLayer {
     this.attribute.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('position', this.attribute);
     geometry.setDrawRange(0, 0);
-    this.material = new THREE.LineBasicMaterial({
+    this.material = new THREE.MeshBasicMaterial({
       color: 0xbfd0dc,
       transparent: true,
       opacity: BASE_OPACITY,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
-    this.object = new THREE.LineSegments(geometry, this.material);
+    this.object = new THREE.Mesh(geometry, this.material);
     this.object.name = 'rain-streaks';
     this.object.frustumCulled = false;
     this.object.renderOrder = 7;
@@ -207,9 +281,13 @@ export class RainLayer {
     }
     if (!frame.paused) this.time += Math.max(0, frame.dt);
     this.writeStreaks(count, frame);
-    this.material.color.copy(frame.tint);
+    this.material.color.setRGB(
+      rainTintChannel(frame.tint.r),
+      rainTintChannel(frame.tint.g),
+      rainTintChannel(frame.tint.b),
+    );
     this.material.opacity = Math.min(1, BASE_OPACITY + FLASH_OPACITY * clamp01(frame.flash));
-    this.object.geometry.setDrawRange(0, count * 2);
+    this.object.geometry.setDrawRange(0, count * 6);
     this.attribute.needsUpdate = true;
     if (emitRipple && !frame.paused) this.emitRipples(frame, emitRipple);
   }
@@ -231,24 +309,31 @@ export class RainLayer {
       p.fall = base * this.fallScale[i]!;
       const x = frame.cameraX + wrapAround(this.baseX[i]! - frame.cameraX, VOLUME_SIZE);
       const z = frame.cameraZ + wrapAround(this.baseZ[i]! - frame.cameraZ, VOLUME_SIZE);
-      rainStreakSegment(this.positions, i * 6, x, this.phase[i]!, z, this.time, p);
+      rainStreakSegment(this.segment, 0, x, this.phase[i]!, z, this.time, p);
+      rainStreakQuad(
+        this.positions,
+        i * QUAD_FLOATS,
+        this.segment,
+        frame.cameraX,
+        frame.cameraY,
+        frame.cameraZ,
+        RAIN_STREAK_HALF_WIDTH,
+      );
     }
   }
 
   private emitRipples(frame: RainFrame, emit: RippleEmitter): void {
     this.rippleDebt +=
       rainRippleRate(frame.rain, this.quality, this.reducedMotion) * Math.max(0, frame.dt);
+    const cx = frame.focusX ?? frame.cameraX;
+    const cz = frame.focusZ ?? frame.cameraZ;
     let spawned = 0;
     while (this.rippleDebt >= 1 && spawned < MAX_RIPPLES_PER_FRAME) {
       this.rippleDebt -= 1;
       spawned += 1;
       const angle = this.rng() * Math.PI * 2;
       const radius = Math.sqrt(this.rng()) * RIPPLE_RADIUS;
-      emit(
-        frame.cameraX + Math.cos(angle) * radius,
-        frame.cameraZ + Math.sin(angle) * radius,
-        0.15 + this.rng() * 0.1,
-      );
+      emit(cx + Math.cos(angle) * radius, cz + Math.sin(angle) * radius, 0.3 + this.rng() * 0.2);
     }
     // A long frame must not bank a burst for the next one.
     this.rippleDebt = Math.min(this.rippleDebt, 1);

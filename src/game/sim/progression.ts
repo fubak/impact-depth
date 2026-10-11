@@ -2,21 +2,40 @@ import { ELITE_XP_MULT } from './elites';
 import { applyChosenPerk, PERKS, PERK_IDS } from './perks';
 import type { GameState, PerkId, Ship, ShipKind } from './types';
 
-/** XP per sunk hull, by class. */
+/** XP per sunk hull, by class. Plan 030: about 5 level-ups by the 8th kill. */
 export const XP_PER_KILL: Record<ShipKind, number> = {
-  merchant: 40,
-  patrol: 60,
-  destroyer: 100,
-  cruiser: 160,
-  sub: 140,
-  battleship: 300,
+  merchant: 60,
+  patrol: 80,
+  destroyer: 120,
+  cruiser: 180,
+  sub: 160,
+  battleship: 340,
 };
 
 /** Perks offered per level-up. */
 export const OFFER_SIZE = 3;
 
-/** XP needed to leave level `level`: 80 + 60 * (level - 1). */
-export const xpToNext = (level: number): number => 80 + 60 * (level - 1);
+/** XP to leave level n is XP_BASE + XP_STEP * (n - 1). */
+export const XP_BASE = 65;
+export const XP_STEP = 30;
+
+/** XP needed to leave level `level`: XP_BASE + XP_STEP * (level - 1). */
+export const xpToNext = (level: number): number => XP_BASE + XP_STEP * (level - 1);
+
+/**
+ * Level reached from `totalXp` earned since level 1 (pure; same rule as awardXp).
+ * Non-finite or <= 0 counts as level 1.
+ */
+export function levelForXp(totalXp: number): number {
+  if (!Number.isFinite(totalXp) || totalXp <= 0) return 1;
+  let remaining = totalXp;
+  let level = 1;
+  while (remaining >= xpToNext(level)) {
+    remaining -= xpToNext(level);
+    level += 1;
+  }
+  return level;
+}
 
 export const xpForKill = (ship: Pick<Ship, 'kind' | 'elite'>): number =>
   XP_PER_KILL[ship.kind] * (ship.elite === true ? ELITE_XP_MULT : 1);

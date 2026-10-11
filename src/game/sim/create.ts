@@ -93,7 +93,7 @@ function createSubmarine(
   };
 }
 
-const shipStats: Record<ShipKind, { hp: number; speed: number; name: string }> = {
+export const shipStats: Record<ShipKind, { hp: number; speed: number; name: string }> = {
   merchant: { hp: 95, speed: 1.15, name: 'FREIGHTER' },
   destroyer: { hp: 120, speed: 2.35, name: 'DESTROYER' },
   patrol: { hp: 50, speed: 2.6, name: 'PATROL' },

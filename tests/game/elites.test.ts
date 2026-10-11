@@ -234,12 +234,12 @@ describe('elite rewards', () => {
   }
 
   it('awards triple XP through the damage system', () => {
-    const normal = sinkOne(false); // 100 xp -> level 2, 20 left
-    const elite = sinkOne(true); // 300 xp -> level 3, 80 left
+    const normal = sinkOne(false); // 120 xp -> level 2, 55 left // Plan 030 XP retune
+    const elite = sinkOne(true); // 360 xp -> level 4, 75 left // Plan 030 XP retune
     expect(normal.stats.level).toBe(2);
-    expect(normal.stats.xp).toBe(20);
-    expect(elite.stats.level).toBe(3);
-    expect(elite.stats.xp).toBe(80);
+    expect(normal.stats.xp).toBe(55); // Plan 030 XP retune
+    expect(elite.stats.level).toBe(4); // Plan 030 XP retune
+    expect(elite.stats.xp).toBe(75); // Plan 030 XP retune
   });
 
   it('always drops a rare or epic crate at the wreck', () => {

@@ -3,9 +3,12 @@ import { QUALITY_PROFILES } from '../../src/render/quality';
 import {
   RAIN_RIPPLE_RATE,
   RAIN_STREAK_CAPS,
+  RAIN_STREAK_HALF_WIDTH,
   rainRippleRate,
   rainStreakCount,
+  rainStreakQuad,
   rainStreakSegment,
+  rainTintChannel,
   wrapAround,
 } from '../../src/render/fx/rain';
 
@@ -92,5 +95,52 @@ describe('rain streak geometry', () => {
     expect(out[5]!).toBeGreaterThan(out[2]!);
     const length = Math.hypot(out[3]! - out[0]!, out[4]! - out[1]!, out[5]! - out[2]!);
     expect(length).toBeCloseTo(1.2, 4);
+  });
+});
+
+describe('rain tint floor, camera-facing quads and ripple focus', () => {
+  it('floors each tint channel so rain never goes darker than a visible grey', () => {
+    expect(rainTintChannel(0.05)).toBe(0.32);
+    expect(rainTintChannel(0.8)).toBe(0.8);
+    expect(rainTintChannel(Number.NaN)).toBe(0.32);
+  });
+
+  it('builds a camera-facing quad whose midpoint sits on the head and whose width is the half-width', () => {
+    const out = new Float32Array(18);
+    const seg = [5, 10, 5, 5.3, 12, 5.2];
+    const ok = rainStreakQuad(out, 0, seg, 0, 20, 0, RAIN_STREAK_HALF_WIDTH);
+    expect(ok).toBe(true);
+    const vertex = (i: number) => [out[i * 3]!, out[i * 3 + 1]!, out[i * 3 + 2]!];
+    const v0 = vertex(0);
+    const v1 = vertex(1);
+    for (let k = 0; k < 3; k++) {
+      expect((v0[k]! + v1[k]!) / 2).toBeCloseTo(seg[k]!, 6);
+    }
+    expect(Math.hypot(v1[0]! - v0[0]!, v1[1]! - v0[1]!, v1[2]! - v0[2]!)).toBeCloseTo(2 * 0.022, 6);
+    // Side vector is horizontal and perpendicular to (head - camera) in XZ.
+    const sideX = v1[0]! - v0[0]!;
+    const sideZ = v1[2]! - v0[2]!;
+    expect(sideX * (5 - 0) + sideZ * (5 - 0)).toBeCloseTo(0, 5);
+  });
+
+  it('stays finite when the camera sits exactly above the head in XZ', () => {
+    const out = new Float32Array(18);
+    const ok = rainStreakQuad(out, 0, [5, 10, 5, 5.3, 12, 5.2], 5, 30, 5, RAIN_STREAK_HALF_WIDTH);
+    expect(ok).toBe(true);
+    for (const value of out) expect(Number.isFinite(value)).toBe(true);
+  });
+
+  it('collapses a streak to a zero-area quad on the head when the head is within 4 m of the camera', () => {
+    const out = new Float32Array(18);
+    const ok = rainStreakQuad(out, 0, [1, 1, 1, 1.2, 2, 1.1], 0, 0, 0, RAIN_STREAK_HALF_WIDTH);
+    expect(ok).toBe(false);
+    for (let v = 0; v < 6; v++) {
+      expect([out[v * 3], out[v * 3 + 1], out[v * 3 + 2]]).toEqual([1, 1, 1]);
+    }
+  });
+
+  it('keeps the ripple rate high enough to read at full rain and zero on low quality', () => {
+    expect(RAIN_RIPPLE_RATE.high).toBeGreaterThanOrEqual(60);
+    expect(RAIN_RIPPLE_RATE.low).toBe(0);
   });
 });

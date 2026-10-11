@@ -33,4 +33,6 @@ export type GameCommand =
   /** Pick one of the open level-up offers by 0-based index. Ignored when nothing is pending. */
   | { type: 'choosePerk'; index: number }
   /** Spend a full Broadside charge: up to four homing Mk-14 at the nearest hunters. */
-  | { type: 'ultimate' };
+  | { type: 'ultimate' }
+  /** After a patrol victory: keep playing with escalating waves. Ignored otherwise. */
+  | { type: 'continueEndless' };

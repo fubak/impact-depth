@@ -396,6 +396,8 @@ export interface GameState {
   perkQueue: number;
   /** Broadside charge, 0-100. Fills from damage dealt and kills; the `ultimate` command spends it. */
   ultimateCharge: number;
+  /** Plan 030: "Keep hunting" was chosen after victory; waves keep coming and escalate. Absent on a normal patrol. */
+  endless?: boolean;
 }
 
 export type ApiResult<T = GameState> =
