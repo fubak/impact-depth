@@ -60,6 +60,7 @@ import {
   salvageRefund,
   silentRunningIsFree,
 } from './perks';
+import { expireCombo, registerKills } from './combo';
 import { awardXp, choosePerk, xpForKill } from './progression';
 import {
   advanceBank,
@@ -1151,9 +1152,11 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
   ordnance(state, _commands, dt) {
     return advanceOrdnance(state, dt);
   },
-  damage(state, _commands, dt) {
+  damage(input, _commands, dt) {
+    const state = expireCombo(input);
     let sunk = 0;
     let sunkScore = 0;
+    const sunkScores: number[] = [];
     let sunkXp = 0;
     const wrecks: Ship[] = [];
     const mortal: GameMessage[] = [];
@@ -1162,6 +1165,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       if (outcome.ship === null) {
         sunk++;
         sunkScore += scoreFor(ship);
+        sunkScores.push(scoreFor(ship));
         sunkXp += xpForKill(ship);
         wrecks.push(ship);
         return [];
@@ -1220,7 +1224,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       ],
       ...(victory ? { phase: 'victory' as const } : {}),
     };
-    return awardXp(afterSinking, sunkXp);
+    return awardXp(registerKills(afterSinking, sunkScores), sunkXp);
   },
   pickupsWaves(state, _commands, dt) {
     const nearBase = inFob(state);

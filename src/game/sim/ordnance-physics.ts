@@ -6,6 +6,7 @@ import {
   FOXER_SEDUCE_RANGE,
 } from './constants';
 import { nextRandom } from './rng';
+import { CRIT_MULTIPLIER, rollCrit } from './combo';
 import { applyShellHit, applyTorpedoHit, hullHalfLength } from './ship-damage';
 import { torpedoDamageScale } from './perks';
 import { shipMachineryNoise } from './sonar';
@@ -732,7 +733,14 @@ function stepTorpedo(ctx: OrdnanceCtx, torpedo: Torpedo, dt: number): Torpedo[] 
       : undefined;
     const victim = preferred ?? hits[0];
     if (victim) {
-      const outcome = applyTorpedoHit(victim, next.x, next.y, next.damage);
+      // Crit: seeded from (seed, tick, fish id), never rngState. Chance 0 skips the roll.
+      const crit = rollCrit(state.seed, state.tick, next.id, state.submarine.critChance);
+      const outcome = applyTorpedoHit(
+        victim,
+        next.x,
+        next.y,
+        crit ? next.damage * CRIT_MULTIPLIER : next.damage,
+      );
       const applied = Math.min(outcome.applied, Math.max(0, victim.hp));
       // Consorts see the hit and scatter.
       Object.assign(victim, outcome.ship, {
@@ -747,6 +755,13 @@ function stepTorpedo(ctx: OrdnanceCtx, torpedo: Torpedo, dt: number): Torpedo[] 
         text: `HIT ${outcome.location.toUpperCase()} · ${victim.name}${outcome.lethal ? ' · BREAKING UP' : ''}`,
         ttl: 2.8,
       });
+      if (crit) {
+        ctx.messages.push({
+          id: `crit-${next.id}-${state.tick}`,
+          text: `CRIT -${Math.round(outcome.applied)}`,
+          ttl: 2.8,
+        });
+      }
       if (outcome.lethal) {
         ctx.messages.push({
           id: `mortal-${next.id}-${state.tick}`,

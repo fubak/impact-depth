@@ -309,6 +309,12 @@ export interface GameStats {
   xp: number;
   /** Captain level, starting at 1. */
   level: number;
+  /** Current kill streak (0 when none). Resets once `comboExpires` passes. */
+  combo: number;
+  /** Sim time (seconds) at which the streak lapses. */
+  comboExpires: number;
+  /** Streak bonus points, kept apart from `score` (HUD shows score + bonusScore). */
+  bonusScore: number;
 }
 export interface GameMessage {
   id: string;
