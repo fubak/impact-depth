@@ -1,3 +1,4 @@
+import { screenIntent } from './convoy-screen';
 import { shipMaxSpeed } from './sonar';
 import type { GameState, Ship } from './types';
 
@@ -153,7 +154,9 @@ export function escortIntent(
           action: null,
         };
       }
-      return holding(next);
+      // On screen duty the escort keeps station on the convoy instead of orbiting its slot.
+      const station = screenIntent(next, state);
+      return station ? { ...holding(next), ...station } : holding(next);
     }
     case 'prosecute': {
       if (!predicted || stale) {

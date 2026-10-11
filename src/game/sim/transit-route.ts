@@ -47,3 +47,15 @@ export function laneEntry(lane: TransitLane, distance: number): Point {
     y: lane.a.y + Math.sin(lane.heading) * distance,
   };
 }
+
+/** Roving escorts and boats sweep long out-and-back legs, not circles. */
+export const ROVE_RADIUS = 40;
+const ROVE_SPAN = (110 * Math.PI) / 180;
+
+export function roveLegs(seed: number, wave: number, index: number): readonly Point[] {
+  const bearing = (((seed * 17 + wave * 29 + index * 137) % 360) * Math.PI) / 180;
+  return [bearing, bearing + ROVE_SPAN].map((angle) => ({
+    x: WORLD_CENTER + Math.cos(angle) * ROVE_RADIUS,
+    y: WORLD_CENTER + Math.sin(angle) * ROVE_RADIUS,
+  }));
+}

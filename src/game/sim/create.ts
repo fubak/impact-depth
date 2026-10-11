@@ -24,7 +24,7 @@ import {
 } from '../world/littoral';
 import { getWorld } from '../world/queries';
 import { shipClearRadius, snapToReachable } from './pathfinding';
-import { COLUMN_LEAD, laneEntry, transitLane } from './transit-route';
+import { COLUMN_LEAD, laneEntry, roveLegs, transitLane } from './transit-route';
 
 const escortKinds: ReadonlySet<ShipKind> = new Set(['destroyer', 'patrol', 'cruiser']);
 const formationRoleCycle: readonly FormationRole[] = ['lead', 'wing', 'trail'];
@@ -207,9 +207,13 @@ export function seedWave(
     const weaponCooldown = wave === 1 ? 5 + (index % 4) * 0.8 : 0;
     const patrolRadius =
       wave === 1 && kind !== 'merchant' ? 8 : kind === 'merchant' ? 14 : kind === 'sub' ? 11 : 16;
+    // Wave 1 keeps its tuned opening; later enemy subs rove long legs instead of circling.
+    const roving = wave >= 2 && kind === 'sub';
     let path = lane
       ? [snapFor(kind, lane.b.x, lane.b.y), snapFor(kind, lane.a.x, lane.a.y)]
-      : seedPatrolPath(
+      : roving
+        ? roveLegs(seed, wave, index).map((leg) => snapFor(kind, leg.x, leg.y))
+        : seedPatrolPath(
           terrain,
           point.x,
           point.y,
