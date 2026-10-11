@@ -346,6 +346,9 @@ select:focus-visible {
 .hud-depth { bottom: 58px; left: 628px; width: 188px; }
 .hud-speed { bottom: 58px; left: 828px; width: 188px; }
 .control-row { display: flex; gap: 4px; margin-top: 4px; }
+/* Depth labels are words now ("Attack", "Scope"): tighten the four-button row so they fit unclipped. */
+.hud-depth .control-row { gap: 2px; }
+.hud-depth .hud-btn { padding: 4px 1px; letter-spacing: 0; white-space: nowrap; }
 .doctrine-row {
   flex-wrap: wrap;
 }

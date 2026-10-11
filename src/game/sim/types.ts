@@ -10,6 +10,16 @@ export type AutopilotTactic = 'manual' | 'ambush' | 'stalk' | 'intercept' | 'eva
 export type AutopilotPhase = 'idle' | 'approach' | 'setup' | 'attack' | 'breakaway' | 'dock';
 export type PowerupKind = 'health' | 'ammo' | 'hull' | 'weapon' | 'speed' | 'counter';
 export type ThreatKind = 'torpedo' | 'depthCharge' | 'hedgehog' | 'shell' | 'bomb';
+/** Level-up perks. Definitions and tuning live in perks.ts. */
+export type PerkId =
+  | 'hotTubes'
+  | 'heavyWarheads'
+  | 'ironHull'
+  | 'salvage'
+  | 'quietProp'
+  | 'predator'
+  | 'chainReaction'
+  | 'ghost';
 
 export interface Submarine {
   x: number;
@@ -65,6 +75,8 @@ export interface Submarine {
   crewStress: number;
   /** Last thing that took hull points. Presentation reads this on the result card. */
   lastDamage: 'weapon' | 'ground' | null;
+  /** Chance a player torpedo hit crits (x2 damage). Stored by perks; rolled by combo.ts later. */
+  critChance: number;
 }
 export interface Point {
   x: number;
@@ -293,6 +305,10 @@ export interface GameStats {
   wave: number;
   powerupsTaken: number;
   repairs: number;
+  /** XP earned toward the next level (carries over on level-up). */
+  xp: number;
+  /** Captain level, starting at 1. */
+  level: number;
 }
 export interface GameMessage {
   id: string;
@@ -343,6 +359,12 @@ export interface GameState {
   compressEnabled: boolean;
   /** Convoy-strike exit. Null on a patrol. */
   strikeExit: Point | null;
+  /** Perks the captain owns, in pick order. A stackable perk may appear more than once. */
+  perks: PerkId[];
+  /** The open level-up offer (0 or up to 3 perks). Persists until chosen; never blocks stepGame. */
+  pendingPerks: PerkId[];
+  /** Level-ups waiting behind the open offer. */
+  perkQueue: number;
 }
 
 export type ApiResult<T = GameState> =

@@ -103,6 +103,11 @@ export const fireWeapon = (state: GameState, aimPoint?: Point): GameState =>
   aimPoint
     ? stepGame(state, [{ type: 'setAimPoint', point: aimPoint }, { type: 'fireWeapon' }], 0)
     : stepGame(state, [{ type: 'fireWeapon' }], 0);
+/** Take offered perk `index` (0-based). No-op when nothing is pending. */
+export const choosePerk = (state: GameState, index: number): GameState =>
+  stepGame(state, [{ type: 'choosePerk', index }], 0);
+export { PERKS, PERK_IDS, hasPerk } from './perks';
+export { OFFER_SIZE, XP_PER_KILL, offerPerks, xpToNext } from './progression';
 export const sonarPulse = (state: GameState): GameState =>
   stepGame(state, [{ type: 'sonarPulse' }], 0);
 export const blowTanks = (state: GameState): GameState =>

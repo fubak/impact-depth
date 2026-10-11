@@ -53,6 +53,15 @@ import { getWorld } from '../world/queries';
 import { emergencySurface } from './action-feel';
 import { advanceShipDamage } from './ship-damage';
 import {
+  chainReaction,
+  hasPerk,
+  noiseScale,
+  reloadRate,
+  salvageRefund,
+  silentRunningIsFree,
+} from './perks';
+import { awardXp, choosePerk, xpForKill } from './progression';
+import {
   advanceBank,
   advanceDepth,
   approachSpeed,
@@ -384,6 +393,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
           };
         }
       } else if (command.type === 'emergencySurface') next = emergencySurface(next);
+      else if (command.type === 'choosePerk') next = choosePerk(next, command.index);
       else if (command.type === 'toggleSilentRunning')
         next = {
           ...next,
@@ -707,11 +717,12 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     if (sub.snorkel && (sub.z < 0.12 || sub.z > 0.42)) sub.snorkel = false;
     // Battery lasts minutes in transit, not seconds: drain scales with ordered speed ratio.
     const speedRatio = sub.speed / Math.max(0.01, sub.maxSpeed);
-    const drain =
-      0.05 +
-      speedRatio * speedRatio * (sub.silentRunning ? 0.22 : 0.55) +
-      (sub.scopeUp ? 0.04 : 0) +
-      (sub.z > 0.12 && !sub.snorkel ? 0.03 : 0);
+    const drain = silentRunningIsFree(state)
+      ? 0
+      : 0.05 +
+        speedRatio * speedRatio * (sub.silentRunning ? 0.22 : 0.55) +
+        (sub.scopeUp ? 0.04 : 0) +
+        (sub.z > 0.12 && !sub.snorkel ? 0.03 : 0);
     const charge = sub.z < 0.12 ? 2.8 : sub.snorkel ? 1.6 : 0;
     sub.battery = clamp(sub.battery + (charge - drain) * dt, 0, sub.maxBattery);
     sub.sysFlood = clamp(
@@ -721,22 +732,24 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     );
     sub.hp = clamp(sub.hp - 4.5 * sub.sysFlood * dt, 0, sub.maxHp);
     sub.crewStress = clamp(sub.crewStress - 0.02 * dt, 0, 1);
-    sub.reloadMk14 = Math.max(0, sub.reloadMk14 - dt);
-    sub.reloadMk18 = Math.max(0, sub.reloadMk18 - dt);
+    const reloadDt = dt * reloadRate(state);
+    sub.reloadMk14 = Math.max(0, sub.reloadMk14 - reloadDt);
+    sub.reloadMk18 = Math.max(0, sub.reloadMk18 - reloadDt);
     sub.cmCooldown = Math.max(0, sub.cmCooldown - dt);
     sub.invuln = Math.max(0, sub.invuln - dt);
     sub.displayHeading = sub.heading;
     // Bank follows this step's realized yaw; turn sites rewrite yawRate each step.
     sub.bank = advanceBank(sub, dt);
     sub.yawRate = 0;
-    sub.noise = clamp(
-      0.08 +
-        (sub.speed / Math.max(0.01, sub.maxSpeed)) * 0.55 +
-        (sub.snorkel ? 0.2 : 0) +
-        (1 - sub.sysSonar) * 0.1,
-      0.05,
-      sub.silentRunning ? 0.18 : 1,
-    );
+    sub.noise =
+      clamp(
+        0.08 +
+          (sub.speed / Math.max(0.01, sub.maxSpeed)) * 0.55 +
+          (sub.snorkel ? 0.2 : 0) +
+          (1 - sub.sysSonar) * 0.1,
+        0.05,
+        sub.silentRunning ? 0.18 : 1,
+      ) * noiseScale(state);
     return { ...state, submarine: sub };
   },
   worldCollision(state, _commands, dt) {
@@ -1141,12 +1154,16 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
   damage(state, _commands, dt) {
     let sunk = 0;
     let sunkScore = 0;
+    let sunkXp = 0;
+    const wrecks: Ship[] = [];
     const mortal: GameMessage[] = [];
-    const ships = state.ships.flatMap((ship) => {
+    const advanced = state.ships.flatMap((ship) => {
       const outcome = advanceShipDamage(ship, dt);
       if (outcome.ship === null) {
         sunk++;
         sunkScore += scoreFor(ship);
+        sunkXp += xpForKill(ship);
+        wrecks.push(ship);
         return [];
       }
       if (outcome.becameSinking) {
@@ -1159,10 +1176,12 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       return [outcome.ship];
     });
     if (!sunk) {
-      if (mortal.length === 0 && ships.every((ship, index) => ship === state.ships[index]))
+      if (mortal.length === 0 && advanced.every((ship, index) => ship === state.ships[index]))
         return state;
-      return { ...state, ships, messages: [...state.messages, ...mortal] };
+      return { ...state, ships: advanced, messages: [...state.messages, ...mortal] };
     }
+    const chain = hasPerk(state, 'chainReaction') ? chainReaction(advanced, wrecks) : { ships: advanced, hits: 0 };
+    const ships = chain.ships;
     const shipsSunk = state.stats.shipsSunk + sunk;
     const waveCleared = ships.length === 0;
     const victory = waveCleared && shipsSunk >= VICTORY_TARGET;
@@ -1174,9 +1193,12 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     // Each kill salvages a Mk-14 so a long fight keeps its teeth without docking.
     const submarine = {
       ...state.submarine,
-      torpedoes: Math.min(state.submarine.maxTorpedoes, state.submarine.torpedoes + sunk),
+      torpedoes: Math.min(
+        state.submarine.maxTorpedoes,
+        state.submarine.torpedoes + salvageRefund(state, sunk),
+      ),
     };
-    return {
+    const afterSinking: GameState = {
       ...state,
       ships,
       submarine,
@@ -1192,9 +1214,13 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
         ...state.messages,
         ...mortal,
         { id: `sunk-${state.tick}`, text: victory ? 'SECTOR CLEARED' : 'SHIP SUNK', ttl: 6 },
+        ...(chain.hits > 0
+          ? [{ id: `chain-${state.tick}`, text: 'CHAIN REACTION', ttl: 3 }]
+          : []),
       ],
       ...(victory ? { phase: 'victory' as const } : {}),
     };
+    return awardXp(afterSinking, sunkXp);
   },
   pickupsWaves(state, _commands, dt) {
     const nearBase = inFob(state);

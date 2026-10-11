@@ -87,6 +87,7 @@ function createSubmarine(
     sysFlood: 0,
     crewStress: 0,
     lastDamage: null,
+    critChance: 0,
   };
 }
 
@@ -420,6 +421,8 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
       wave: 1,
       powerupsTaken: 0,
       repairs: 0,
+      xp: 0,
+      level: 1,
     },
     weaponMode: 'torpedo',
     torpedoSpread: false,
@@ -439,5 +442,8 @@ export function createGame(seed = 1, worldVersion: WorldVersion = 'legacy-v1'): 
     assistanceAutoFire: true,
     compressEnabled: true,
     strikeExit: null,
+    perks: [],
+    pendingPerks: [],
+    perkQueue: 0,
   };
 }

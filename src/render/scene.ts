@@ -122,6 +122,10 @@ import type { QualityProfile } from './quality';
 
 type LabelKind = 'own' | 'contact';
 
+/** Canvas sizes for label textures. The own-boat plate is larger so it reads first. */
+const OWN_LABEL_CANVAS = { width: 320, height: 64 } as const;
+const CONTACT_LABEL_CANVAS = { width: 220, height: 32 } as const;
+
 type ShipVisual = { mesh: THREE.Group; wake: THREE.Mesh; beacon: THREE.Mesh; hit: THREE.Mesh };
 
 export class GameScene {
@@ -241,7 +245,8 @@ export class GameScene {
     this.scene.add(this.sub);
 
     this.subHit = this.createPickVolume('player', 4.5);
-    this.subBeacon = this.createBeacon(0xbd8b4e);
+    // Own-boat locator: a wider, brighter rim than contact beacons so the hull is findable at a glance.
+    this.subBeacon = this.createBeacon(0xf0c46e, 1.45, 2.1);
     this.scene.add(this.subHit, this.subBeacon);
 
     // Transparent water after opaque littoral + vessels
@@ -435,9 +440,9 @@ export class GameScene {
     }
   }
 
-  private createBeacon(color: number): THREE.Mesh {
+  private createBeacon(color: number, inner = 1.1, outer = 1.55): THREE.Mesh {
     const mesh = new THREE.Mesh(
-      new THREE.RingGeometry(1.1, 1.55, 28),
+      new THREE.RingGeometry(inner, outer, 28),
       new THREE.MeshBasicMaterial({
         color,
         transparent: true,
@@ -1270,18 +1275,33 @@ export class GameScene {
   private ensureLabel(id: string, text: string, kind: LabelKind): THREE.Sprite {
     let sprite = this.labelSprites.get(id);
     if (!sprite) {
+      const own = kind === 'own';
+      const width = own ? OWN_LABEL_CANVAS.width : CONTACT_LABEL_CANVAS.width;
+      const height = own ? OWN_LABEL_CANVAS.height : CONTACT_LABEL_CANVAS.height;
       const canvas = document.createElement('canvas');
-      canvas.width = 220;
-      canvas.height = 32;
+      canvas.width = width;
+      canvas.height = height;
       const ctx = canvas.getContext('2d')!;
-      ctx.clearRect(0, 0, 220, 32);
-      ctx.font = '600 14px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.clearRect(0, 0, width, height);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = 'rgba(7,11,12,0.65)';
-      ctx.fillText(text, 111, 17);
-      ctx.fillStyle = kind === 'own' ? '#bd8b4e' : '#8f9a94';
-      ctx.fillText(text, 110, 16);
+      if (own) {
+        // Dark plate with a gold rim keeps the callsign readable over bright shallows.
+        ctx.font = '800 26px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.fillStyle = 'rgba(7,11,12,0.82)';
+        ctx.fillRect(4, 6, width - 8, height - 12);
+        ctx.strokeStyle = '#e8b765';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(4, 6, width - 8, height - 12);
+        ctx.fillStyle = '#ffe3a8';
+        ctx.fillText(text, width / 2, height / 2 + 1);
+      } else {
+        ctx.font = '600 14px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.fillStyle = 'rgba(7,11,12,0.65)';
+        ctx.fillText(text, width / 2 + 1, height / 2 + 1);
+        ctx.fillStyle = '#8f9a94';
+        ctx.fillText(text, width / 2, height / 2);
+      }
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
       const mat = new THREE.SpriteMaterial({
@@ -1291,7 +1311,8 @@ export class GameScene {
         depthWrite: false,
       });
       sprite = new THREE.Sprite(mat);
-      sprite.scale.set(6.2, 0.9, 1);
+      if (own) sprite.scale.set(9.6, 1.92, 1);
+      else sprite.scale.set(6.2, 0.9, 1);
       sprite.renderOrder = 6;
       this.labelSprites.set(id, sprite);
       this.labelsRoot.add(sprite);
@@ -1395,8 +1416,7 @@ export class GameScene {
     const deep = Math.max(0, v.depth - 2);
     const beaconScale = 1.15 + Math.min(2.2, deep * 0.1);
     this.subBeacon.scale.setScalar(beaconScale);
-    (this.subBeacon.material as THREE.MeshBasicMaterial).opacity =
-      0.65 + Math.min(0.35, deep * 0.04);
+    (this.subBeacon.material as THREE.MeshBasicMaterial).opacity = 0.9 + Math.min(0.1, deep * 0.01);
 
     const active = new Set(sim.ships.map((ship) => ship.id));
     for (const [id, entity] of this.shipEntities) {
@@ -1683,7 +1703,10 @@ export class GameScene {
     this.rangeRings.visible = sim.viewMode === 'tactical';
     this.tacticalGrid.visible = sim.viewMode === 'tactical' && settings.presentation.tacticalGrid;
     // Contact labels stay on in every non-periscope view so ships remain identifiable at depth.
-    this.labelsRoot.visible = !peri && settings.presentation.labelDensity > 0.08;
+    const contactLabelsOn = !peri && settings.presentation.labelDensity > 0.08;
+    // Your own boat is always named in tactical view, even when contact labels are turned down.
+    const ownLabelOn = !peri && (contactLabelsOn || sim.viewMode === 'tactical');
+    this.labelsRoot.visible = ownLabelOn;
 
     if (this.labelsRoot.visible) {
       const dens = Math.max(0.35, settings.presentation.labelDensity);
@@ -1703,9 +1726,9 @@ export class GameScene {
           text: 'NAUTILUS',
           kind: 'own',
           x: v.x + ownOffX,
-          y: Math.max(subY + 5, subY + 2.5),
+          y: Math.max(subY + 5.5, subY + 3),
           z: v.z + ownOffZ,
-          show: dens > 0.12,
+          show: true,
         },
       ];
       for (const s of sim.ships) {
@@ -1716,14 +1739,14 @@ export class GameScene {
           x: s.x,
           y: Math.max(9.5, 6 + deep * 0.15),
           z: s.z,
-          show: true,
+          show: contactLabelsOn,
         });
       }
       for (const e of entries) {
         const spr = this.ensureLabel(e.id, e.text, e.kind);
         spr.visible = e.show;
         spr.position.set(e.x, e.y, e.z);
-        (spr.material as THREE.SpriteMaterial).opacity = 0.55 + dens * 0.35;
+        (spr.material as THREE.SpriteMaterial).opacity = e.kind === 'own' ? 1 : 0.55 + dens * 0.35;
         (spr.material as THREE.SpriteMaterial).depthTest = false;
       }
     }

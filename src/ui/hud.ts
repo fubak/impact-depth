@@ -44,8 +44,8 @@ export type HudCallbacks = {
 
 const DEPTHS: readonly [DepthOrder, string, string][] = [
   ['surface', 'Surf', 'Surface — fastest transit, fully exposed'],
-  ['periscope', 'Peri', 'Periscope depth — fire from tubes, visual attacks'],
-  ['attack', 'Atk', 'Attack depth — balanced combat band'],
+  ['periscope', 'Shallow', 'Periscope depth — shallow enough to look through the periscope and fire'],
+  ['attack', 'Attack', 'Attack depth — a good balance for fighting'],
   ['deep', 'Deep', 'Deep — quieter, safer, slower, cannot fire'],
 ];
 const SPEEDS: readonly [SpeedOrder, string, string][] = [
@@ -55,11 +55,11 @@ const SPEEDS: readonly [SpeedOrder, string, string][] = [
   ['flank', 'Flank', 'Flank speed — noisy and battery-heavy'],
 ];
 const TACTICS: readonly [AutopilotTactic, string, string][] = [
-  ['ambush', 'Ambush', 'Quiet approach on the beam, rise, fire, break deep'],
-  ['stalk', 'Stalk', 'Trail the contact from the wake station'],
-  ['intercept', 'Intercept', 'Sprint closed on the predicted intercept'],
-  ['evade', 'Evade', 'Open range and break contact'],
-  ['exfil', 'Home', 'Return to base — dock at FOB Argus for repair/restock'],
+  ['ambush', 'Ambush', 'Sneak in from the side, rise, fire, then dive deep'],
+  ['stalk', 'Stalk', 'Follow the target from behind, staying hidden'],
+  ['intercept', 'Intercept', 'Race ahead to cut the target off'],
+  ['evade', 'Evade', 'Pull away and lose the enemy'],
+  ['exfil', 'Home', 'Sail back to base and dock at FOB Argus to repair and restock'],
 ];
 const SPEED_FRACTION: Record<SpeedOrder, number> = {
   stop: 0,
@@ -516,7 +516,7 @@ export class Hud {
           ]
             .filter(Boolean)
             .join(' · ')}</b></div>
-          <div class="order-row"${tipAttr('Selected contact for fire and doctrine')}><span>Target</span><b data-field="target" class="${target ? 'engaged' : ''}">${
+          <div class="order-row"${tipAttr('Selected contact for fire and helm AI')}><span>Target</span><b data-field="target" class="${target ? 'engaged' : ''}">${
             target ? targetCardText(target, targetRange) : 'None — map / list / T'
           }</b></div>
         </div>
@@ -642,18 +642,18 @@ export class Hud {
           }</span></span>
           ${button(
             'toggle-doctrine',
-            this.panels.doctrine ? 'Doctrine ▴' : 'Doctrine ▾',
+            this.panels.doctrine ? 'Orders ▴' : 'Orders ▾',
             this.panels.doctrine,
             undefined,
             false,
             false,
-            this.panels.doctrine ? 'Hide ambush/stalk AI modes' : 'Show combat AI modes',
+            this.panels.doctrine ? 'Hide the helm AI orders' : 'Show the helm AI orders',
           )}
         </div>
         <div class="control-row">
           ${button('silent', 'Quiet', sub.silentRunning, undefined, false, false, 'Silent running — lower noise, slower battery use when careful')}
-          ${button('scope', 'Scope', sub.scopeUp, undefined, false, false, 'Raise periscope — useful at peri depth, exposes you')}
-          ${button('snorkel', 'Snorkel', sub.snorkel, undefined, false, false, 'Snorkel — recharge battery shallow, leaves a plume')}
+          ${button('scope', 'Scope', sub.scopeUp, undefined, false, false, 'Raise the periscope to look around. Enemies can spot it.')}
+          ${button('snorkel', 'Snorkel', sub.snorkel, undefined, false, false, 'Snorkel — charge the battery near the surface. It leaves a visible trail.')}
         </div>
         <div class="control-row doctrine-row${this.panels.doctrine ? '' : ' is-collapsed'}" data-panel="doctrine">
           ${TACTICS.map(([tactic, label, tip]) =>
@@ -669,8 +669,8 @@ export class Hud {
           ).join('')}
         </div>
         <div class="control-row">
-          ${button('stop-ai', 'Manual', false, undefined, false, false, 'Cancel helm AI — you steer with WASD / plot')}
-          ${button('clear', 'Clear route', false, undefined, false, false, 'Drop selected target and cancel plotted waypoint')}
+          ${button('stop-ai', 'Manual', false, undefined, false, false, 'Stop the helm AI. You steer with WASD or the map.')}
+          ${button('clear', 'Clear route', false, undefined, false, false, 'Drop the selected target and clear the planned route')}
         </div>
       </section>
       <section class="hud-block hud-depth" data-tutorial="depth" aria-label="Depth order">

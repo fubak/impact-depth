@@ -7,6 +7,7 @@ import {
 } from './constants';
 import { nextRandom } from './rng';
 import { applyShellHit, applyTorpedoHit, hullHalfLength } from './ship-damage';
+import { torpedoDamageScale } from './perks';
 import { shipMachineryNoise } from './sonar';
 import type {
   DepthCharge,
@@ -209,7 +210,11 @@ export function makeTorpedo(
     life: kind === 'mk14' ? 8 : 10,
     // Time arm is a fallback; run-out distance is authoritative in ordnance().
     armDelay: kind === 'mk14' ? 0.08 : 0.1,
-    damage: (kind === 'mk14' ? 48 : 58) * (1 + sub.weaponTier * 0.18) * (0.7 + sub.sysTubes * 0.3),
+    damage:
+      (kind === 'mk14' ? 48 : 58) *
+      (1 + sub.weaponTier * 0.18) *
+      (0.7 + sub.sysTubes * 0.3) *
+      torpedoDamageScale(state),
     targetId,
     turnRate: kind === 'mk14' ? 2.2 : 2.8,
     run: 0,

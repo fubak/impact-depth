@@ -26,4 +26,6 @@ export type GameCommand =
   | { type: 'deployBubble' }
   | { type: 'spawnThreat'; threat: ThreatKind; sourceId: string; targetId?: string }
   | { type: 'toggleSilentRunning' }
-  | { type: 'emergencySurface' };
+  | { type: 'emergencySurface' }
+  /** Pick one of the open level-up offers by 0-based index. Ignored when nothing is pending. */
+  | { type: 'choosePerk'; index: number };
