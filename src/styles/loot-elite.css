@@ -1,0 +1,7 @@
+.order-row b.engaged.elite { color: #ffc83d; text-shadow: 0 0 6px rgba(255, 200, 61, 0.45); }
+.map .ship.elite { fill: #ffc83d; stroke: #fff3c4; stroke-width: 0.5; }
+.crate.rare { fill: #3fa9ff; }
+.crate.epic { fill: #c45bff; }
+.contact.elite b { color: #ffc83d; }
+/* A selected elite keeps its selection highlight (the elite fill is more specific than .ship.selected). */
+.map .ship.elite.selected { fill: #fff0bc; stroke: var(--brass); stroke-width: 0.6; }

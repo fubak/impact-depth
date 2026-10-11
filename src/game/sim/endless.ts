@@ -1,4 +1,4 @@
-import { shipStats } from './create';
+import { seedWave, shipStats } from './create';
 import { makeElite } from './elites';
 import { hashUnit } from './loot';
 import { SINK_DURATION } from './ship-damage';
@@ -120,4 +120,13 @@ export function escalateWave(seed: number, wave: number, ships: readonly Ship[])
     return { ...hulled, alert: Math.max(hulled.alert, alert) };
   });
   return promoteElites(seed, wave, scaled, endlessEliteTarget(tier));
+}
+
+/** Next wave's ships: exactly seedWave(...) on a normal patrol; escalated in endless mode. */
+export function seedNextWave(
+  state: Pick<GameState, 'seed' | 'worldVersion' | 'endless'>,
+  wave: number,
+): Ship[] {
+  const ships = seedWave(state.seed, wave, undefined, state.worldVersion);
+  return state.endless === true ? escalateWave(state.seed, wave, ships) : ships;
 }

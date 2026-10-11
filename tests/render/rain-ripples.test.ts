@@ -117,4 +117,44 @@ describe('RainRipples', () => {
     expect(ripples.active).toBe(0);
     ripples.dispose();
   });
+
+  it('overwrites the oldest live slot when the pool is full', () => {
+    const ripples = new RainRipples();
+    const step = 0.005;
+    // Slot i is born at i * step, so slot 0 is the oldest once the pool fills and every
+    // ripple is still inside its life.
+    for (let i = 0; i < RAIN_RIPPLE_CAPS.high; i++) {
+      ripples.spawn(i, 0, 0.3);
+      ripples.update(step, false, 0);
+    }
+    expect(ripples.active).toBe(RAIN_RIPPLE_CAPS.high);
+    // Column-major matrix: translation x sits at element 12 of each 16-float instance.
+    const xOf = (slot: number) => ripples.mesh.instanceMatrix.array[slot * 16 + 12]!;
+    ripples.spawn(999, 0, 0.3);
+    ripples.update(0, false, 0);
+    expect(ripples.active).toBe(RAIN_RIPPLE_CAPS.high);
+    expect(xOf(0)).toBe(999);
+    expect(xOf(1)).toBe(1);
+    // Slot 0 is now the youngest, so the next overflow takes slot 1, the new oldest.
+    ripples.spawn(1000, 0, 0.3);
+    ripples.update(0, false, 0);
+    expect(ripples.active).toBe(RAIN_RIPPLE_CAPS.high);
+    expect(xOf(1)).toBe(1000);
+    expect(xOf(0)).toBe(999);
+    ripples.dispose();
+  });
+
+  it('trims live ripples to the medium cap on a drop to medium and to none on low', () => {
+    const ripples = new RainRipples();
+    for (let i = 0; i < RAIN_RIPPLE_CAPS.high; i++) ripples.spawn(i, -i, 0.3);
+    expect(ripples.active).toBe(RAIN_RIPPLE_CAPS.high);
+    ripples.setQuality('medium');
+    expect(ripples.active).toBeLessThanOrEqual(RAIN_RIPPLE_CAPS.medium);
+    expect(ripples.active).toBe(RAIN_RIPPLE_CAPS.medium);
+    ripples.spawn(500, -500, 0.3);
+    expect(ripples.active).toBe(RAIN_RIPPLE_CAPS.medium);
+    ripples.setQuality('low');
+    expect(ripples.active).toBe(0);
+    ripples.dispose();
+  });
 });

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import type { AtmosphereSettings } from '../core/types';
+import { applyGradeLights, gradeAtmosphereState } from './environment/atmosphere-grade';
+import type { LightGrade } from './environment/light-grade';
 
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -204,6 +206,7 @@ export class Atmosphere {
   private followX = 0;
   private followZ = 0;
   private lastSunDir = new THREE.Vector3(0.4, 0.8, 0.2);
+  private readonly rimDir = new THREE.Vector3(0.4, 0.8, 0.2);
   private cloudTime = 0;
   private lastState: AtmosphereState | null = null;
   private readonly fog = new THREE.FogExp2(0xffffff, 0.001);
@@ -481,9 +484,14 @@ export class Atmosphere {
     settings: AtmosphereSettings,
     scene: THREE.Scene,
     dt = 1 / 60,
-    presentation?: { cloudCoverage?: number; lightning?: number; fogDensity?: number },
+    presentation?: {
+      cloudCoverage?: number;
+      lightning?: number;
+      fogDensity?: number;
+      grade?: LightGrade;
+    },
   ): AtmosphereState {
-    const state = evaluateAtmosphere(settings);
+    const state = gradeAtmosphereState(evaluateAtmosphere(settings), presentation?.grade);
     this.lastState = state;
     this.cloudTime += dt;
     const fogDensity = presentation?.fogDensity ?? settings.fogDensity;
@@ -505,6 +513,9 @@ export class Atmosphere {
     this.ambient.color.copy(state.sunColor).lerp(state.skyTop, 0.35 + state.golden * 0.4);
 
     this.lastSunDir.copy(state.sunDir);
+    this.rimDir.copy(
+      state.isNight && (presentation?.grade?.moonRim ?? 0) > 0 ? state.moonDir : state.sunDir,
+    );
     const intensityScale = settings.sunIntensity ?? 1;
     this.placeSun(this.followX, this.followZ);
     // Grazing light is warmer and a little brighter so it can carve hull form.
@@ -544,6 +555,12 @@ export class Atmosphere {
     this.bounce.target.updateMatrixWorld();
     this.bounce.intensity = state.isNight ? 0.06 : 0.16 + Math.max(0, state.sunDir.y) * 0.12;
     this.bounce.color.set(0x2fb5a0).lerp(new THREE.Color(0xd08a5a), state.golden * 0.55);
+    applyGradeLights(
+      { hemi: this.hemi, ambient: this.ambient, moon: this.moon, rim: this.rim },
+      state,
+      presentation?.grade,
+      scene,
+    );
 
     this.skyMat.uniforms.uTop.value.copy(state.skyTop);
     this.skyMat.uniforms.uHorizon.value.copy(state.skyHorizon);
@@ -594,7 +611,7 @@ export class Atmosphere {
   }
 
   private placeRim(x: number, z: number): void {
-    const d = this.lastSunDir;
+    const d = this.rimDir;
     this.rim.position.set(x + d.x * 80, 6 + Math.max(0, d.y) * 40, z + d.z * 80);
     this.rim.target.position.set(x, 3, z);
     this.rim.target.updateMatrixWorld();

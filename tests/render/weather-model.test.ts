@@ -8,6 +8,7 @@ import {
 import type { LookDevSettings, PresetId } from '../../src/core/types';
 import {
   DEFAULT_ENVIRONMENT,
+  REFERENCE_WIND_MS,
   TIME_OF_DAY_IDS,
   WEATHER_KINDS,
   environmentFor,
@@ -23,6 +24,7 @@ import {
   foamFromWind,
   isDefaultEnvironment,
   presentationFor,
+  seaVisualGains,
   waveHeightFromHs,
 } from '../../src/render/environment/weather-model';
 
@@ -271,5 +273,45 @@ describe('rain, fog, cloud and lightning follow the weather kind (A14)', () => {
   it('marks every non-default environment as an active presentation', () => {
     expect(presented('clear', 'night').fx.active).toBe(true);
     expect(presented('storm').fx.active).toBe(true);
+  });
+});
+
+describe('plan 030 P08: fog, night exposure, storm sea gains, grade and overcast flags', () => {
+  it('storm swell and whitecaps get visual gains; clear wind is exactly 1', () => {
+    expect(seaVisualGains(REFERENCE_WIND_MS)).toEqual({ swellGain: 1, whitecapGain: 1 });
+    const storm = seaVisualGains(environmentFor('storm', 'day').windMs);
+    expect(storm.swellGain).toBeGreaterThanOrEqual(1.5);
+    expect(storm.whitecapGain).toBeGreaterThanOrEqual(2.5);
+    const gains = [5, 10, 15, 20].map((wind) => seaVisualGains(wind));
+    for (let i = 1; i < gains.length; i++) {
+      expect(gains[i]!.swellGain).toBeGreaterThan(gains[i - 1]!.swellGain);
+      expect(gains[i]!.whitecapGain).toBeGreaterThan(gains[i - 1]!.whitecapGain);
+    }
+    expect(
+      presentationFor(DEFAULT_ENVIRONMENT, DEFAULT_SETTINGS).settings.ocean.swellGain,
+    ).toBeUndefined();
+  });
+
+  it('fog weather hides a contact at 150 m', () => {
+    const d = presented('fog').settings.atmosphere.fogDensity;
+    expect(d).toBeGreaterThanOrEqual(0.0085);
+    expect(Math.exp(-((d * 150) ** 2))).toBeLessThanOrEqual(0.25);
+  });
+
+  it('night lifts exposure by 1.3 on a clear night', () => {
+    expect(presented('clear', 'night').settings.atmosphere.exposure).toBeCloseTo(
+      DEFAULT_SETTINGS.atmosphere.exposure * 1.3,
+      6,
+    );
+  });
+
+  it('fx carries a light grade and an overcast flag', () => {
+    expect(presented('clear', 'night').fx.grade?.ambientFloor).toBe(0.42);
+    for (const kind of ['overcast', 'fog', 'rain', 'storm'] as const) {
+      expect(presented(kind).fx.overcast).toBe(true);
+    }
+    expect(presented('partly-cloudy').fx.overcast).toBeFalsy();
+    expect(presented('clear').fx.overcast).toBeFalsy();
+    expect(INACTIVE_WEATHER_FX.grade).toBeUndefined();
   });
 });

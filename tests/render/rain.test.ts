@@ -123,6 +123,27 @@ describe('rain tint floor, camera-facing quads and ripple focus', () => {
     expect(sideX * (5 - 0) + sideZ * (5 - 0)).toBeCloseTo(0, 5);
   });
 
+  it('orders the second triangle as tail+side, head-side, tail-side', () => {
+    const out = new Float32Array(18);
+    const seg = [5, 10, 5, 5.3, 12, 5.2];
+    rainStreakQuad(out, 0, seg, 0, 20, 0, RAIN_STREAK_HALF_WIDTH);
+    const vertex = (i: number) => [out[i * 3]!, out[i * 3 + 1]!, out[i * 3 + 2]!];
+    const v0 = vertex(0);
+    const v1 = vertex(1);
+    const v2 = vertex(2);
+    const v3 = vertex(3);
+    const v4 = vertex(4);
+    const v5 = vertex(5);
+    for (let k = 0; k < 3; k++) {
+      const side = (v1[k]! - v0[k]!) / 2;
+      const tail = seg[3 + k]!;
+      expect(v2[k]!).toBeCloseTo(tail + side, 6);
+      expect(v4[k]!).toBeCloseTo(tail + side, 6);
+      expect(v3[k]!).toBeCloseTo(v0[k]!, 6);
+      expect(v5[k]!).toBeCloseTo(tail - side, 6);
+    }
+  });
+
   it('stays finite when the camera sits exactly above the head in XZ', () => {
     const out = new Float32Array(18);
     const ok = rainStreakQuad(out, 0, [5, 10, 5, 5.3, 12, 5.2], 5, 30, 5, RAIN_STREAK_HALF_WIDTH);

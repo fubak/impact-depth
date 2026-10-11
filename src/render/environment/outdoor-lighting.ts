@@ -13,6 +13,8 @@ export type OutdoorLightingInput = {
   lightning: number;
   nowSeconds: number;
   weatherPreset?: 'calm' | 'breeze' | 'storm';
+  /** Plan 030: overcast or fog sky; keeps the noon HDR out of the murk. */
+  overcast?: boolean;
 };
 
 /** PMREM state aligned with sun/sky/horizon/clouds/time — excludes transient lightning. */
@@ -110,6 +112,7 @@ export class OutdoorLighting {
         isNight: input.atmosphere.isNight,
         weatherPreset: input.weatherPreset,
         sunY: input.atmosphere.sunDir.y,
+        overcast: input.overcast,
       }) === 'hdr-pmrem' &&
       this.scene &&
       this.hdrTexture

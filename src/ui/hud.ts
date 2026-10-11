@@ -26,6 +26,14 @@ import { findPixelProximateContact, MAP_PROXIMATE_PX } from '../input/world-clic
 import { buildCaptainView, patchCaptainPanel, renderCaptainPanel } from './captain-panel';
 import { ENVIRONMENT_PANEL_KEY_LABEL } from './environment-panel';
 import { listFirmContacts, type FirmContact } from './sonar';
+import {
+  contactClass,
+  crateClass,
+  eliteTargetText,
+  mapShipClass,
+  mapShipRadius,
+  targetCardClass,
+} from './elite-marks';
 
 const MODE_LABEL: Record<SimState['viewMode'], string> = {
   tactical: 'TACTICAL',
@@ -239,8 +247,7 @@ function contactsMarkup(contacts: readonly FirmContact[], selectedTargetId: stri
   return contacts
     .map((contact) => {
       const brg = String(headingDegrees(contact.bearing)).padStart(3, '0');
-      const active = contact.id === selectedTargetId ? ' active' : '';
-      return `<button type="button" class="contact${active}" data-contact="${contact.id}"${tipAttr('Select to aim tubes and AI')}><b>${contact.name}</b><span>${brg}° · ${Math.ceil(contact.range)}u</span></button>`;
+      return `<button type="button" class="${contactClass(contact, selectedTargetId)}" data-contact="${contact.id}"${tipAttr('Select to aim tubes and AI')}><b>${contact.name}</b><span>${brg}° · ${Math.ceil(contact.range)}u</span></button>`;
     })
     .join('');
 }
@@ -519,8 +526,10 @@ export class Hud {
           ]
             .filter(Boolean)
             .join(' · ')}</b></div>
-          <div class="order-row"${tipAttr('Selected contact for fire and helm AI')}><span>Target</span><b data-field="target" class="${target ? 'engaged' : ''}">${
-            target ? targetCardText(target, targetRange) : 'None — map / list / T'
+          <div class="order-row"${tipAttr('Selected contact for fire and helm AI')}><span>Target</span><b data-field="target" class="${targetCardClass(target)}">${
+            target
+              ? eliteTargetText(target, targetCardText(target, targetRange))
+              : 'None — map / list / T'
           }</b></div>
         </div>
       </section>
@@ -725,10 +734,10 @@ export class Hud {
           <g data-field="ships">${game.ships
             .map(
               (ship) =>
-                `<circle class="ship${ship.id === game.selectedTargetId ? ' selected' : ''}${ship.kind === 'sub' ? ' sub' : ''}" data-ship-id="${ship.id}" cx="${ship.x}" cy="${ship.y}" r="${ship.kind === 'sub' ? 1.7 : 1.4}"/>`,
+                `<circle class="${mapShipClass(ship, game.selectedTargetId)}" data-ship-id="${ship.id}" cx="${ship.x}" cy="${ship.y}" r="${mapShipRadius(ship)}"/>`,
             )
             .join('')}</g>
-          <g data-field="crates">${game.powerups.map((pickup) => `<rect class="crate" x="${pickup.x - 1}" y="${pickup.y - 1}" width="2" height="2"/>`).join('')}</g>
+          <g data-field="crates">${game.powerups.map((pickup) => `<rect class="${crateClass(pickup)}" x="${pickup.x - 1}" y="${pickup.y - 1}" width="2" height="2"/>`).join('')}</g>
           <g data-field="exit">${
             game.strikeExit
               ? `<circle class="exit ${strikeStage(game) === 'attack' ? 'pending' : 'open'}" cx="${game.strikeExit.x}" cy="${game.strikeExit.y}" r="4" data-exit="${strikeStage(game) === 'attack' ? 'later' : 'open'}"/>`
@@ -840,8 +849,10 @@ export class Hud {
     );
     set(
       'target',
-      extras.target ? targetCardText(extras.target, extras.targetRange) : 'None — map / list / T',
-      extras.target ? 'engaged' : '',
+      extras.target
+        ? eliteTargetText(extras.target, targetCardText(extras.target, extras.targetRange))
+        : 'None — map / list / T',
+      targetCardClass(extras.target),
     );
     set('objective', objectiveText(game));
     set('callout', calloutLabel(defenseCallout(game)));
@@ -897,7 +908,7 @@ export class Hud {
       ships.innerHTML = game.ships
         .map(
           (ship) =>
-            `<circle class="ship${ship.id === game.selectedTargetId ? ' selected' : ''}${ship.kind === 'sub' ? ' sub' : ''}" data-ship-id="${ship.id}" cx="${ship.x}" cy="${ship.y}" r="${ship.kind === 'sub' ? 1.7 : 1.4}"/>`,
+            `<circle class="${mapShipClass(ship, game.selectedTargetId)}" data-ship-id="${ship.id}" cx="${ship.x}" cy="${ship.y}" r="${mapShipRadius(ship)}"/>`,
         )
         .join('');
     }
@@ -918,7 +929,7 @@ export class Hud {
       crates.innerHTML = game.powerups
         .map(
           (pickup) =>
-            `<rect class="crate" x="${pickup.x - 1}" y="${pickup.y - 1}" width="2" height="2"/>`,
+            `<rect class="${crateClass(pickup)}" x="${pickup.x - 1}" y="${pickup.y - 1}" width="2" height="2"/>`,
         )
         .join('');
     }

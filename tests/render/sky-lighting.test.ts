@@ -72,3 +72,14 @@ describe('pickSkyLightingSource', () => {
     ).toBe('procedural-sky-pmrem');
   });
 });
+
+describe('plan 030 P08: overcast sky uses the procedural PMREM', () => {
+  it('keeps the procedural sky under overcast or fog, and the HDR otherwise', () => {
+    expect(
+      pickSkyLightingSource({ hdrReady: true, hdrFailed: false, isNight: false, overcast: true }),
+    ).toBe('procedural-sky-pmrem');
+    expect(
+      pickSkyLightingSource({ hdrReady: true, hdrFailed: false, isNight: false, overcast: false }),
+    ).toBe('hdr-pmrem');
+  });
+});

@@ -47,6 +47,10 @@ export interface OceanSettings {
   clarity: number;
   /** 0 = pale … 1 = strong depth absorption tint */
   absorption: number;
+  /** Plan 030: render-only swell cascade gain (absent = 1). */
+  swellGain?: number;
+  /** Plan 030: render-only whitecap/foam gain (absent = 1). */
+  whitecapGain?: number;
 }
 
 export interface EnvironmentSettings {

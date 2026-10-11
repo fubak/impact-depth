@@ -1,6 +1,6 @@
 import type { GameCommand } from '../commands/types';
 import { clampDepth, clampSim } from './coords';
-import { seedPowerups, seedWave } from './create';
+import { seedPowerups } from './create';
 import type {
   Countermeasure,
   GameMessage,
@@ -72,6 +72,7 @@ import {
 import { expireCombo, registerKills } from './combo';
 import { awardXp, choosePerk, xpForKill } from './progression';
 import { launchBroadside } from './ultimate';
+import { continueEndless, seedNextWave } from './endless';
 import { HEALTH_BY_RARITY, SEEKERS_BY_RARITY, dropLoot, rarityOf } from './loot';
 import {
   advanceBank,
@@ -407,6 +408,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       } else if (command.type === 'emergencySurface') next = emergencySurface(next);
       else if (command.type === 'choosePerk') next = choosePerk(next, command.index);
       else if (command.type === 'ultimate') next = launchBroadside(next);
+      else if (command.type === 'continueEndless') next = continueEndless(next);
       else if (command.type === 'toggleSilentRunning')
         next = {
           ...next,
@@ -1234,7 +1236,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
     const ships = chain.ships;
     const shipsSunk = state.stats.shipsSunk + sunk;
     const waveCleared = ships.length === 0;
-    const victory = waveCleared && shipsSunk >= VICTORY_TARGET;
+    const victory = state.endless !== true && waveCleared && shipsSunk >= VICTORY_TARGET;
     // Only drop the firing solution when the locked ship went down — a screening
     // escort eating a fish meant for the merchant must not clear the TDC.
     const targetGone =
@@ -1320,7 +1322,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       state.scenario !== 'convoy-strike' &&
       state.phase === 'playing' &&
       state.ships.length === 0 &&
-      state.stats.shipsSunk < VICTORY_TARGET;
+      (state.stats.shipsSunk < VICTORY_TARGET || state.endless === true);
     const inbound = state.messages.find((message) => /^WAVE \d+ INBOUND$/.test(message.text));
     const spawnWave = boardEmpty && inbound !== undefined && inbound.ttl <= dt;
     const holding = boardEmpty && !spawnWave;
@@ -1363,9 +1365,7 @@ export const systems: Record<(typeof SYSTEM_ORDER)[number], System> = {
       messages,
       dockHold,
       pickupRespawn: gatedRespawn,
-      ships: spawnWave
-        ? seedWave(state.seed, nextWave, undefined, state.worldVersion)
-        : state.ships,
+      ships: spawnWave ? seedNextWave(state, nextWave) : state.ships,
     };
   },
   cleanupEvents: (state, _commands, dt) => ({

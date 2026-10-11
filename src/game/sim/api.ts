@@ -115,6 +115,10 @@ export const choosePerk = (state: GameState, index: number): GameState =>
 /** Fire a Broadside if the meter is full and a hunter is in play; otherwise a no-op. */
 export const fireBroadside = (state: GameState): GameState =>
   stepGame(state, [{ type: 'ultimate' }], 0);
+/** After a patrol victory: keep hunting escalating waves. No-op otherwise. */
+export const keepHunting = (state: GameState): GameState =>
+  stepGame(state, [{ type: 'continueEndless' }], 0);
+export { ENDLESS_FIRST_WAVE, canContinueEndless, endlessTier } from './endless';
 export {
   BROADSIDE_SALVO,
   KILL_CHARGE,

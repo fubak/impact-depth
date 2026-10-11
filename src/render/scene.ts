@@ -33,6 +33,13 @@ import {
   type VesselAttitudeResult,
 } from './presentation/vessel-attitude';
 import { presentHullObject } from './presentation/hull-materials';
+import {
+  OWN_LABEL_ASPECT,
+  OWN_LABEL_FALLBACK_H,
+  clampLabelNdc,
+  ownLabelAnchorY,
+  ownLabelWorldHeight,
+} from './presentation/label-layout';
 import { clampPresentationY, presentationBedY } from './presentation/world-bed';
 import {
   formatSurfaceDiagnostics,
@@ -156,6 +163,7 @@ export class GameScene {
   private readonly shipEmitters = new ShipEmitters(this.vfx);
   readonly rangeRings: THREE.Group;
   readonly labelsRoot = new THREE.Group();
+  private readonly ownLabelNdc = new THREE.Vector3();
   readonly tacticalGrid: THREE.GridHelper;
   private readonly labelSprites = new Map<string, THREE.Sprite>();
   private readonly outdoorLighting = new OutdoorLighting();
@@ -956,6 +964,33 @@ export class GameScene {
     );
   }
 
+  /**
+   * Plan 030: size the own-boat label by camera distance (constant ~2.8% of screen height, clamped) and keep it in the
+   * HUD-safe middle of the screen. Call once per frame after the camera has moved.
+   */
+  updateOwnLabel(camera: THREE.Camera): void {
+    const sprite = this.labelSprites.get('own');
+    if (!sprite || !sprite.visible || !this.labelsRoot.visible) return;
+    camera.updateMatrixWorld();
+    const hullHeight =
+      (this.sub.userData.hullHeight as number | undefined) ?? DEFAULT_SUB_HULL_HEIGHT_M;
+    const height =
+      camera instanceof THREE.PerspectiveCamera
+        ? ownLabelWorldHeight(camera.position.distanceTo(this.sub.position), camera.fov)
+        : OWN_LABEL_FALLBACK_H;
+    sprite.scale.set(height * OWN_LABEL_ASPECT, height, 1);
+    sprite.position.set(
+      this.sub.position.x,
+      ownLabelAnchorY(this.sub.position.y, hullHeight, height),
+      this.sub.position.z,
+    );
+    const ndc = this.ownLabelNdc.copy(sprite.position).project(camera);
+    if (ndc.z <= -1 || ndc.z >= 1) return;
+    const clamped = clampLabelNdc(ndc.x, ndc.y);
+    if (clamped.x === ndc.x && clamped.y === ndc.y) return;
+    sprite.position.copy(ndc.set(clamped.x, clamped.y, ndc.z).unproject(camera));
+  }
+
   private readonly emitRainRipple = (x: number, z: number, strength: number): void => {
     this.surfaceEffects.emitRipple(x, z, strength);
   };
@@ -1339,7 +1374,7 @@ export class GameScene {
         ctx.fillStyle = 'rgba(7,11,12,0.82)';
         ctx.fillRect(4, 6, width - 8, height - 12);
         ctx.strokeStyle = '#e8b765';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.strokeRect(4, 6, width - 8, height - 12);
         ctx.fillStyle = '#ffe3a8';
         ctx.fillText(text, width / 2, height / 2 + 1);
@@ -1359,7 +1394,7 @@ export class GameScene {
         depthWrite: false,
       });
       sprite = new THREE.Sprite(mat);
-      if (own) sprite.scale.set(9.6, 1.92, 1);
+      if (own) sprite.scale.set(OWN_LABEL_FALLBACK_H * OWN_LABEL_ASPECT, OWN_LABEL_FALLBACK_H, 1);
       else sprite.scale.set(6.2, 0.9, 1);
       sprite.renderOrder = 6;
       this.labelSprites.set(id, sprite);
@@ -1764,8 +1799,6 @@ export class GameScene {
 
     if (this.labelsRoot.visible) {
       const dens = Math.max(0.35, settings.presentation.labelDensity);
-      const ownOffX = -Math.sin(v.heading) * 6 - Math.cos(v.heading) * 4;
-      const ownOffZ = Math.cos(v.heading) * 6 - Math.sin(v.heading) * 4;
       const entries: Array<{
         id: string;
         text: string;
@@ -1779,9 +1812,9 @@ export class GameScene {
           id: 'own',
           text: 'NAUTILUS',
           kind: 'own',
-          x: v.x + ownOffX,
-          y: Math.max(subY + 5.5, subY + 3),
-          z: v.z + ownOffZ,
+          x: v.x,
+          y: ownLabelAnchorY(subY, hullHeight, OWN_LABEL_FALLBACK_H),
+          z: v.z,
           show: true,
         },
       ];

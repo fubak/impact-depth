@@ -24,9 +24,11 @@ import { seaStateFromWind, significantWaveHeight, whitecapCoverage } from '../..
 import type { AtmosphereSettings, LookDevSettings, OceanSettings } from '../../core/types';
 import {
   DEFAULT_ENVIRONMENT,
+  REFERENCE_WIND_MS,
   type Environment,
   type TimeOfDayId,
 } from '../../game/sim/environment';
+import { lightGradeFor, type LightGrade } from './light-grade';
 
 /** Effect levels the renderer needs beyond the settings blocks. */
 export interface WeatherFx {
@@ -40,6 +42,10 @@ export interface WeatherFx {
   readonly cloudCover: number;
   /** Haze that cuts sighting range 0..1 (fog plus a little rain). */
   readonly visibilityFog: number;
+  /** Light grade for lights, sky and fog (absent at the default environment). */
+  readonly grade?: LightGrade;
+  /** True under heavy cloud or haze: the sky reads as an overcast sheet (absent by default). */
+  readonly overcast?: boolean;
 }
 
 export interface WeatherPresentation {
@@ -92,6 +98,25 @@ export function foamFromWind(windMs: number): number {
   );
 }
 
+/** Render-only swell and whitecap gains per unit of sea roughness (Plan 030). */
+export const SWELL_GAIN_PER_ROUGH = 0.6;
+export const WHITECAP_GAIN_PER_ROUGH = 2.0;
+
+/** 0 at the reference (clear) wind or calmer, 1 at Beaufort 9: the sim's roughness scale. */
+export function seaRoughness(windMs: number): number {
+  const reference = seaStateFromWind(REFERENCE_WIND_MS);
+  return clamp((seaStateFromWind(windMs) - reference) / (1 - reference), 0, 1);
+}
+
+/** Visual swell and whitecap gains: exactly 1 at the reference wind, larger in storms. */
+export function seaVisualGains(windMs: number): { swellGain: number; whitecapGain: number } {
+  const r = seaRoughness(windMs);
+  return {
+    swellGain: 1 + SWELL_GAIN_PER_ROUGH * r,
+    whitecapGain: 1 + WHITECAP_GAIN_PER_ROUGH * r,
+  };
+}
+
 function oceanFor(windMs: number, base: OceanSettings): OceanSettings {
   const seaState = seaStateFromWind(windMs);
   return {
@@ -100,6 +125,7 @@ function oceanFor(windMs: number, base: OceanSettings): OceanSettings {
     waveHeight: waveHeightFromHs(significantWaveHeight(windMs)),
     choppiness: choppinessFromSeaState(seaState),
     foamAmount: foamFromWind(windMs),
+    ...seaVisualGains(windMs),
   };
 }
 
@@ -110,7 +136,9 @@ export function cloudCoverageFor(cloudCover: number): number {
   return clamp(0.25 + 0.7 * unit(cloudCover), 0, 1);
 }
 
-const FOG_DENSITY_PER_VISIBILITY = 0.0045;
+const FOG_DENSITY_PER_VISIBILITY = 0.01;
+/** Night is dark, so the exposure is lifted to keep the sea and sky readable. */
+export const NIGHT_EXPOSURE_LIFT = 1.3;
 const RAIN_VISIBILITY = 0.25;
 const SUN_CLOUD_DIM = 0.55;
 const SUN_RAIN_DIM = 0.2;
@@ -128,12 +156,16 @@ function cloudExcess(cloud: number): number {
 
 function fxFor(env: Environment): WeatherFx {
   const rain = unit(env.rain);
+  const cloudCover = unit(env.cloud);
+  const visibilityFog = clamp(unit(env.fog) + RAIN_VISIBILITY * rain, 0, 1);
   return {
     active: true,
     rain,
     lightning: env.weather === 'storm' ? 1 : 0,
-    cloudCover: unit(env.cloud),
-    visibilityFog: clamp(unit(env.fog) + RAIN_VISIBILITY * rain, 0, 1),
+    cloudCover,
+    visibilityFog,
+    grade: lightGradeFor(env),
+    overcast: cloudCover >= 0.8 || visibilityFog >= 0.3,
   };
 }
 
@@ -181,6 +213,7 @@ function atmosphereFor(
     0.5,
     1,
   );
+  const nightLift = env.timeOfDay === 'night' ? NIGHT_EXPOSURE_LIFT : 1;
   return {
     ...base,
     timeOfDay: clock.timeOfDay,
@@ -189,7 +222,7 @@ function atmosphereFor(
     dayLengthSeconds: 0,
     fogDensity: base.fogDensity + FOG_DENSITY_PER_VISIBILITY * fx.visibilityFog,
     sunIntensity: base.sunIntensity * sunDim,
-    exposure: base.exposure * exposureDim,
+    exposure: base.exposure * exposureDim * nightLift,
   };
 }
 
