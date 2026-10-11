@@ -47,6 +47,12 @@ jobs:
       - name: Browser smoke
         run: npm run test:smoke
 
+      - name: Browser smoke (storm, night)
+        run: npm run test:smoke -- "http://127.0.0.1:8080/?weather=storm&time=night&quality=medium" artifacts/smoke-storm-night.png
+
+      - name: Browser smoke (rain, dusk)
+        run: npm run test:smoke -- "http://127.0.0.1:8080/?weather=rain&time=dusk&quality=medium" artifacts/smoke-rain-dusk.png
+
       - name: Patrol E2E
         run: npm run test:e2e -- http://127.0.0.1:8080/
 
