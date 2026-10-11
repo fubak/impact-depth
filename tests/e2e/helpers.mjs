@@ -593,14 +593,20 @@ export async function findClearCanvasPoint(page, preferred) {
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('Expected #scene for a clear plot point');
   const grid = [];
-  for (const fy of [0.45, 0.55, 0.35, 0.65, 0.5, 0.4, 0.6]) {
-    for (const fx of [0.55, 0.65, 0.45, 0.75, 0.5, 0.6, 0.7]) {
+  for (const fy of [0.45, 0.55, 0.35, 0.65, 0.5, 0.4, 0.6, 0.3, 0.7]) {
+    for (const fx of [0.55, 0.65, 0.45, 0.75, 0.5, 0.6, 0.7, 0.35, 0.8, 0.25]) {
       grid.push({ x: Math.round(box.width * fx), y: Math.round(box.height * fy) });
     }
   }
-  for (const point of [preferred, ...grid]) {
-    if ((await canvasPointIsClear(page, point)) && !(await canvasPointNearShip(page, point))) {
-      return point;
+  // Prefer generous ship clearance; relax it step by step so a crowded scene still finds a pixel.
+  for (const clearance of [SHIP_PICK_CLEARANCE_PX, 70, 45]) {
+    for (const point of [preferred, ...grid]) {
+      if (
+        (await canvasPointIsClear(page, point)) &&
+        !(await canvasPointNearShip(page, point, clearance))
+      ) {
+        return point;
+      }
     }
   }
   throw new Error('No clear canvas pixel found (HUD or ships cover every candidate)');
