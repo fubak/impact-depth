@@ -518,7 +518,7 @@ const SIM_WORLD_SIZE = 128;
 const SIM_METERS_PER_UNIT = 5;
 
 /** A left-click within this many pixels of a ship selects it instead of plotting a course. */
-export const SHIP_PICK_CLEARANCE_PX = 140;
+export const SHIP_PICK_CLEARANCE_PX = 110;
 
 /**
  * True when any live ship projects within `radiusPx` of the canvas-local pixel. World clicks near
@@ -620,16 +620,15 @@ export async function plotProjectedWaterAfterOrbit(page) {
   const candidate = await page.evaluate(() => {
     const sub = window.__silentDepths?.game?.submarine;
     if (!sub) return null;
-    return [
-      { x: sub.x + 10, y: sub.y + 6 },
-      { x: sub.x - 8, y: sub.y + 8 },
-      { x: sub.x + 6, y: sub.y - 9 },
-      { x: sub.x + 12, y: sub.y - 4 },
-      { x: sub.x - 10, y: sub.y - 7 },
-      { x: sub.x + 4, y: sub.y + 12 },
-      { x: sub.x - 5, y: sub.y - 12 },
-      { x: sub.x + 14, y: sub.y + 10 },
-    ];
+    // Rings of candidates at several radii and angles: a crowded scene still leaves clear water.
+    const points = [];
+    for (const radius of [10, 14, 7, 18]) {
+      for (let step = 0; step < 12; step += 1) {
+        const angle = (step / 12) * Math.PI * 2 + 0.4;
+        points.push({ x: sub.x + Math.cos(angle) * radius, y: sub.y + Math.sin(angle) * radius });
+      }
+    }
+    return points;
   });
   if (!candidate) throw new Error('Missing submarine for projected water plot');
   /** @type {{ x: number, y: number } | null} */
