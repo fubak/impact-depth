@@ -240,12 +240,17 @@ try {
 
   await runJourney('targeting-fire', async () => {
     await ensureLivePatrol(page);
-    try {
-      await targetingFire();
-    } catch (err) {
-      // Retry once only if the failure coincided with the patrol ending (not a real regression).
-      if (!(await ensureLivePatrol(page))) throw err;
-      await targetingFire();
+    // A software-rendered runner is slow, so a passive scripted patrol can be sunk by the escort
+    // mid-journey (the result card then covers the canvas). That is not a regression: restore a
+    // fresh patrol and go again, up to three attempts. Any failure with the patrol alive rethrows.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await targetingFire();
+        return;
+      } catch (err) {
+        const restarted = attempt < 3 && (await ensureLivePatrol(page));
+        if (!restarted) throw err;
+      }
     }
   });
 

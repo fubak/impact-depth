@@ -860,25 +860,31 @@ export async function rightClickProjectedContact(page) {
   }, viewMode);
   if (ships.length === 0) throw new Error('No live contact to right-click');
   await page.waitForTimeout(400);
+  // A contact can project under a HUD panel (the click is swallowed by design) or select a
+  // neighbour; try each visible, uncovered contact in turn and only fail if none selects.
+  let lastError = null;
   for (const ship of ships) {
     const projected = await projectSimToCanvas(page, ship.x, ship.y);
     if (!projected) continue;
-    await clickCanvas(page, {
-      x: Math.round(projected.x),
-      y: Math.round(projected.y),
-      button: 'right',
-    });
-    await pollUntil(
-      page,
-      4000,
-      async () => {
-        const selected = await page.evaluate(() => window.__silentDepths.game.selectedTargetId);
-        return selected === ship.id;
-      },
-      `select ${ship.name} via projected right-click`,
-    );
-    return { id: ship.id, name: ship.name };
+    const point = { x: Math.round(projected.x), y: Math.round(projected.y) };
+    if (!(await canvasPointIsClear(page, point))) continue;
+    await clickCanvas(page, { ...point, button: 'right' });
+    try {
+      await pollUntil(
+        page,
+        2500,
+        async () => {
+          const selected = await page.evaluate(() => window.__silentDepths.game.selectedTargetId);
+          return selected === ship.id;
+        },
+        `select ${ship.name} via projected right-click`,
+      );
+      return { id: ship.id, name: ship.name };
+    } catch (error) {
+      lastError = error;
+    }
   }
+  if (lastError) throw lastError;
   throw new Error('No live contact projected on screen after orbit');
 }
 
