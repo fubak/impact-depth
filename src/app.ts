@@ -52,6 +52,7 @@ import { RendererHost } from './render/renderer';
 import { parseRuntimeSelection, type RuntimeSelection } from './core/runtime-selection';
 import { QualityGovernor, QUALITY_PROFILES } from './render/quality';
 import { bloomEnabledFor } from './render/post';
+import { createPresentationMemo } from './render/environment/weather-model';
 import { GameScene } from './render/scene';
 import { entityDepthY } from './render/presentation/coordinates';
 import {
@@ -143,6 +144,7 @@ export class App {
   private helmSample = { heading: 0, speed: 0, ready: false };
   private bootVisible = true;
   private readonly combatLog: CombatEvent[] = [];
+  private readonly presentationMemo = createPresentationMemo();
   private errorCount = 0;
   private errorToast: ErrorToast | null = null;
   private lessonOrigin: {
@@ -931,6 +933,14 @@ export class App {
 
     this.input.update();
 
+    // Weather and time are sim truth: derive the look from `game.environment` every frame.
+    // The memo returns the same object until the environment or base look changes.
+    const presentation = this.presentationMemo(this.game.environment, this.settings);
+    if (presentation.settings !== this.game.settings) {
+      this.game = { ...this.game, settings: presentation.settings };
+      this.sim = adaptToLookDevSim(this.game);
+    }
+
     this.hitFreeze = Math.max(0, this.hitFreeze - elapsed);
     this.cameraShake *= Math.max(0, 1 - elapsed * 3.2);
     this.syncPerkOverlay();
@@ -960,7 +970,7 @@ export class App {
 
     // Wrecks adopt the live hull before syncGame drops ships that just sank.
     this.presentCombat(combat, this.game.time);
-    this.scene.syncGame(this.game, this.sim, this.settings, renderDt);
+    this.scene.syncGame(this.game, this.sim, presentation.settings, renderDt, presentation.fx);
     const cinema = this.cinemaPresentation();
     this.cameras.update(this.sim, renderDt, {
       lightning: this.scene.weatherLightning,
@@ -972,13 +982,14 @@ export class App {
       cinema: cinema.cinema,
       snapToTarget: cinema.snapToTarget,
     });
+    this.scene.updateRain(this.cameras.camera, renderDt);
     const batteryFrac =
       this.game.submarine.maxBattery > 0
         ? this.game.submarine.battery / this.game.submarine.maxBattery
         : 1;
     this.scene.applyImmersion(this.cameras.camera);
     this.renderer.setExposure(
-      this.settings.atmosphere.exposure *
+      presentation.settings.atmosphere.exposure *
         (0.52 + 0.48 * Math.max(0, Math.min(1, batteryFrac))) *
         this.scene.immersionExposureFactor,
     );

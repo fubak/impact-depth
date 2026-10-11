@@ -1,4 +1,5 @@
 import type { AtmosphereSettings, OceanSettings } from '../../core/types';
+import { cloudCoverageFor, type WeatherFx } from './weather-model';
 
 export type WeatherPresetId = 'calm' | 'breeze' | 'storm';
 
@@ -25,6 +26,12 @@ export interface WeatherStepInput {
   reducedMotion: boolean;
   ocean: OceanSettings;
   atmosphere: AtmosphereSettings;
+  /**
+   * Sim weather levels (Plan 029). When `fx.active`, cloud cover, fog and storm
+   * lightning follow the weather kind instead of the sea-state preset buckets;
+   * the settings passed in are already derived from the same environment.
+   */
+  fx?: WeatherFx;
 }
 
 /** Presentation sea conditions. Golden hour stays lighting-only. */
@@ -81,19 +88,24 @@ export class WeatherController {
   step(input: WeatherStepInput): WeatherSnapshot {
     if (!input.paused) this.historyTime += Math.max(0, input.dt);
     const preset = weatherPresetFromSeaState(input.ocean.seaState);
+    const fx = input.fx?.active ? input.fx : null;
     const gains: WeatherGains = {
       seaState: input.ocean.seaState,
       waveHeight: input.ocean.waveHeight,
       choppiness: input.ocean.choppiness,
       foamAmount: input.ocean.foamAmount,
-      fogDensity:
-        input.atmosphere.fogDensity * (preset === 'storm' ? 1.28 : preset === 'calm' ? 0.88 : 1),
+      // Active weather already folded fog into the settings; the legacy buckets would double it.
+      fogDensity: fx
+        ? input.atmosphere.fogDensity
+        : input.atmosphere.fogDensity * (preset === 'storm' ? 1.28 : preset === 'calm' ? 0.88 : 1),
       ...WEATHER_PRESETS[preset],
+      ...(fx ? { cloudCoverage: cloudCoverageFor(fx.cloudCover) } : null),
     };
+    const stormy = fx ? fx.lightning > 0 : preset === 'storm';
     const lightning =
-      input.paused || input.reducedMotion || preset !== 'storm'
+      input.paused || input.reducedMotion || !stormy
         ? 0
-        : sampleLightning(this.historyTime);
+        : sampleLightning(this.historyTime) * (fx ? fx.lightning : 1);
     this.snapshot = { preset, historyTime: this.historyTime, lightning, gains };
     return this.snapshot;
   }

@@ -7,6 +7,12 @@ import {
   stormFoamLife,
   weatherPresetFromSeaState,
 } from '../../src/render/environment/weather';
+import {
+  INACTIVE_WEATHER_FX,
+  cloudCoverageFor,
+  presentationFor,
+} from '../../src/render/environment/weather-model';
+import { environmentFor } from '../../src/game/sim/environment';
 
 const ocean = DEFAULT_SETTINGS.ocean;
 const atmosphere = DEFAULT_SETTINGS.atmosphere;
@@ -86,5 +92,73 @@ describe('presentation weather', () => {
     expect(sampleLightning(6.9)).toBe(1);
     expect(sampleLightning(6.9)).toBe(1);
     expect(sampleLightning(0)).toBe(0);
+  });
+
+  describe('sim weather drives the controller (Plan 029 E3)', () => {
+    const stepWith = (kind: 'clear' | 'rain' | 'storm', time: 'day' | 'night') => {
+      const { settings, fx } = presentationFor(environmentFor(kind, time), DEFAULT_SETTINGS);
+      return {
+        settings,
+        fx,
+        input: {
+          dt: 1 / 60,
+          paused: false,
+          reducedMotion: false,
+          ocean: settings.ocean,
+          atmosphere: settings.atmosphere,
+          fx,
+        },
+      };
+    };
+
+    it('leaves the legacy path untouched while the fx are inactive', () => {
+      const base = new WeatherController().step({
+        dt: 1,
+        paused: false,
+        reducedMotion: false,
+        ocean,
+        atmosphere,
+      });
+      const inactive = new WeatherController().step({
+        dt: 1,
+        paused: false,
+        reducedMotion: false,
+        ocean,
+        atmosphere,
+        fx: INACTIVE_WEATHER_FX,
+      });
+      expect(inactive).toEqual(base);
+    });
+
+    it('takes cloud cover from the weather kind, not the sea-state bucket', () => {
+      const rain = stepWith('rain', 'day');
+      const snapshot = new WeatherController().step(rain.input);
+      expect(snapshot.gains.cloudCoverage).toBe(cloudCoverageFor(rain.fx.cloudCover));
+      expect(snapshot.gains.fogDensity).toBe(rain.settings.atmosphere.fogDensity);
+    });
+
+    it('flashes lightning in a storm at any hour, never in rain or clear air', () => {
+      const flashes = (kind: 'clear' | 'rain' | 'storm', time: 'day' | 'night') => {
+        const weather = new WeatherController();
+        const { input } = stepWith(kind, time);
+        let max = 0;
+        for (let i = 0; i < 600; i++) max = Math.max(max, weather.step(input).lightning);
+        return max;
+      };
+      expect(flashes('storm', 'day')).toBe(1);
+      expect(flashes('storm', 'night')).toBe(1);
+      expect(flashes('rain', 'day')).toBe(0);
+      expect(flashes('clear', 'night')).toBe(0);
+    });
+
+    it('still gates storm lightning on reduced motion', () => {
+      const weather = new WeatherController();
+      const { input } = stepWith('storm', 'day');
+      let max = 0;
+      for (let i = 0; i < 600; i++) {
+        max = Math.max(max, weather.step({ ...input, reducedMotion: true }).lightning);
+      }
+      expect(max).toBe(0);
+    });
   });
 });

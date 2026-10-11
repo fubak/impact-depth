@@ -88,6 +88,8 @@ import { updateEntityLods } from './lod';
 import { EnvironmentController } from './environment/controller';
 import type { WorldVersion } from './environment/types';
 import { WeatherController, presentationOcean } from './environment/weather';
+import { INACTIVE_WEATHER_FX, type WeatherFx } from './environment/weather-model';
+import { RainLayer } from './fx/rain';
 import { Ocean } from './ocean';
 import { GerstnerBackend } from './ocean/gerstner-backend';
 import { createSpectralBackend, SpectralBackend } from './ocean/spectral-backend';
@@ -164,6 +166,11 @@ export class GameScene {
   private envQuality: QualityProfile['name'] = 'high';
   private reducedMotion = false;
   private readonly weather = new WeatherController();
+  private readonly rain = new RainLayer();
+  private readonly rainTint = new THREE.Color();
+  /** Sim weather levels for this frame; inactive at the default environment. */
+  private weatherFx: WeatherFx = INACTIVE_WEATHER_FX;
+  private weatherWindMs = 0;
   private currentTerrainSeed = 0;
   private currentWorldVersion: WorldVersion = 'legacy-v1';
   private readonly probes = new SurfaceProbeQueue(32);
@@ -257,6 +264,7 @@ export class GameScene {
     this.surfaceEffects = new SurfaceEffects({ quality: this.envQuality });
     this.wakeFoam = new WakeFoamField(this.envQuality);
     this.scene.add(this.surfaceEffects.group);
+    this.scene.add(this.rain.object);
     this.scene.add(this.crestSpray.points);
     excludeFromWaterCapture(this.crestSpray.points);
     this.caustics.attachToObject(this.seabed.mesh, 'seabed');
@@ -615,6 +623,7 @@ export class GameScene {
     this.optics.setQuality(profile.name);
     this.caustics.setQuality(profile.name);
     this.surfaceEffects.setQuality(profile.name);
+    this.rain.setQuality(profile.name);
     this.wakeFoam.setQuality(profile.name);
     this.underwaterFx.setQuality(profile.name);
   }
@@ -906,6 +915,7 @@ export class GameScene {
   setReducedMotion(value: boolean): void {
     this.reducedMotion = value;
     this.surfaceEffects.setReducedMotion(value);
+    this.rain.setReducedMotion(value);
   }
 
   /** Apply URL/runtime world before spectral backend activation. */
@@ -925,6 +935,31 @@ export class GameScene {
     return this.weather.lastLightning;
   }
 
+  /**
+   * Rain streaks and surface ripples around the live camera. Call after the
+   * camera has moved for the frame and before `preRenderWater`.
+   */
+  updateRain(camera: THREE.Camera, dt: number): void {
+    this.rain.update(
+      {
+        dt,
+        paused: this.presentationPaused,
+        rain: this.weatherFx.rain,
+        windMs: this.weatherWindMs,
+        cameraX: camera.position.x,
+        cameraY: camera.position.y,
+        cameraZ: camera.position.z,
+        tint: this.rainTint,
+        flash: this.weather.lastLightning,
+      },
+      this.emitRainRipple,
+    );
+  }
+
+  private readonly emitRainRipple = (x: number, z: number, strength: number): void => {
+    this.surfaceEffects.emitRipple(x, z, strength);
+  };
+
   resetEnvironment(missionGeneration: number): void {
     this.clearWrecks();
     this.missionGeneration = missionGeneration;
@@ -943,6 +978,7 @@ export class GameScene {
     this.optics.reset();
     this.caustics.reset(missionGeneration);
     this.surfaceEffects.reset(missionGeneration);
+    this.rain.reset();
     this.wakeFoam.reset();
     this.hullDynamics.reset();
     this.ocean.bindOptics(null);
@@ -1071,7 +1107,19 @@ export class GameScene {
   }
 
   /** Full game registry projection. IDs determine lifetime; no visual object feeds game state. */
-  syncGame(game: GameState, sim: SimState, settings: LookDevSettings, dt = 1 / 60): void {
+  /**
+   * `settings` and `fx` are the presentation of `game.environment` (see
+   * `presentationFor`); the sim state stays the source of truth.
+   */
+  syncGame(
+    game: GameState,
+    sim: SimState,
+    settings: LookDevSettings,
+    dt = 1 / 60,
+    fx: WeatherFx = INACTIVE_WEATHER_FX,
+  ): void {
+    this.weatherFx = fx;
+    this.weatherWindMs = game.environment.windMs;
     this.bindWorldHeight(game);
     // Advance from look-dev phase (default ~Caribbean noon), not midnight at t=0.
     const dayPhase = presentationDayPhase(settings.atmosphere, game.time);
@@ -1334,6 +1382,7 @@ export class GameScene {
       reducedMotion: this.reducedMotion,
       ocean: settings.ocean,
       atmosphere: settings.atmosphere,
+      fx: this.weatherFx,
     });
     const atmo = this.atmosphere.apply(
       { ...settings.atmosphere, timeOfDay },
@@ -1361,6 +1410,8 @@ export class GameScene {
     this.lastSunDir = { x: atmo.sunDir.x, y: atmo.sunDir.y, z: atmo.sunDir.z };
     this.lastIsNight = atmo.isNight;
     this.particleSky.copy(atmo.skyTop).lerp(atmo.skyHorizon, 0.5);
+    // Rain reads against the sky it falls through, never darker than a faint streak at night.
+    this.rainTint.copy(this.particleSky).multiplyScalar(1.3).addScalar(0.05);
     this.surfaceEffects.setLighting({
       sunColor: atmo.sunColor,
       skyColor: this.particleSky,
@@ -1598,7 +1649,10 @@ export class GameScene {
       dt: historyDt,
       paused: sim.paused,
       reducedMotion: this.reducedMotion,
-      ocean: presentationOcean(settings.ocean, weather.preset),
+      // Active weather already derives the ocean from wind; the legacy bucket gains would double it.
+      ocean: this.weatherFx.active
+        ? settings.ocean
+        : presentationOcean(settings.ocean, weather.preset),
       fogDensity: weather.gains.fogDensity,
       fogColor: { r: atmo.fogColor.r, g: atmo.fogColor.g, b: atmo.fogColor.b },
       sunDir: { x: atmo.sunDir.x, y: atmo.sunDir.y, z: atmo.sunDir.z },
@@ -2016,6 +2070,7 @@ export class GameScene {
     this.optics.dispose();
     this.caustics.dispose();
     this.surfaceEffects.dispose();
+    this.rain.dispose();
     this.wakeFoam.dispose();
     this.ocean.bindWakeFoam(null);
     this.ocean.dispose();

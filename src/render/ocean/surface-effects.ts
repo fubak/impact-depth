@@ -517,6 +517,22 @@ export class SurfaceEffects {
     }
   }
 
+  /** A bare ring on the sea surface (raindrop), without the spray an impact throws. */
+  emitRipple(x: number, z: number, strength = 0.2): void {
+    if (this.disposed || this.reducedMotion) return;
+    const s = THREE.MathUtils.clamp(strength, 0.1, 0.5);
+    spawnInto(this.splash, {
+      x,
+      y: SURFACE_SPLASH_Y,
+      z,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      ttl: 0.5 + s,
+      scale: 0.25 + s,
+    });
+  }
+
   update(frame: SurfaceEffectsFrame): void {
     if (this.disposed) return;
     this.paused = Boolean(frame.paused);
