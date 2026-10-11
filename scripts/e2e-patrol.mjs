@@ -24,6 +24,7 @@ import {
   controlReachable,
   orbitTacticalCamera,
   plotCanvasWater,
+  findClearCanvasPoint,
   plotProjectedWaterAfterOrbit,
   pollUntil,
   rightClickProjectedContact,
@@ -190,7 +191,10 @@ try {
     await page.keyboard.press('KeyX');
     const projected = await plotProjectedWaterAfterOrbit(page);
     await orbitTacticalCamera(page, -80, 16);
-    const secondPlot = await plotCanvasWater(page, { x: 820, y: 310 });
+    const secondPlot = await plotCanvasWater(
+      page,
+      await findClearCanvasPoint(page, { x: 820, y: 310 }),
+    );
     if (secondPlot.x < 0 || secondPlot.x >= 128 || secondPlot.y < 0 || secondPlot.y >= 128) {
       throw new Error(`Plot ${secondPlot.text} is outside the 128-unit sector`);
     }

@@ -517,6 +517,68 @@ export async function canvasPointIsClear(page, point) {
 const SIM_WORLD_SIZE = 128;
 const SIM_METERS_PER_UNIT = 5;
 
+/** A left-click within this many pixels of a ship selects it instead of plotting a course. */
+export const SHIP_PICK_CLEARANCE_PX = 140;
+
+/**
+ * True when any live ship projects within `radiusPx` of the canvas-local pixel. World clicks near
+ * a ship select it (by design) and never plot, so plot clicks must keep clear of ships.
+ * @param {import('playwright').Page} page
+ * @param {{ x: number, y: number }} point canvas-local pixels
+ * @param {number} [radiusPx]
+ */
+export async function canvasPointNearShip(page, point, radiusPx = SHIP_PICK_CLEARANCE_PX) {
+  return page.evaluate(
+    ({ px, py, radius, worldSize, meters }) => {
+      const app = window.__silentDepths;
+      const canvas = document.getElementById('scene');
+      if (!app?.cameras || !app.game || !(canvas instanceof HTMLCanvasElement)) return false;
+      const rect = canvas.getBoundingClientRect();
+      return app.game.ships.some((ship) => {
+        const ndc = app.cameras.projectNdc(
+          (ship.x - worldSize / 2) * meters,
+          0,
+          (ship.y - worldSize / 2) * meters,
+        );
+        if (ndc.clipW < 0) return false;
+        const sx = ((ndc.ndcX + 1) / 2) * rect.width;
+        const sy = ((1 - ndc.ndcY) / 2) * rect.height;
+        return Math.hypot(sx - px, sy - py) < radius;
+      });
+    },
+    {
+      px: point.x,
+      py: point.y,
+      radius: radiusPx,
+      worldSize: SIM_WORLD_SIZE,
+      meters: SIM_METERS_PER_UNIT,
+    },
+  );
+}
+
+/**
+ * First canvas pixel that is canvas (not HUD) and clear of ships: the preferred point, else a
+ * coarse grid across the middle of the view.
+ * @param {import('playwright').Page} page
+ * @param {{ x: number, y: number }} preferred
+ */
+export async function findClearCanvasPoint(page, preferred) {
+  const box = await page.locator('#scene').boundingBox();
+  if (!box) throw new Error('Expected #scene for a clear plot point');
+  const grid = [];
+  for (const fy of [0.45, 0.55, 0.35, 0.65, 0.5, 0.4, 0.6]) {
+    for (const fx of [0.55, 0.65, 0.45, 0.75, 0.5, 0.6, 0.7]) {
+      grid.push({ x: Math.round(box.width * fx), y: Math.round(box.height * fy) });
+    }
+  }
+  for (const point of [preferred, ...grid]) {
+    if ((await canvasPointIsClear(page, point)) && !(await canvasPointNearShip(page, point))) {
+      return point;
+    }
+  }
+  throw new Error('No clear canvas pixel found (HUD or ships cover every candidate)');
+}
+
 /**
  * Project a simulation-plane point to canvas-local pixels via the live camera.
  * @param {import('playwright').Page} page
@@ -577,7 +639,7 @@ export async function plotProjectedWaterAfterOrbit(page) {
   for (const point of candidate) {
     const hit = await projectSimToCanvas(page, point.x, point.y);
     // Skip points a HUD panel covers: those clicks are swallowed by design and never plot.
-    if (hit && (await canvasPointIsClear(page, hit))) {
+    if (hit && (await canvasPointIsClear(page, hit)) && !(await canvasPointNearShip(page, hit))) {
       expected = point;
       projected = hit;
       break;
